@@ -1,9 +1,42 @@
 <resources>
     <string name="app_name">fotosistemis</string>
 
-    <!-- Prototype screen. Every user-facing string lives here, never inline. -->
-    <string name="prototype_title">Prototipo: misura spostamenti</string>
-    <string name="prototype_warning">Sposta le foto da DCIM/test_foto a DCIM/arch_test. Usa solo copie: lo spostamento e\' reale.</string>
-    <string name="action_scan">1. Scansiona DCIM/test_foto</string>
-    <string name="action_move">2. Sposta e cronometra</string>
+    <!-- Every user-facing string lives here, never inline in code or layout. -->
+
+    <!-- Filters -->
+    <string name="action_pick_range">Intervallo date</string>
+    <string name="action_reload">Ricarica</string>
+    <string name="period_any">Qualsiasi periodo</string>
+    <string name="period_custom_range">Intervallo scelto</string>
+    <string name="scope_all">Tutte</string>
+    <string name="scope_unseen">Solo non viste</string>
+    <string name="scope_uncategorized">Non categorizzate</string>
+
+    <!-- Navigation, which records no decision -->
+    <string name="action_previous">Indietro</string>
+    <string name="action_next">Avanti</string>
+
+    <!-- Decisions -->
+    <string name="action_trash">Cestina</string>
+    <string name="action_keep">Mantieni</string>
+    <string name="action_undo">Annulla</string>
+    <string name="action_apply">Applica (%1$d)</string>
+
+    <!-- Status and messages -->
+    <string name="preview_description">Foto in revisione</string>
+    <string name="status_counter">%1$d / %2$d · coda %3$d</string>
+    <string name="status_loading">Caricamento…</string>
+    <string name="status_empty">Nessuna foto per questo filtro.</string>
+    <string name="status_permission_needed">Permesso alle foto necessario.</string>
+    <string name="status_applying">Applicazione modifiche…</string>
+    <string name="photo_info">%1$s · %2$s · %3$s</string>
+    <string name="photo_state_unseen">mai vista</string>
+    <string name="photo_state_kept">mantenuta</string>
+    <string name="photo_state_categorized">categorizzata: %1$s</string>
+    <string name="photo_state_trashed">cestinata</string>
+    <string name="message_applied">%1$d spostamenti in %2$d ms.</string>
+    <string name="message_partial">%1$d riusciti, %2$d rimasti in coda. Primo errore: %3$s</string>
+    <string name="message_consent_refused">Consenso rifiutato: nessuna foto spostata.</string>
+    <string name="message_error">Errore: %1$s</string>
+    <string name="message_queue_empty">Coda vuota.</string>
 </resources>

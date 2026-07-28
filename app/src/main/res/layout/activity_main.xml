@@ -1,58 +1,147 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Prototype UI. Deliberately bare: two buttons and a log.
-    Nothing here is meant to survive into the real app.
--->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="12dp"
     tools:context=".MainActivity">
 
-    <TextView
+    <!-- Filters: which period, and which review states, to load. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/prototype_title"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        android:orientation="horizontal">
 
-    <TextView
+        <Spinner
+            android:id="@+id/periodSpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <Spinner
+            android:id="@+id/scopeSpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:layout_marginBottom="12dp"
-        android:text="@string/prototype_warning"
-        android:textSize="13sp" />
+        android:orientation="horizontal">
 
-    <Button
-        android:id="@+id/scanButton"
+        <Button
+            android:id="@+id/pickRangeButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_pick_range" />
+
+        <Button
+            android:id="@+id/reloadButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_reload" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/action_scan" />
+        android:layout_marginTop="6dp"
+        android:textSize="12sp"
+        tools:text="0 / 0" />
 
-    <Button
-        android:id="@+id/moveButton"
+    <TextView
+        android:id="@+id/photoInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/action_move" />
+        android:textSize="12sp"
+        tools:text="IMG_0001.jpg" />
 
-    <ScrollView
+    <!-- Preview. Takes all remaining vertical space. -->
+    <ImageView
+        android:id="@+id/preview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="16dp"
-        android:layout_weight="1">
+        android:layout_marginTop="6dp"
+        android:layout_weight="1"
+        android:adjustViewBounds="true"
+        android:background="#10000000"
+        android:contentDescription="@string/preview_description"
+        android:scaleType="fitCenter" />
 
-        <TextView
-            android:id="@+id/logView"
-            android:layout_width="match_parent"
+    <!-- Pure navigation: moving through photos decides nothing. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/previousButton"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textIsSelectable="true"
-            android:textSize="12sp" />
-    </ScrollView>
+            android:layout_weight="1"
+            android:text="@string/action_previous" />
+
+        <Button
+            android:id="@+id/nextButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_next" />
+    </LinearLayout>
+
+    <!-- Decisions. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/trashButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_trash" />
+
+        <Button
+            android:id="@+id/keepButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_keep" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/presetActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/undoButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_undo" />
+
+        <Button
+            android:id="@+id/applyButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_apply" />
+    </LinearLayout>
 
 </LinearLayout>

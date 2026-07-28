@@ -5,104 +5,64 @@ import android.content.IntentSender
 import android.provider.MediaStore
 
 /**
- * Runs a batch of moves and measures how long they take.
+ * Applies queued moves in one batch.
  *
- * Kept separate from MediaStoreRepository so that timing logic never
- * contaminates the storage calls being measured.
+ * Each queued item carries its own destination, so a single batch can mix
+ * trashing and several different tags, and still cost the user one consent
+ * dialog for the whole lot.
  */
 class BatchMover(private val context: Context, private val repository: MediaStoreRepository) {
 
-    /** Outcome of a measured batch. Timings are wall clock, in milliseconds. */
+    /** Outcome of applying a batch. */
     data class BatchResult(
         val requested: Int,
         val succeeded: Int,
-        val failed: Int,
+        val failed: List<ReviewSession.PendingMove>,
         val totalMillis: Long,
-        val slowestMillis: Long,
-        val totalBytes: Long,
         val firstError: String?
-    ) {
-
-        /** Average cost per photo; the headline number of the prototype. */
-        val averageMillis: Double
-            get() = if (succeeded == 0) 0.0 else totalMillis.toDouble() / succeeded
-
-        /**
-         * Apparent throughput. A real rename is metadata-only, so this figure
-         * should be absurdly high. A value close to actual storage bandwidth
-         * means the provider is copying bytes underneath.
-         */
-        val apparentMegabytesPerSecond: Double
-            get() {
-                if (totalMillis == 0L) return 0.0
-                return (totalBytes.toDouble() / BYTES_PER_MEGABYTE) /
-                        (totalMillis / MILLIS_PER_SECOND)
-            }
-
-        private companion object {
-            const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
-            const val MILLIS_PER_SECOND = 1000.0
-        }
-    }
-
-    private companion object {
-        const val NANOS_PER_MILLI = 1_000_000L
-    }
+    )
 
     /**
-     * Builds the system consent dialog covering every photo in [photos].
+     * Builds the system consent dialog covering every photo in [moves].
      *
-     * A single IntentSender for the whole batch is what makes the queued
-     * "apply changes" model workable: one prompt, not one per file.
+     * One IntentSender for the whole queue is what makes the "review now,
+     * apply later" model bearable: one prompt per batch, not one per photo.
      */
-    fun buildWriteConsent(photos: List<MediaStoreRepository.Photo>): IntentSender =
-        MediaStore.createWriteRequest(context.contentResolver, photos.map { it.uri }).intentSender
+    fun buildWriteConsent(moves: List<ReviewSession.PendingMove>): IntentSender =
+        MediaStore.createWriteRequest(
+            context.contentResolver,
+            moves.map { it.photo.uri }
+        ).intentSender
 
     /**
-     * Moves every photo to [destinationRelativePath], timing each call.
-     * Must run off the main thread.
+     * Moves every queued photo to its own destination. Must run off the main
+     * thread. Failures are collected rather than aborting the batch, so one
+     * bad file cannot block the rest.
      */
-    fun moveAll(
-        photos: List<MediaStoreRepository.Photo>,
-        destinationRelativePath: String
-    ): BatchResult {
+    fun applyAll(moves: List<ReviewSession.PendingMove>): BatchResult {
         var succeeded = 0
-        var failed = 0
-        var slowestMillis = 0L
-        var totalBytes = 0L
+        val failed = ArrayList<ReviewSession.PendingMove>()
         var firstError: String? = null
 
-        val startedAt = System.nanoTime()
-        for (photo in photos) {
-            val itemStartedAt = System.nanoTime()
-            val outcome = repository.move(photo, destinationRelativePath)
-            val itemMillis = (System.nanoTime() - itemStartedAt) / NANOS_PER_MILLI
-
-            if (itemMillis > slowestMillis) slowestMillis = itemMillis
-
-            outcome.fold(
-                onSuccess = {
-                    succeeded++
-                    totalBytes += photo.sizeBytes
-                },
+        val startedAt = System.currentTimeMillis()
+        for (move in moves) {
+            repository.move(move.photo, move.destinationRelativePath).fold(
+                onSuccess = { succeeded++ },
                 onFailure = { error ->
-                    failed++
+                    failed.add(move)
                     if (firstError == null) {
-                        firstError = "${photo.displayName}: " +
+                        firstError = "${move.photo.displayName}: " +
                                 (error.message ?: error::class.java.simpleName)
                     }
                 }
             )
         }
-        val totalMillis = (System.nanoTime() - startedAt) / NANOS_PER_MILLI
 
         return BatchResult(
-            requested = photos.size,
+            requested = moves.size,
             succeeded = succeeded,
             failed = failed,
-            totalMillis = totalMillis,
-            slowestMillis = slowestMillis,
-            totalBytes = totalBytes,
+            totalMillis = System.currentTimeMillis() - startedAt,
             firstError = firstError
         )
     }
