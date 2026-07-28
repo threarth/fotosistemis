@@ -1,0 +1,11 @@
+*.iml
+.gradle
+/local.properties
+# IDE state is not source: ignore the whole folder rather than single files.
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">fotosistemis</string>
+
+    <!-- Prototype screen. Every user-facing string lives here, never inline. -->
+    <string name="prototype_title">Prototipo: misura spostamenti</string>
+    <string name="prototype_warning">Sposta le foto da DCIM/test_foto a DCIM/arch_test. Usa solo copie: lo spostamento e\' reale.</string>
+    <string name="action_scan">1. Scansiona DCIM/test_foto</string>
+    <string name="action_move">2. Sposta e cronometra</string>
+</resources>
