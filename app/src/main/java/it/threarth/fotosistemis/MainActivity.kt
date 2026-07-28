@@ -2,14 +2,18 @@ package it.threarth.fotosistemis
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
@@ -32,16 +36,12 @@ import kotlin.concurrent.thread
  * The review screen: one photo at a time, with navigation that decides
  * nothing and buttons that decide something.
  *
- * This class only wires views to ReviewSession. Ordering, decisions and the
- * pending queue live there; MediaStore and SQLite access live in their
- * repositories.
+ * Only wires views to ReviewSession. Ordering, decisions and the queue live
+ * there; MediaStore and SQLite access live in their repositories.
  */
 class MainActivity : AppCompatActivity() {
 
     private companion object {
-
-        /** Quick tags. Each one archives into DCIM/arch_<tag>. */
-        val PRESET_TAGS = listOf("famiglia", "documenti", "preferiti")
 
         /** How many recent months the period spinner offers. */
         const val MONTHS_OFFERED = 12
@@ -53,24 +53,28 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mediaRepository: MediaStoreRepository
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var tagRepository: TagRepository
+    private lateinit var destinationRepository: DestinationRepository
     private lateinit var mover: BatchMover
     private lateinit var session: ReviewSession
 
     private lateinit var preview: ImageView
     private lateinit var statusText: TextView
     private lateinit var photoInfo: TextView
-    private lateinit var presetActions: LinearLayout
+    private lateinit var photoTags: TextView
+    private lateinit var destinationActions: LinearLayout
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
     private lateinit var previousButton: Button
     private lateinit var nextButton: Button
     private lateinit var keepButton: Button
     private lateinit var trashButton: Button
+    private lateinit var tagButton: Button
     private lateinit var undoButton: Button
     private lateinit var applyButton: Button
 
-    /** Months offered by the spinner, newest first; null means "any period". */
     private val offeredPeriods = ArrayList<PhotoFilter.Period>()
+    private var destinations: List<DestinationRepository.Destination> = emptyList()
     private var customRange: PhotoFilter.Period.Range? = null
     private var busy = false
 
@@ -79,10 +83,17 @@ class MainActivity : AppCompatActivity() {
             if (granted) reload() else statusText.setText(R.string.status_permission_needed)
         }
 
-    private val requestWriteConsent =
+    /** Consent for changing files; only after this can a move succeed. */
+    private val requestMoveConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) applyQueue()
-            else toast(getString(R.string.message_consent_refused))
+            if (result.resultCode == Activity.RESULT_OK) applyMoves()
+            else refuseConsent()
+        }
+
+    /** The trash request performs the deletion itself once granted. */
+    private val requestTrashConsent =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) onTrashGranted() else refuseConsent()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,27 +105,36 @@ class MainActivity : AppCompatActivity() {
 
         mediaRepository = MediaStoreRepository(this)
         stateRepository = PhotoStateRepository(this)
-        mover = BatchMover(this, mediaRepository)
-        session = ReviewSession(stateRepository)
+        tagRepository = TagRepository(this)
+        destinationRepository = DestinationRepository(this)
+        mover = BatchMover(this, mediaRepository, stateRepository)
+        session = ReviewSession(stateRepository, tagRepository)
 
         buildPeriodSpinner()
         buildScopeSpinner()
-        buildPresetButtons()
         wireActions()
         ensureReadPermission()
+    }
+
+    /** Destinations may have changed in the other screen. */
+    override fun onResume() {
+        super.onResume()
+        buildDestinationButtons()
     }
 
     private fun bindViews() {
         preview = findViewById(R.id.preview)
         statusText = findViewById(R.id.statusText)
         photoInfo = findViewById(R.id.photoInfo)
-        presetActions = findViewById(R.id.presetActions)
+        photoTags = findViewById(R.id.photoTags)
+        destinationActions = findViewById(R.id.destinationActions)
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         previousButton = findViewById(R.id.previousButton)
         nextButton = findViewById(R.id.nextButton)
         keepButton = findViewById(R.id.keepButton)
         trashButton = findViewById(R.id.trashButton)
+        tagButton = findViewById(R.id.tagButton)
         undoButton = findViewById(R.id.undoButton)
         applyButton = findViewById(R.id.applyButton)
     }
@@ -132,10 +152,14 @@ class MainActivity : AppCompatActivity() {
         nextButton.setOnClickListener { if (session.goNext()) render() }
         keepButton.setOnClickListener { applyDecision { session.keepCurrent() } }
         trashButton.setOnClickListener { applyDecision { session.trashCurrent() } }
-        undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
-        applyButton.setOnClickListener { startApplyWithConsent() }
+        tagButton.setOnClickListener { showTagDialog() }
+        undoButton.setOnClickListener { applyDecision { session.undoLastAction() } }
+        applyButton.setOnClickListener { startApply() }
         findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
         findViewById<Button>(R.id.pickRangeButton).setOnClickListener { pickDateRange() }
+        findViewById<Button>(R.id.destinationsButton).setOnClickListener {
+            startActivity(Intent(this, DestinationsActivity::class.java))
+        }
     }
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
@@ -159,9 +183,9 @@ class MainActivity : AppCompatActivity() {
         val monthFormat = SimpleDateFormat(MONTH_PATTERN, Locale.ITALY)
         val cursor = Calendar.getInstance()
         repeat(MONTHS_OFFERED) {
-            val month = cursor.get(Calendar.MONTH) + 1
-            val year = cursor.get(Calendar.YEAR)
-            offeredPeriods.add(PhotoFilter.Period.Month(month, year))
+            offeredPeriods.add(
+                PhotoFilter.Period.Month(cursor.get(Calendar.MONTH) + 1, cursor.get(Calendar.YEAR))
+            )
             labels.add(monthFormat.format(cursor.time))
             cursor.add(Calendar.MONTH, -1)
         }
@@ -191,16 +215,20 @@ class MainActivity : AppCompatActivity() {
         override fun onNothingSelected(parent: AdapterView<*>?) = Unit
     }
 
-    private fun buildPresetButtons() {
-        for (tag in PRESET_TAGS) {
-            val button = Button(this)
-            button.text = tag.replaceFirstChar { it.uppercase() }
-            button.layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-            )
-            button.setOnClickListener { applyDecision { session.categorizeCurrent(tag) } }
-            presetActions.addView(button)
+    /** One button per destination, rebuilt whenever the list may have changed. */
+    private fun buildDestinationButtons() {
+        destinations = destinationRepository.loadAll().getOrElse {
+            showError(it)
+            emptyList()
         }
+        destinationActions.removeAllViews()
+        for (destination in destinations) {
+            val button = Button(this)
+            button.text = destination.label
+            button.setOnClickListener { applyDecision { session.fileCurrent(destination) } }
+            destinationActions.addView(button)
+        }
+        updateButtonState()
     }
 
     /** Builds the filter currently selected in the two spinners. */
@@ -241,7 +269,8 @@ class MainActivity : AppCompatActivity() {
         thread {
             val photos = mediaRepository.queryPhotos(filter.resolvePeriodMillis())
             val states = stateRepository.loadAll()
-            runOnUiThread { onLoaded(filter, photos, states) }
+            val tags = tagRepository.loadAssignments()
+            runOnUiThread { onLoaded(filter, photos, states, tags) }
         }
     }
 
@@ -249,14 +278,16 @@ class MainActivity : AppCompatActivity() {
     private fun onLoaded(
         filter: PhotoFilter,
         photos: Result<List<MediaStoreRepository.Photo>>,
-        states: Result<Map<Long, PhotoStateRepository.StoredState>>
+        states: Result<Map<Long, PhotoStateRepository.StoredState>>,
+        tags: Result<Map<Long, List<String>>>
     ) {
         setBusy(false)
         val loadedPhotos = photos.getOrElse { return showError(it) }
         val loadedStates = states.getOrElse { return showError(it) }
+        val loadedTags = tags.getOrElse { return showError(it) }
 
         val visible = loadedPhotos.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
-        session.load(visible, loadedStates)
+        session.load(visible, loadedStates, loadedTags)
         render()
     }
 
@@ -265,6 +296,39 @@ class MainActivity : AppCompatActivity() {
         if (busy) return
         decision().onFailure { showError(it) }
         render()
+    }
+
+    /** Adds a tag to the current photo, or removes one already present. */
+    private fun showTagDialog() {
+        if (session.current() == null) return
+        val form = LayoutInflater.from(this).inflate(R.layout.dialog_tag, null)
+        val field = form.findViewById<EditText>(R.id.tagName)
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.tag_add_title)
+            .setView(form)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                session.tagCurrent(field.text.toString()).onFailure { showError(it) }
+                render()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+
+        val existing = session.currentTags()
+        if (existing.isNotEmpty()) {
+            builder.setNeutralButton(R.string.tag_remove_title) { _, _ -> showRemoveTagDialog(existing) }
+        }
+        builder.show()
+    }
+
+    private fun showRemoveTagDialog(existing: List<String>) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.tag_remove_title)
+            .setItems(existing.toTypedArray()) { _, which ->
+                session.untagCurrent(existing[which]).onFailure { showError(it) }
+                render()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /** Redraws everything that depends on the current position. */
@@ -282,9 +346,14 @@ class MainActivity : AppCompatActivity() {
         if (photo == null) {
             preview.setImageDrawable(null)
             photoInfo.setText(R.string.status_empty)
+            photoTags.text = ""
             return
         }
         photoInfo.text = describe(photo)
+        photoTags.text = getString(
+            R.string.photo_tags,
+            session.currentTags().joinToString(", ").ifEmpty { getString(R.string.tag_none) }
+        )
         loadPreview(photo)
     }
 
@@ -294,31 +363,27 @@ class MainActivity : AppCompatActivity() {
         nextButton.isEnabled = !busy && session.canGoNext()
         keepButton.isEnabled = !busy && hasPhoto
         trashButton.isEnabled = !busy && hasPhoto
+        tagButton.isEnabled = !busy && hasPhoto
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
-        for (index in 0 until presetActions.childCount) {
-            presetActions.getChildAt(index).isEnabled = !busy && hasPhoto
+        for (index in 0 until destinationActions.childCount) {
+            destinationActions.getChildAt(index).isEnabled = !busy && hasPhoto
         }
     }
 
-    /** Name, size and recorded decision for one photo. */
+    /** Name, size, capture date and recorded decision for one photo. */
     private fun describe(photo: MediaStoreRepository.Photo): String {
         val taken = SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(photo.dateTakenMillis))
         val megabytes = photo.sizeBytes / BYTES_PER_MEGABYTE
-        return getString(
-            R.string.photo_info,
-            photo.displayName,
-            "%.1f MB · %s".format(megabytes, taken),
-            describeStatus()
-        )
+        val detail = "%.1f MB · %s · %s".format(megabytes, taken, describeStatus())
+        return getString(R.string.photo_info, photo.displayName, detail)
     }
 
     private fun describeStatus(): String = when (session.currentStatus()) {
         null -> getString(R.string.photo_state_unseen)
         ReviewStatus.KEPT -> getString(R.string.photo_state_kept)
         ReviewStatus.TRASHED -> getString(R.string.photo_state_trashed)
-        ReviewStatus.CATEGORIZED ->
-            getString(R.string.photo_state_categorized, session.currentTag() ?: "")
+        ReviewStatus.CATEGORIZED -> getString(R.string.photo_state_categorized)
     }
 
     /** Decodes the thumbnail off the main thread, ignoring stale results. */
@@ -337,33 +402,44 @@ class MainActivity : AppCompatActivity() {
         if (bitmap != null) preview.setImageBitmap(bitmap)
     }
 
-    /** Asks for one consent covering the whole queue. */
-    private fun startApplyWithConsent() {
+    /**
+     * Starts applying the queue. Moves come first; trashing needs its own
+     * consent and is asked for afterwards.
+     */
+    private fun startApply() {
         val moves = session.queuedMoves
-        if (moves.isEmpty()) return toast(getString(R.string.message_queue_empty))
+        val trashed = session.queuedTrash
+        if (moves.isEmpty() && trashed.isEmpty()) return toast(getString(R.string.message_queue_empty))
+
         try {
-            val sender = mover.buildWriteConsent(moves)
-            requestWriteConsent.launch(IntentSenderRequest.Builder(sender).build())
+            if (moves.isNotEmpty()) {
+                requestMoveConsent.launch(
+                    IntentSenderRequest.Builder(mover.buildMoveConsent(moves)).build()
+                )
+            } else {
+                requestTrashConsent.launch(
+                    IntentSenderRequest.Builder(mover.buildTrashConsent(trashed)).build()
+                )
+            }
         } catch (error: Exception) {
             showError(error)
         }
     }
 
     /** Performs the queued moves after consent was granted. */
-    private fun applyQueue() {
+    private fun applyMoves() {
         setBusy(true)
         statusText.setText(R.string.status_applying)
         val moves = session.queuedMoves
 
         thread {
-            val result = mover.applyAll(moves)
-            runOnUiThread { onQueueApplied(result) }
+            val result = mover.applyMoves(moves)
+            runOnUiThread { onMovesApplied(result) }
         }
     }
 
-    private fun onQueueApplied(result: BatchMover.BatchResult) {
+    private fun onMovesApplied(result: BatchMover.BatchResult) {
         setBusy(false)
-        session.retainFailedMoves(result.failed)
         if (result.failed.isEmpty()) {
             toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
         } else {
@@ -376,7 +452,31 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
+
+        val trashed = session.queuedTrash
+        if (trashed.isEmpty()) {
+            session.retainFailedActions(result.failed)
+            reload()
+            return
+        }
+        session.retainFailedActions(result.failed + trashed)
+        requestTrashConsent.launch(
+            IntentSenderRequest.Builder(mover.buildTrashConsent(trashed)).build()
+        )
+    }
+
+    /** The system already moved the files; only history remains to record. */
+    private fun onTrashGranted() {
+        val trashed = session.queuedTrash
+        mover.recordTrashed(trashed)
+        toast(getString(R.string.message_trashed, trashed.size))
+        session.retainFailedActions(session.queuedActions.filterNot { it in trashed })
         reload()
+    }
+
+    private fun refuseConsent() {
+        toast(getString(R.string.message_consent_refused))
+        updateButtonState()
     }
 
     private fun setBusy(value: Boolean) {

@@ -46,6 +46,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/action_reload" />
+
+        <Button
+            android:id="@+id/destinationsButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_destinations" />
     </LinearLayout>
 
     <TextView
@@ -62,6 +69,14 @@
         android:layout_height="wrap_content"
         android:textSize="12sp"
         tools:text="IMG_0001.jpg" />
+
+    <TextView
+        android:id="@+id/photoTags"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textStyle="italic"
+        tools:text="tag: festatommy2024" />
 
     <!-- Preview. Takes all remaining vertical space. -->
     <ImageView
@@ -118,11 +133,24 @@
             android:text="@string/action_keep" />
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/presetActions"
+    <!-- One button per destination folder, built from the database. -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal" />
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/destinationActions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <Button
+        android:id="@+id/tagButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/action_tag" />
 
     <LinearLayout
         android:layout_width="match_parent"

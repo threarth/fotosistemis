@@ -32,13 +32,7 @@ class MediaStoreRepository(context: Context) {
         val dateTakenMillis: Long
     )
 
-    companion object {
-
-        /** Folder holding photos the user chose to discard. */
-        const val TRASH_FOLDER = "_FotoSistemis_Trash"
-
-        /** Prefix of the folders created for tags: famiglia -> arch_famiglia. */
-        const val ARCHIVE_PREFIX = "arch_"
+    private companion object {
 
         /** Primary external volume: internal shared storage, never the SD card. */
         private val COLLECTION: Uri =
@@ -62,33 +56,37 @@ class MediaStoreRepository(context: Context) {
             "COALESCE(${MediaStore.Images.Media.DATE_TAKEN}, " +
                     "${MediaStore.Images.Media.DATE_MODIFIED} * 1000)"
 
-        /** Folders this app manages are never offered for review again. */
-        private const val EXCLUDE_MANAGED_FOLDERS =
-            "${MediaStore.Images.Media.RELATIVE_PATH} NOT LIKE '%$ARCHIVE_PREFIX%' " +
-                    "AND ${MediaStore.Images.Media.RELATIVE_PATH} NOT LIKE '%$TRASH_FOLDER%'"
-
         private const val SORT_NEWEST_FIRST = "$CAPTURE_TIME DESC"
         private const val EXPECTED_UPDATED_ROWS = 1
         private const val THUMBNAIL_EDGE_PIXELS = 1024
     }
 
     /**
-     * Lists reviewable photos, newest first, restricted to [periodMillis] when
-     * given. Folders created by this app are always excluded.
+     * Lists photos, newest first, restricted to [periodMillis] when given.
+     *
+     * Nothing is excluded by folder. Destinations are user-defined and can
+     * live anywhere, so "already filed" is a fact recorded in the local
+     * database, not something a path pattern can decide. Photos in the system
+     * trash are omitted by MediaStore itself.
      */
     fun queryPhotos(periodMillis: LongRange?): Result<List<Photo>> {
-        val selection = StringBuilder(EXCLUDE_MANAGED_FOLDERS)
         val arguments = ArrayList<String>()
+        var selection: String? = null
 
         if (periodMillis != null) {
-            selection.append(" AND $CAPTURE_TIME BETWEEN ? AND ?")
+            selection = "$CAPTURE_TIME BETWEEN ? AND ?"
             arguments.add(periodMillis.first.toString())
             arguments.add(periodMillis.last.toString())
         }
 
         val queryArgs = Bundle().apply {
-            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection.toString())
-            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arguments.toTypedArray())
+            if (selection != null) {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+                    arguments.toTypedArray()
+                )
+            }
             putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, SORT_NEWEST_FIRST)
         }
 
