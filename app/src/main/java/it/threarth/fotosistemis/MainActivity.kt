@@ -46,6 +46,9 @@ class MainActivity : AppCompatActivity() {
         /** How many recent months the period spinner offers. */
         const val MONTHS_OFFERED = 12
 
+        /** Preselected source folder when it exists: the camera roll. */
+        const val DEFAULT_SOURCE_FOLDER = "DCIM/Camera/"
+
         const val DATE_PATTERN = "dd/MM/yyyy HH:mm"
         const val MONTH_PATTERN = "MM-yyyy"
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
@@ -63,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var photoInfo: TextView
     private lateinit var photoTags: TextView
     private lateinit var destinationActions: LinearLayout
+    private lateinit var folderSpinner: Spinner
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
     private lateinit var previousButton: Button
@@ -74,6 +78,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var applyButton: Button
 
     private val offeredPeriods = ArrayList<PhotoFilter.Period>()
+
+    /** Folders offered by the spinner; null at index 0 means "every folder". */
+    private val offeredFolders = ArrayList<String?>()
+
+    /**
+     * Folder the user last chose. Kept separately from the spinner so that
+     * rebuilding the list after a batch does not silently change what is
+     * being reviewed.
+     */
+    private var preferredFolder: String? = DEFAULT_SOURCE_FOLDER
     private var destinations: List<DestinationRepository.Destination> = emptyList()
     private var customRange: PhotoFilter.Period.Range? = null
     private var busy = false
@@ -128,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         photoInfo = findViewById(R.id.photoInfo)
         photoTags = findViewById(R.id.photoTags)
         destinationActions = findViewById(R.id.destinationActions)
+        folderSpinner = findViewById(R.id.folderSpinner)
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         previousButton = findViewById(R.id.previousButton)
@@ -169,7 +184,52 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.READ_MEDIA_IMAGES
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (granted) reload() else requestReadPermission.launch(Manifest.permission.READ_MEDIA_IMAGES)
+        if (granted) refreshFolders()
+        else requestReadPermission.launch(Manifest.permission.READ_MEDIA_IMAGES)
+    }
+
+    /**
+     * Rebuilds the source folder list from what actually holds photos, then
+     * loads. Runs off the main thread: it scans one column of the whole
+     * collection.
+     */
+    private fun refreshFolders() {
+        setBusy(true)
+        statusText.setText(R.string.status_loading)
+        thread {
+            val folders = mediaRepository.queryFolders()
+            runOnUiThread { onFoldersLoaded(folders) }
+        }
+    }
+
+    private fun onFoldersLoaded(result: Result<List<MediaStoreRepository.FolderSummary>>) {
+        setBusy(false)
+        val folders = result.getOrElse {
+            showError(it)
+            emptyList()
+        }
+
+        offeredFolders.clear()
+        val labels = ArrayList<String>()
+        offeredFolders.add(null)
+        labels.add(getString(R.string.folder_all))
+        for (folder in folders) {
+            offeredFolders.add(folder.relativePath)
+            labels.add(getString(R.string.folder_entry, folder.relativePath, folder.photoCount))
+        }
+
+        folderSpinner.adapter = simpleAdapter(labels)
+        val restoredIndex = offeredFolders.indexOf(preferredFolder)
+        if (restoredIndex >= 0) folderSpinner.setSelection(restoredIndex)
+        folderSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                preferredFolder = offeredFolders.getOrNull(pos)
+                reload()
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        reload()
     }
 
     /** Offers "any period", the last months as mm-yyyy, then the custom range. */
@@ -231,6 +291,13 @@ class MainActivity : AppCompatActivity() {
         updateButtonState()
     }
 
+    /**
+     * Folder currently selected, or null for every folder. Matching is exact,
+     * so a folder never includes its own subfolders.
+     */
+    private fun currentFolder(): String? =
+        offeredFolders.getOrNull(folderSpinner.selectedItemPosition)
+
     /** Builds the filter currently selected in the two spinners. */
     private fun currentFilter(): PhotoFilter {
         val periodIndex = periodSpinner.selectedItemPosition
@@ -265,9 +332,10 @@ class MainActivity : AppCompatActivity() {
         setBusy(true)
         statusText.setText(R.string.status_loading)
         val filter = currentFilter()
+        val folder = currentFolder()
 
         thread {
-            val photos = mediaRepository.queryPhotos(filter.resolvePeriodMillis())
+            val photos = mediaRepository.queryPhotos(folder, filter.resolvePeriodMillis())
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             runOnUiThread { onLoaded(filter, photos, states, tags) }
@@ -456,7 +524,7 @@ class MainActivity : AppCompatActivity() {
         val trashed = session.queuedTrash
         if (trashed.isEmpty()) {
             session.retainFailedActions(result.failed)
-            reload()
+            refreshFolders()
             return
         }
         session.retainFailedActions(result.failed + trashed)
@@ -471,7 +539,7 @@ class MainActivity : AppCompatActivity() {
         mover.recordTrashed(trashed)
         toast(getString(R.string.message_trashed, trashed.size))
         session.retainFailedActions(session.queuedActions.filterNot { it in trashed })
-        reload()
+        refreshFolders()
     }
 
     private fun refuseConsent() {

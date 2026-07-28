@@ -61,27 +61,62 @@ class MediaStoreRepository(context: Context) {
         private const val THUMBNAIL_EDGE_PIXELS = 1024
     }
 
+    /** A folder that currently holds photos, and how many. */
+    data class FolderSummary(val relativePath: String, val photoCount: Int)
+
+    /**
+     * Lists the folders that directly contain photos, with their counts.
+     *
+     * Reads one column for the whole collection and groups in memory: a
+     * single-column scan is cheap, and MediaStore rejects aggregate columns
+     * in a projection.
+     */
+    fun queryFolders(): Result<List<FolderSummary>> = try {
+        val counts = HashMap<String, Int>()
+        val projection = arrayOf(MediaStore.Images.Media.RELATIVE_PATH)
+        val cursor = resolver.query(COLLECTION, projection, null, null, null)
+            ?: throw IllegalStateException("MediaStore returned no cursor")
+        cursor.use {
+            while (it.moveToNext()) {
+                val path = it.getString(0) ?: continue
+                counts[path] = (counts[path] ?: 0) + 1
+            }
+        }
+        Result.success(
+            counts.map { FolderSummary(it.key, it.value) }.sortedBy { it.relativePath }
+        )
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     /**
      * Lists photos, newest first, restricted to [periodMillis] when given.
      *
-     * Nothing is excluded by folder. Destinations are user-defined and can
-     * live anywhere, so "already filed" is a fact recorded in the local
-     * database, not something a path pattern can decide. Photos in the system
-     * trash are omitted by MediaStore itself.
+     * [folderRelativePath] matches the folder **exactly**, so scanning a
+     * folder never descends into its subfolders: selecting DCIM/ returns the
+     * files sitting in DCIM and not those in DCIM/Famiglia/. That is also
+     * what keeps destination folders from being picked up again by a scan of
+     * the folder that contains them. Passing null searches every folder.
+     *
+     * Photos in the system trash are omitted by MediaStore itself.
      */
-    fun queryPhotos(periodMillis: LongRange?): Result<List<Photo>> {
+    fun queryPhotos(folderRelativePath: String?, periodMillis: LongRange?): Result<List<Photo>> {
+        val conditions = ArrayList<String>()
         val arguments = ArrayList<String>()
-        var selection: String? = null
 
+        if (folderRelativePath != null) {
+            conditions.add("${MediaStore.Images.Media.RELATIVE_PATH} = ?")
+            arguments.add(folderRelativePath)
+        }
         if (periodMillis != null) {
-            selection = "$CAPTURE_TIME BETWEEN ? AND ?"
+            conditions.add("$CAPTURE_TIME BETWEEN ? AND ?")
             arguments.add(periodMillis.first.toString())
             arguments.add(periodMillis.last.toString())
         }
 
         val queryArgs = Bundle().apply {
-            if (selection != null) {
-                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            if (conditions.isNotEmpty()) {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, conditions.joinToString(" AND "))
                 putStringArray(
                     ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
                     arguments.toTypedArray()

@@ -6,6 +6,8 @@
     <!-- Filters -->
     <string name="action_pick_range">Intervallo date</string>
     <string name="action_reload">Ricarica</string>
+    <string name="folder_all">Tutte le cartelle</string>
+    <string name="folder_entry">%1$s (%2$d)</string>
     <string name="period_any">Qualsiasi periodo</string>
     <string name="period_custom_range">Intervallo scelto</string>
     <string name="scope_all">Tutte</string>
