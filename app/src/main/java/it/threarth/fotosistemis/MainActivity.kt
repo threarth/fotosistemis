@@ -69,6 +69,9 @@ class MainActivity : AppCompatActivity() {
         /** Fraction of the stage a drag must cover to perform its action. */
         const val COMMIT_FRACTION = 0.22f
 
+        /** How much of the drag survives when there is nowhere to go. */
+        const val EDGE_RESISTANCE = 0.22f
+
         /** Time taken to finish a committed drag, or to return home. */
         const val SETTLE_DURATION_MILLIS = 170L
 
@@ -155,6 +158,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Set when a gesture asked for an action the folder does not allow. */
     private var dragBlocked = false
+
+    /** Set when the drag is pulling past the first or last photo. */
+    private var dragAtEdge = false
 
     /**
      * Recently decoded thumbnails, keyed by MediaStore id.
@@ -289,6 +295,7 @@ class MainActivity : AppCompatActivity() {
     private fun beginDrag(event: MotionEvent): Boolean {
         if (busy || session.current() == null) return false
         dragBlocked = false
+        dragAtEdge = false
         preview.animate().cancel()
         previewAdjacent.animate().cancel()
         dragStartX = event.rawX
@@ -326,10 +333,15 @@ class MainActivity : AppCompatActivity() {
             preview.translationX = dx
             preview.translationY = 0f
         } else {
-            preview.translationY = dy
+            // Pulling where there is nothing to reach: the photo gives a
+            // little and springs back, instead of sliding away to reveal an
+            // empty frame and then jumping home.
+            dragAtEdge = !canMoveVertically(dy)
+            val travel = if (dragAtEdge) dy * EDGE_RESISTANCE else dy
+            preview.translationY = travel
             preview.translationX = 0f
             // Vertical is paging: the neighbour travels with the current one.
-            previewAdjacent.translationY = dy + adjacentRestingOffset
+            previewAdjacent.translationY = travel + adjacentRestingOffset
         }
 
         previewHintForDrag(dx, dy)
@@ -372,6 +384,10 @@ class MainActivity : AppCompatActivity() {
         actionFlash.alpha = min(1f, abs(dx) / commitThreshold())
     }
 
+    /** True when there is a photo to reach in the direction being dragged. */
+    private fun canMoveVertically(dy: Float): Boolean =
+        if (dy < 0) session.canGoNext() else session.canGoPrevious()
+
     /** Distance past which releasing performs the action. */
     private fun commitThreshold(): Float =
         max(mediaStage.width, mediaStage.height) * COMMIT_FRACTION
@@ -383,7 +399,7 @@ class MainActivity : AppCompatActivity() {
         if (axis == DragAxis.UNDECIDED) return true
 
         val travelled = if (axis == DragAxis.HORIZONTAL) preview.translationX else preview.translationY
-        if (abs(travelled) < commitThreshold()) {
+        if (dragAtEdge || abs(travelled) < commitThreshold()) {
             springBack()
             return true
         }

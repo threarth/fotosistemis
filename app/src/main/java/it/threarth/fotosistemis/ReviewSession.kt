@@ -126,6 +126,10 @@ class ReviewSession(
     fun keepCurrent(): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
         return stateRepository.record(photo, ReviewStatus.KEPT, null).onSuccess {
+            // Keeping a photo revokes any move queued for it earlier: the
+            // last decision is the one that counts, and leaving the old
+            // entry would move a photo the user has since chosen to keep.
+            dequeue(photo.mediaId)
             rememberState(photo.mediaId, ReviewStatus.KEPT, null)
             goNext()
         }
@@ -156,6 +160,9 @@ class ReviewSession(
     ): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
         return stateRepository.record(photo, status, destinationId).onSuccess {
+            // One photo, one destination: changing mind replaces the queued
+            // move instead of adding a second, contradictory one.
+            dequeue(photo.mediaId)
             rememberState(photo.mediaId, status, destinationId)
             pendingMoves.add(PendingMove(photo, destinationRelativePath, status, destinationId))
             goNext()
@@ -210,6 +217,11 @@ class ReviewSession(
     private fun restorePathOf(photo: MediaStoreRepository.Photo): String? {
         val origin = originalPaths[photo.mediaId] ?: return null
         return if (origin == photo.relativePath) null else origin
+    }
+
+    /** Removes any queued move for [mediaId]. */
+    private fun dequeue(mediaId: Long) {
+        pendingMoves.removeAll { it.photo.mediaId == mediaId }
     }
 
     /** Attaches a tag to the current photo without moving anything. */
