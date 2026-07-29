@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -52,6 +53,7 @@ class MainActivity : AppCompatActivity() {
         const val DATE_PATTERN = "dd/MM/yyyy HH:mm"
         const val MONTH_PATTERN = "MM-yyyy"
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
+        const val IMAGE_MIME_TYPE = "image/*"
     }
 
     private lateinit var mediaRepository: MediaStoreRepository
@@ -75,6 +77,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var trashButton: Button
     private lateinit var tagButton: Button
     private lateinit var restoreButton: Button
+    private lateinit var stagingButton: Button
+    private lateinit var openExternalButton: Button
     private lateinit var undoButton: Button
     private lateinit var applyButton: Button
 
@@ -100,6 +104,9 @@ class MainActivity : AppCompatActivity() {
      * ask for.
      */
     private var loadGeneration = 0
+
+    /** Photos currently waiting to be deleted. */
+    private var stagingCount = 0
 
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -157,6 +164,8 @@ class MainActivity : AppCompatActivity() {
         trashButton = findViewById(R.id.trashButton)
         tagButton = findViewById(R.id.tagButton)
         restoreButton = findViewById(R.id.restoreButton)
+        stagingButton = findViewById(R.id.stagingButton)
+        openExternalButton = findViewById(R.id.openExternalButton)
         undoButton = findViewById(R.id.undoButton)
         applyButton = findViewById(R.id.applyButton)
     }
@@ -176,6 +185,8 @@ class MainActivity : AppCompatActivity() {
         trashButton.setOnClickListener { applyDecision { session.trashCurrent() } }
         tagButton.setOnClickListener { showTagDialog() }
         restoreButton.setOnClickListener { showRestoreDialog() }
+        stagingButton.setOnClickListener { showStagingFolder() }
+        openExternalButton.setOnClickListener { openCurrentExternally() }
         undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
         applyButton.setOnClickListener { startApply() }
         findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
@@ -216,6 +227,11 @@ class MainActivity : AppCompatActivity() {
             showError(it)
             emptyList()
         }
+
+        stagingCount = folders
+            .firstOrNull { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
+            ?.photoCount ?: 0
+        stagingButton.text = getString(R.string.action_staging, stagingCount)
 
         offeredFolders.clear()
         val labels = ArrayList<String>()
@@ -446,6 +462,40 @@ class MainActivity : AppCompatActivity() {
         render()
     }
 
+    /**
+     * Jumps straight to the folder holding photos waiting to be deleted.
+     *
+     * The reminder matters: the app only gathers them there. Emptying the
+     * folder from Google Photos is what removes the backed-up copy too, and
+     * deleting it anywhere else would leave the cloud copy behind.
+     */
+    private fun showStagingFolder() {
+        if (stagingCount == 0) return toast(getString(R.string.staging_empty))
+        val index = offeredFolders.indexOf(ReviewSession.DELETION_STAGING_PATH)
+        if (index < 0) return toast(getString(R.string.staging_empty))
+
+        preferredFolder = ReviewSession.DELETION_STAGING_PATH
+        folderSpinner.setSelection(index)
+        toast(getString(R.string.staging_hint))
+    }
+
+    /**
+     * Hands the current photo to whichever gallery the user prefers, which
+     * is where a photo can actually be deleted from the cloud as well.
+     */
+    private fun openCurrentExternally() {
+        val photo = session.current() ?: return
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(photo.uri, IMAGE_MIME_TYPE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(intent)
+        } catch (error: ActivityNotFoundException) {
+            toast(getString(R.string.open_external_failed))
+        }
+    }
+
     /** Redraws everything that depends on the current position. */
     private fun render() {
         val photo = session.current()
@@ -479,6 +529,8 @@ class MainActivity : AppCompatActivity() {
         keepButton.isEnabled = !busy && hasPhoto
         trashButton.isEnabled = !busy && hasPhoto
         tagButton.isEnabled = !busy && hasPhoto
+        openExternalButton.isEnabled = !busy && hasPhoto
+        stagingButton.isEnabled = !busy && stagingCount > 0
         restoreButton.isEnabled = !busy && (session.currentRestorePath() != null ||
                 session.restorableCount() > 0)
         undoButton.isEnabled = !busy && session.pendingCount > 0

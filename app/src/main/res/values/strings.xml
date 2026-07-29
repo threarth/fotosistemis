@@ -25,6 +25,11 @@
     <string name="action_apply">Applica (%1$d)</string>
     <string name="action_tag">Tag…</string>
     <string name="action_restore">Ripristina…</string>
+    <string name="action_open_external">Galleria</string>
+    <string name="action_staging">Da elim. (%1$d)</string>
+    <string name="staging_empty">La cartella di eliminazione e\' vuota.</string>
+    <string name="staging_hint">Aprila in Google Foto, Raccolta / Cartelle sul dispositivo, e svuotala da li\': elimina cloud e telefono insieme.</string>
+    <string name="open_external_failed">Nessuna app disponibile per aprire la foto.</string>
     <string name="restore_title">Riporta dove si trovava</string>
     <string name="restore_current">Solo questa foto</string>
     <string name="restore_all">Tutte le ripristinabili (%1$d)</string>

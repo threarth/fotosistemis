@@ -10,10 +10,24 @@
 
     <!-- Source folder. Scanning is never recursive: picking a folder
          returns the files inside it, not those in its subfolders. -->
-    <Spinner
-        android:id="@+id/folderSpinner"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Spinner
+            android:id="@+id/folderSpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2" />
+
+        <Button
+            android:id="@+id/stagingButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_staging" />
+    </LinearLayout>
 
     <!-- Filters: which period, and which review states, to load. -->
     <LinearLayout
@@ -171,6 +185,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/action_restore" />
+
+        <Button
+            android:id="@+id/openExternalButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_open_external" />
     </LinearLayout>
 
     <LinearLayout
