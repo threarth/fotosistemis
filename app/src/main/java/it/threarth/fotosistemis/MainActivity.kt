@@ -429,8 +429,23 @@ class MainActivity : AppCompatActivity() {
             "${dateFormat.format(Date(dates.min()))} - ${dateFormat.format(Date(dates.max()))}"
 
         statusText.text = getString(
-            R.string.status_empty_detail, inFolder.size, periodText, inPeriod, presentText
+            R.string.status_empty_detail,
+            inFolder.size, periodText, inPeriod, presentText, describeSources(inFolder)
         )
+    }
+
+    /**
+     * Counts which source supplied each date.
+     *
+     * Names the branch responsible when dates look wrong: EXIF, the file
+     * name, or the file timestamp are three different failure modes and an
+     * aggregate date range alone cannot tell them apart.
+     */
+    private fun describeSources(photos: List<MediaStoreRepository.Photo>): String {
+        val counts = photos.groupingBy { it.dateSource }.eachCount()
+        return CaptureDateResolver.Source.entries.joinToString(" ") { source ->
+            "${describeDateSource(source)}=${counts[source] ?: 0}"
+        }
     }
 
     /** Runs a decision, reports failure, and refreshes the screen. */

@@ -70,7 +70,7 @@
     <string name="status_counter">%1$d / %2$d · coda %3$d</string>
     <string name="status_loading">Caricamento…</string>
     <string name="status_empty">Nessuna foto per questo filtro.</string>
-    <string name="status_empty_detail">0 foto. Cartella: %1$d · periodo %2$s: %3$d · date presenti: %4$s</string>
+    <string name="status_empty_detail">0 foto.\nCartella: %1$d · periodo %2$s: %3$d\nDate presenti: %4$s\nOrigine date: %5$s</string>
     <string name="status_permission_needed">Permesso alle foto necessario.</string>
     <string name="status_applying">Applicazione modifiche…</string>
     <string name="photo_info">%1$s · %2$s</string>
