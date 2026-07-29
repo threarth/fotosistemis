@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
 
         const val DATE_PATTERN = "dd/MM/yyyy HH:mm"
         const val MONTH_PATTERN = "MM-yyyy"
+        const val DAY_PATTERN = "dd/MM/yyyy"
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
         const val IMAGE_MIME_TYPE = "image/*"
     }
@@ -108,6 +109,9 @@ class MainActivity : AppCompatActivity() {
     /** Photos currently waiting to be deleted. */
     private var stagingCount = 0
 
+    /** Restores awaiting consent. Never enters the pending queue. */
+    private var pendingRestore: List<ReviewSession.PendingMove> = emptyList()
+
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) reload() else statusText.setText(R.string.status_permission_needed)
@@ -121,6 +125,16 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) applyMoves()
             else refuseConsent()
+        }
+
+    /** Restores bypass the queue, so they carry their own consent. */
+    private val requestRestoreConsent =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) applyRestore()
+            else {
+                pendingRestore = emptyList()
+                refuseConsent()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -359,7 +373,7 @@ class MainActivity : AppCompatActivity() {
         val generation = ++loadGeneration
 
         thread {
-            val photos = mediaRepository.queryPhotos(folder, filter.resolvePeriodMillis())
+            val photos = mediaRepository.queryPhotos(folder)
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()
@@ -384,9 +398,29 @@ class MainActivity : AppCompatActivity() {
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
-        val visible = loadedPhotos.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
+        val period = filter.resolvePeriodMillis()
+        val inPeriod = if (period == null) loadedPhotos
+        else loadedPhotos.filter { it.dateTakenMillis in period }
+        val visible = inPeriod.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
+
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
+        if (visible.isEmpty()) explainEmptyResult(loadedPhotos.size, inPeriod.size, period)
+    }
+
+    /**
+     * Says why nothing came back. Which of the three filters emptied the set
+     * is impossible to guess from an empty screen, and the folder, the
+     * period and the review state each hide photos for different reasons.
+     */
+    private fun explainEmptyResult(inFolder: Int, inPeriod: Int, period: LongRange?) {
+        val dateFormat = SimpleDateFormat(DAY_PATTERN, Locale.ITALY)
+        val periodText = if (period == null) {
+            getString(R.string.period_any)
+        } else {
+            "${dateFormat.format(Date(period.first))} - ${dateFormat.format(Date(period.last))}"
+        }
+        statusText.text = getString(R.string.status_empty_detail, inFolder, periodText, inPeriod)
     }
 
     /** Runs a decision, reports failure, and refreshes the screen. */
@@ -430,36 +464,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Offers the two shapes of restore. Asking is worth one tap: putting a
-     * whole folder back is a very different act from changing one's mind
-     * about a single photo.
+     * Offers the two shapes of restore, then asks to confirm.
+     *
+     * Restores are applied straight away rather than queued: the queue is
+     * there to review filing and deletion before they happen, while a
+     * restore is already the correction of a decision. Queueing a correction
+     * would turn one intention into two steps.
      */
     private fun showRestoreDialog() {
         val restorable = session.restorableCount()
         if (restorable == 0) return toast(getString(R.string.restore_none))
 
         val options = ArrayList<String>()
-        val actions = ArrayList<() -> Unit>()
+        val plans = ArrayList<List<ReviewSession.PendingMove>>()
 
         if (session.currentRestorePath() != null) {
             options.add(getString(R.string.restore_current))
-            actions.add { applyDecision { session.restoreCurrent() } }
+            plans.add(session.buildRestorePlan(onlyCurrent = true))
         }
         options.add(getString(R.string.restore_all, restorable))
-        actions.add { restoreEverything() }
+        plans.add(session.buildRestorePlan(onlyCurrent = false))
 
         AlertDialog.Builder(this)
             .setTitle(R.string.restore_title)
-            .setItems(options.toTypedArray()) { _, which -> actions[which]() }
+            .setItems(options.toTypedArray()) { _, which -> confirmRestore(plans[which]) }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
 
-    private fun restoreEverything() {
-        session.restoreAll()
-            .onFailure { showError(it) }
-            .onSuccess { toast(getString(R.string.restore_queued, it)) }
-        render()
+    /** Final confirmation, naming exactly how many photos will move. */
+    private fun confirmRestore(plan: List<ReviewSession.PendingMove>) {
+        if (plan.isEmpty()) return toast(getString(R.string.restore_none))
+        AlertDialog.Builder(this)
+            .setTitle(R.string.restore_title)
+            .setMessage(getString(R.string.restore_confirm, plan.size))
+            .setPositiveButton(android.R.string.ok) { _, _ -> startRestore(plan) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Moving files still needs the system consent, restore included. */
+    private fun startRestore(plan: List<ReviewSession.PendingMove>) {
+        pendingRestore = plan
+        try {
+            requestRestoreConsent.launch(
+                IntentSenderRequest.Builder(mover.buildConsent(plan)).build()
+            )
+        } catch (error: Exception) {
+            pendingRestore = emptyList()
+            showError(error)
+        }
+    }
+
+    private fun applyRestore() {
+        val plan = pendingRestore
+        pendingRestore = emptyList()
+        if (plan.isEmpty()) return
+
+        setBusy(true)
+        statusText.setText(R.string.status_applying)
+        thread {
+            val result = mover.applyAll(plan)
+            val applied = plan.filterNot { it in result.failed }
+            session.commitRestores(applied)
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.restore_done, result.succeeded))
+                refreshFolders()
+            }
+        }
     }
 
     /**
@@ -524,10 +597,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateButtonState() {
         val hasPhoto = session.current() != null
+
+        /*
+         * Inside the deletion folder the only sensible action is putting a
+         * photo back. Keeping one there would mark it reviewed while leaving
+         * it queued for deletion, which is a contradiction, and filing it
+         * elsewhere is what restore already does.
+         */
+        val inStaging = preferredFolder == ReviewSession.DELETION_STAGING_PATH
+        val canDecide = hasPhoto && !inStaging
         previousButton.isEnabled = !busy && session.canGoPrevious()
         nextButton.isEnabled = !busy && session.canGoNext()
-        keepButton.isEnabled = !busy && hasPhoto
-        trashButton.isEnabled = !busy && hasPhoto
+        keepButton.isEnabled = !busy && canDecide
+        trashButton.isEnabled = !busy && canDecide
         tagButton.isEnabled = !busy && hasPhoto
         openExternalButton.isEnabled = !busy && hasPhoto
         stagingButton.isEnabled = !busy && stagingCount > 0
@@ -536,7 +618,7 @@ class MainActivity : AppCompatActivity() {
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {
-            destinationActions.getChildAt(index).isEnabled = !busy && hasPhoto
+            destinationActions.getChildAt(index).isEnabled = !busy && canDecide
         }
     }
 

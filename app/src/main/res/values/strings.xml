@@ -34,7 +34,8 @@
     <string name="restore_current">Solo questa foto</string>
     <string name="restore_all">Tutte le ripristinabili (%1$d)</string>
     <string name="restore_none">Nessuna foto ha un percorso originale noto.</string>
-    <string name="restore_queued">%1$d ripristini in coda.</string>
+    <string name="restore_confirm">Ripristinare %1$d elementi nella cartella di origine?</string>
+    <string name="restore_done">%1$d foto ripristinate.</string>
     <string name="action_destinations">Cartelle…</string>
 
     <!-- Generic -->
@@ -69,6 +70,7 @@
     <string name="status_counter">%1$d / %2$d · coda %3$d</string>
     <string name="status_loading">Caricamento…</string>
     <string name="status_empty">Nessuna foto per questo filtro.</string>
+    <string name="status_empty_detail">0 foto. Nella cartella: %1$d · nel periodo %2$s: %3$d</string>
     <string name="status_permission_needed">Permesso alle foto necessario.</string>
     <string name="status_applying">Applicazione modifiche…</string>
     <string name="photo_info">%1$s · %2$s</string>

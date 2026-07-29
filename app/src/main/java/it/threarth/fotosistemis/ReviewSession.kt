@@ -155,45 +155,43 @@ class ReviewSession(
     }
 
     /** How many loaded photos could be put back where they came from. */
-    fun restorableCount(): Int = photos.count { photo ->
-        val origin = originalPaths[photo.mediaId]
-        origin != null && origin != photo.relativePath
-    }
+    fun restorableCount(): Int = photos.count { restorePathOf(it) != null }
 
     /**
-     * Queues the current photo to go back where it came from.
+     * Builds the list of moves that would put photos back, without touching
+     * the pending queue.
      *
-     * Restoring is not a new decision about the photo, it undoes one: the
-     * status returns to KEPT, so the photo counts as reviewed but no longer
-     * as filed or condemned.
+     * Restoring deliberately bypasses the queue. The queue exists so that
+     * filing and deleting can be reviewed before they happen; a restore is
+     * itself the correction of an earlier decision, and making the user
+     * queue and then apply a correction turns one idea into two steps.
      */
-    fun restoreCurrent(): Result<Unit> {
-        val origin = currentRestorePath()
-            ?: return Result.failure(IllegalStateException("Nessun percorso originale noto"))
-        return queueMove(ReviewStatus.KEPT, origin, null)
+    fun buildRestorePlan(onlyCurrent: Boolean): List<PendingMove> {
+        val candidates = if (onlyCurrent) listOfNotNull(current()) else photos
+        return candidates.mapNotNull { photo ->
+            val origin = restorePathOf(photo) ?: return@mapNotNull null
+            PendingMove(photo, origin, ReviewStatus.KEPT, null)
+        }
     }
 
     /**
-     * Queues every loaded photo that has somewhere to go back to.
-     * Photos already in their original folder are skipped.
+     * Records the outcome of restores that have already been applied.
+     * A restored photo counts as reviewed and left alone, so its status
+     * becomes KEPT.
      */
-    fun restoreAll(): Result<Int> {
-        val startIndex = currentIndex
-        var queued = 0
-        for (index in photos.indices) {
-            currentIndex = index
-            val origin = currentRestorePath() ?: continue
-            val outcome = stateRepository.record(photos[index], ReviewStatus.KEPT, null)
-            if (outcome.isFailure) {
-                currentIndex = startIndex
-                return Result.failure(outcome.exceptionOrNull() ?: IllegalStateException())
-            }
-            rememberState(photos[index].mediaId, ReviewStatus.KEPT, null)
-            pendingMoves.add(PendingMove(photos[index], origin, ReviewStatus.KEPT, null))
-            queued++
+    fun commitRestores(applied: List<PendingMove>): Result<Unit> {
+        for (move in applied) {
+            val outcome = stateRepository.record(move.photo, ReviewStatus.KEPT, null)
+            if (outcome.isFailure) return outcome
+            rememberState(move.photo.mediaId, ReviewStatus.KEPT, null)
         }
-        currentIndex = startIndex
-        return Result.success(queued)
+        return Result.success(Unit)
+    }
+
+    /** Original folder of [photo], or null when there is nothing to undo. */
+    private fun restorePathOf(photo: MediaStoreRepository.Photo): String? {
+        val origin = originalPaths[photo.mediaId] ?: return null
+        return if (origin == photo.relativePath) null else origin
     }
 
     /** Attaches a tag to the current photo without moving anything. */

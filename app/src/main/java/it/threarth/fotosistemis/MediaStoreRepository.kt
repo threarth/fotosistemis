@@ -84,7 +84,11 @@ class MediaStoreRepository(context: Context) {
     }
 
     /**
-     * Lists photos, newest first, restricted to [periodMillis] when given.
+     * Lists photos in one folder, newest first.
+     *
+     * Sorted on the resolved capture time. The period filter is applied by
+     * the caller, not here and not in SQL: when EXIF is missing the real
+     * date comes from the file name, which the database knows nothing about.
      *
      * [folderRelativePath] matches the folder **exactly**, so scanning a
      * folder never descends into its subfolders: selecting DCIM/ returns the
@@ -94,7 +98,7 @@ class MediaStoreRepository(context: Context) {
      *
      * Photos in the system trash are omitted by MediaStore itself.
      */
-    fun queryPhotos(folderRelativePath: String?, periodMillis: LongRange?): Result<List<Photo>> {
+    fun queryPhotos(folderRelativePath: String?): Result<List<Photo>> {
         val queryArgs = Bundle().apply {
             if (folderRelativePath != null) {
                 putString(
@@ -112,26 +116,10 @@ class MediaStoreRepository(context: Context) {
             val cursor = resolver.query(COLLECTION, PROJECTION, queryArgs, null)
                 ?: return Result.failure(IllegalStateException("MediaStore returned no cursor"))
             val photos = cursor.use { readPhotos(it) }
-            Result.success(applyPeriod(photos, periodMillis))
+            Result.success(photos.sortedByDescending { it.dateTakenMillis })
         } catch (error: Exception) {
             Result.failure(error)
         }
-    }
-
-    /**
-     * Filters and sorts on the resolved capture time.
-     *
-     * This cannot be done in SQL: when EXIF is missing the real date comes
-     * from the file name, which the database knows nothing about. Filtering
-     * in SQL on DATE_MODIFIED would put a 2020 photo copied today into 2026.
-     */
-    private fun applyPeriod(photos: List<Photo>, periodMillis: LongRange?): List<Photo> {
-        val selected = if (periodMillis == null) {
-            photos
-        } else {
-            photos.filter { it.dateTakenMillis in periodMillis }
-        }
-        return selected.sortedByDescending { it.dateTakenMillis }
     }
 
     /** Drains [cursor] into Photo objects. */
