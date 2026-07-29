@@ -44,14 +44,10 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
 
-        /** How many recent months the period spinner offers. */
-        const val MONTHS_OFFERED = 12
-
         /** Preselected source folder when it exists: the camera roll. */
         const val DEFAULT_SOURCE_FOLDER = "DCIM/Camera/"
 
         const val DATE_PATTERN = "dd/MM/yyyy HH:mm"
-        const val MONTH_PATTERN = "MM-yyyy"
         const val DAY_PATTERN = "dd/MM/yyyy"
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
         const val IMAGE_MIME_TYPE = "image/*"
@@ -95,6 +91,16 @@ class MainActivity : AppCompatActivity() {
      */
     private var preferredFolder: String? = DEFAULT_SOURCE_FOLDER
     private var destinations: List<DestinationRepository.Destination> = emptyList()
+    /**
+     * Period the user last chose. Kept apart from the spinner because the
+     * spinner is rebuilt from the photos of each folder, and rebuilding it
+     * must not silently change what is being reviewed.
+     */
+    private var preferredPeriod: PhotoFilter.Period = PhotoFilter.Period.Any
+
+    /** Guards against the spinner rebuild triggering another load. */
+    private var rebuildingPeriods = false
+
     private var customRange: PhotoFilter.Period.Range? = null
     private var busy = false
 
@@ -151,7 +157,6 @@ class MainActivity : AppCompatActivity() {
         mover = BatchMover(this, mediaRepository, stateRepository)
         session = ReviewSession(stateRepository, tagRepository, AppSettings(this))
 
-        buildPeriodSpinner()
         buildScopeSpinner()
         wireActions()
         ensureReadPermission()
@@ -270,27 +275,78 @@ class MainActivity : AppCompatActivity() {
         reload()
     }
 
-    /** Offers "any period", the last months as mm-yyyy, then the custom range. */
-    private fun buildPeriodSpinner() {
-        val labels = ArrayList<String>()
-        offeredPeriods.clear()
-
-        offeredPeriods.add(PhotoFilter.Period.Any)
-        labels.add(getString(R.string.period_any))
-
-        val monthFormat = SimpleDateFormat(MONTH_PATTERN, Locale.ITALY)
-        val cursor = Calendar.getInstance()
-        repeat(MONTHS_OFFERED) {
-            offeredPeriods.add(
-                PhotoFilter.Period.Month(cursor.get(Calendar.MONTH) + 1, cursor.get(Calendar.YEAR))
+    /**
+     * Rebuilds the period list from the photos actually present.
+     *
+     * Offering every recent month regardless of content meant a month could
+     * be chosen that holds nothing, which looks exactly like a broken
+     * filter. Months are derived from the same resolved capture date used to
+     * pick the year folder, so the list also exposes at a glance when those
+     * dates are wrong.
+     */
+    private fun rebuildPeriodSpinner(photos: List<MediaStoreRepository.Photo>) {
+        val counts = LinkedHashMap<PhotoFilter.Period.Month, Int>()
+        val calendar = Calendar.getInstance()
+        for (photo in photos) {
+            calendar.timeInMillis = photo.dateTakenMillis
+            val month = PhotoFilter.Period.Month(
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.YEAR)
             )
-            labels.add(monthFormat.format(cursor.time))
-            cursor.add(Calendar.MONTH, -1)
+            counts[month] = (counts[month] ?: 0) + 1
         }
 
+        val ordered = counts.keys.sortedWith(
+            compareByDescending<PhotoFilter.Period.Month> { it.year }.thenByDescending { it.month }
+        )
+
+        offeredPeriods.clear()
+        val labels = ArrayList<String>()
+        offeredPeriods.add(PhotoFilter.Period.Any)
+        labels.add(getString(R.string.period_any, photos.size))
+        for (month in ordered) {
+            offeredPeriods.add(month)
+            labels.add(
+                getString(
+                    R.string.period_month,
+                    "%02d-%d".format(month.month, month.year),
+                    counts[month] ?: 0
+                )
+            )
+        }
         labels.add(getString(R.string.period_custom_range))
+
+        applyPeriodSpinner(labels)
+    }
+
+    /** Swaps the adapter without letting the change trigger another load. */
+    private fun applyPeriodSpinner(labels: List<String>) {
+        rebuildingPeriods = true
         periodSpinner.adapter = simpleAdapter(labels)
-        periodSpinner.onItemSelectedListener = reloadOnSelection()
+
+        val index = offeredPeriods.indexOf(preferredPeriod)
+        when {
+            index >= 0 -> periodSpinner.setSelection(index)
+            preferredPeriod is PhotoFilter.Period.Range -> periodSpinner.setSelection(labels.size - 1)
+            else -> {
+                // The chosen month no longer exists in this folder.
+                preferredPeriod = PhotoFilter.Period.Any
+                periodSpinner.setSelection(0)
+            }
+        }
+
+        periodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                if (rebuildingPeriods) return
+                preferredPeriod = offeredPeriods.getOrNull(pos)
+                    ?: customRange
+                    ?: PhotoFilter.Period.Any
+                reload()
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        periodSpinner.post { rebuildingPeriods = false }
     }
 
     private fun buildScopeSpinner() {
@@ -338,14 +394,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Builds the filter currently selected in the two spinners. */
     private fun currentFilter(): PhotoFilter {
-        val periodIndex = periodSpinner.selectedItemPosition
-        val period = when {
-            periodIndex in offeredPeriods.indices -> offeredPeriods[periodIndex]
-            else -> customRange ?: PhotoFilter.Period.Any
-        }
         val scope = PhotoFilter.ReviewScope.entries
             .getOrElse(scopeSpinner.selectedItemPosition) { PhotoFilter.ReviewScope.ALL }
-        return PhotoFilter(period, scope)
+        return PhotoFilter(preferredPeriod, scope)
     }
 
     /** Asks for the two ends of a custom range, then reloads. */
@@ -355,8 +406,9 @@ class MainActivity : AppCompatActivity() {
             val from = Calendar.getInstance().apply { clear(); set(fromYear, fromMonth, fromDay) }
             DatePickerDialog(this, { _, toYear, toMonth, toDay ->
                 val to = Calendar.getInstance().apply { clear(); set(toYear, toMonth, toDay) }
-                customRange = PhotoFilter.Period.Range(from.timeInMillis, to.timeInMillis)
-                periodSpinner.setSelection(offeredPeriods.size)
+                val range = PhotoFilter.Period.Range(from.timeInMillis, to.timeInMillis)
+                customRange = range
+                preferredPeriod = range
                 reload()
             }, today.get(Calendar.YEAR), today.get(Calendar.MONTH), today.get(Calendar.DAY_OF_MONTH))
                 .show()
@@ -398,7 +450,8 @@ class MainActivity : AppCompatActivity() {
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
-        val period = filter.resolvePeriodMillis()
+        rebuildPeriodSpinner(loadedPhotos)
+        val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
         val visible = inPeriod.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
@@ -420,7 +473,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         val dateFormat = SimpleDateFormat(DAY_PATTERN, Locale.ITALY)
         val periodText = if (period == null) {
-            getString(R.string.period_any)
+            getString(R.string.period_any_plain)
         } else {
             "${dateFormat.format(Date(period.first))} - ${dateFormat.format(Date(period.last))}"
         }
