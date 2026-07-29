@@ -24,6 +24,12 @@
     <string name="action_undo">Annulla</string>
     <string name="action_apply">Applica (%1$d)</string>
     <string name="action_tag">Tag…</string>
+    <string name="action_restore">Ripristina…</string>
+    <string name="restore_title">Riporta dove si trovava</string>
+    <string name="restore_current">Solo questa foto</string>
+    <string name="restore_all">Tutte le ripristinabili (%1$d)</string>
+    <string name="restore_none">Nessuna foto ha un percorso originale noto.</string>
+    <string name="restore_queued">%1$d ripristini in coda.</string>
     <string name="action_destinations">Cartelle…</string>
 
     <!-- Generic -->
@@ -38,7 +44,9 @@
     <string name="destination_edit">Modifica cartella</string>
     <string name="destination_label_hint">Etichetta, es. Famiglia</string>
     <string name="destination_path_hint">Percorso, es. Pictures/Famiglia</string>
-    <string name="destination_year_subfolder">Crea sottocartella per anno (2024, 2025…)</string>
+    <string name="destination_year_subfolder">Crea sottocartella per anno</string>
+    <string name="destination_pattern_hint">Nome sottocartella, es. {anno}_{etichetta}</string>
+    <string name="destination_pattern_help">Segnaposto: {anno} e {etichetta}. Google Foto mostra solo l\'ultimo livello, quindi un semplice {anno} apparirebbe uguale per tutte le cartelle.</string>
     <string name="destination_with_year">con sottocartella anno</string>
     <string name="destination_without_year">senza sottocartella anno</string>
     <string name="destination_invalid">Etichetta e percorso sono obbligatori.</string>

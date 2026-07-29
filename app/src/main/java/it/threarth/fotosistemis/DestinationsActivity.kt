@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.util.Calendar
 
 /**
  * Create, edit and delete the folders photos can be filed into.
@@ -64,25 +65,25 @@ class DestinationsActivity : AppCompatActivity() {
 
     /** One line per destination: label, path, and whether years are added. */
     private fun describe(destination: DestinationRepository.Destination): String {
-        val yearNote = if (destination.yearSubfolder) {
-            getString(R.string.destination_with_year)
-        } else {
-            getString(R.string.destination_without_year)
+        if (!destination.yearSubfolder) {
+            return "${destination.label}\n${destination.relativePath}/ · " +
+                    getString(R.string.destination_without_year)
         }
-        return "${destination.label}\n${destination.relativePath} · $yearNote"
+        val example = destination.yearFolderName(Calendar.getInstance().get(Calendar.YEAR))
+        return "${destination.label}\n${destination.relativePath}/$example/"
     }
 
     private fun addDestination() {
-        showEditor(null) { label, path, yearSubfolder ->
-            repository.insert(label, path, yearSubfolder)
+        showEditor(null) { label, path, yearSubfolder, pattern ->
+            repository.insert(label, path, yearSubfolder, pattern)
                 .onFailure { showError(it) }
                 .onSuccess { refresh() }
         }
     }
 
     private fun editDestination(destination: DestinationRepository.Destination) {
-        showEditor(destination) { label, path, yearSubfolder ->
-            repository.update(destination.id, label, path, yearSubfolder)
+        showEditor(destination) { label, path, yearSubfolder, pattern ->
+            repository.update(destination.id, label, path, yearSubfolder, pattern)
                 .onFailure { showError(it) }
                 .onSuccess { refresh() }
         }
@@ -94,24 +95,29 @@ class DestinationsActivity : AppCompatActivity() {
      */
     private fun showEditor(
         existing: DestinationRepository.Destination?,
-        onConfirm: (String, String, Boolean) -> Unit
+        onConfirm: (String, String, Boolean, String) -> Unit
     ) {
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_destination, null)
         val labelField = form.findViewById<EditText>(R.id.destinationLabel)
         val pathField = form.findViewById<EditText>(R.id.destinationPath)
         val yearCheck = form.findViewById<CheckBox>(R.id.destinationYearSubfolder)
+        val patternField = form.findViewById<EditText>(R.id.destinationPattern)
 
         existing?.let {
             labelField.setText(it.label)
             pathField.setText(it.relativePath)
             yearCheck.isChecked = it.yearSubfolder
-        } ?: run { yearCheck.isChecked = true }
+            patternField.setText(it.yearFolderPattern)
+        } ?: run {
+            yearCheck.isChecked = true
+            patternField.setText(PhotoStateDatabase.DEFAULT_YEAR_FOLDER_PATTERN)
+        }
 
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.destination_new else R.string.destination_edit)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
-                confirmEditor(labelField, pathField, yearCheck, onConfirm)
+                confirmEditor(labelField, pathField, yearCheck, patternField, onConfirm)
             }
             .setNegativeButton(R.string.action_cancel, null)
 
@@ -126,7 +132,8 @@ class DestinationsActivity : AppCompatActivity() {
         labelField: EditText,
         pathField: EditText,
         yearCheck: CheckBox,
-        onConfirm: (String, String, Boolean) -> Unit
+        patternField: EditText,
+        onConfirm: (String, String, Boolean, String) -> Unit
     ) {
         val label = labelField.text.toString().trim()
         val path = pathField.text.toString().trim().trim('/')
@@ -134,7 +141,7 @@ class DestinationsActivity : AppCompatActivity() {
             toast(getString(R.string.destination_invalid))
             return
         }
-        onConfirm(label, path, yearCheck.isChecked)
+        onConfirm(label, path, yearCheck.isChecked, patternField.text.toString())
     }
 
     /** Deleting a shortcut is not deleting photos, and says so. */

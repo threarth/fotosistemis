@@ -117,6 +117,29 @@ class PhotoStateRepository(context: Context) {
         Result.failure(error)
     }
 
+    /**
+     * The folder each photo was in when the app first saw it, keyed by
+     * MediaStore id. This is what "restore" puts a photo back into.
+     */
+    fun loadOriginalPaths(): Result<Map<Long, String>> = try {
+        val paths = HashMap<Long, String>()
+        helper.readableDatabase.query(
+            TABLE_PHOTO_PATHS,
+            arrayOf(COLUMN_MEDIA_ID, COLUMN_PATH),
+            "$COLUMN_KIND = ?",
+            arrayOf(PathKind.ORIGINAL.storedValue),
+            null, null, "$COLUMN_RECORDED_AT ASC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                // Oldest wins: putIfAbsent keeps the first location recorded.
+                paths.putIfAbsent(cursor.getLong(0), cursor.getString(1))
+            }
+        }
+        Result.success(paths)
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     /** Removes the decision for one photo, making it unseen again. */
     fun forget(mediaId: Long): Result<Unit> = writeInTransaction { db ->
         db.delete(TABLE_PHOTO_STATE, "$COLUMN_MEDIA_ID = ?", arrayOf(mediaId.toString()))

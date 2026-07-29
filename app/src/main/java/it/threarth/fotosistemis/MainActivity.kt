@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keepButton: Button
     private lateinit var trashButton: Button
     private lateinit var tagButton: Button
+    private lateinit var restoreButton: Button
     private lateinit var undoButton: Button
     private lateinit var applyButton: Button
 
@@ -147,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         keepButton = findViewById(R.id.keepButton)
         trashButton = findViewById(R.id.trashButton)
         tagButton = findViewById(R.id.tagButton)
+        restoreButton = findViewById(R.id.restoreButton)
         undoButton = findViewById(R.id.undoButton)
         applyButton = findViewById(R.id.applyButton)
     }
@@ -165,6 +167,7 @@ class MainActivity : AppCompatActivity() {
         keepButton.setOnClickListener { applyDecision { session.keepCurrent() } }
         trashButton.setOnClickListener { applyDecision { session.trashCurrent() } }
         tagButton.setOnClickListener { showTagDialog() }
+        restoreButton.setOnClickListener { showRestoreDialog() }
         undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
         applyButton.setOnClickListener { startApply() }
         findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
@@ -335,7 +338,8 @@ class MainActivity : AppCompatActivity() {
             val photos = mediaRepository.queryPhotos(folder, filter.resolvePeriodMillis())
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
-            runOnUiThread { onLoaded(filter, photos, states, tags) }
+            val origins = stateRepository.loadOriginalPaths()
+            runOnUiThread { onLoaded(filter, photos, states, tags, origins) }
         }
     }
 
@@ -344,15 +348,17 @@ class MainActivity : AppCompatActivity() {
         filter: PhotoFilter,
         photos: Result<List<MediaStoreRepository.Photo>>,
         states: Result<Map<Long, PhotoStateRepository.StoredState>>,
-        tags: Result<Map<Long, List<String>>>
+        tags: Result<Map<Long, List<String>>>,
+        origins: Result<Map<Long, String>>
     ) {
         setBusy(false)
         val loadedPhotos = photos.getOrElse { return showError(it) }
         val loadedStates = states.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
+        val loadedOrigins = origins.getOrElse { return showError(it) }
 
         val visible = loadedPhotos.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
-        session.load(visible, loadedStates, loadedTags)
+        session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
     }
 
@@ -396,6 +402,39 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Offers the two shapes of restore. Asking is worth one tap: putting a
+     * whole folder back is a very different act from changing one's mind
+     * about a single photo.
+     */
+    private fun showRestoreDialog() {
+        val restorable = session.restorableCount()
+        if (restorable == 0) return toast(getString(R.string.restore_none))
+
+        val options = ArrayList<String>()
+        val actions = ArrayList<() -> Unit>()
+
+        if (session.currentRestorePath() != null) {
+            options.add(getString(R.string.restore_current))
+            actions.add { applyDecision { session.restoreCurrent() } }
+        }
+        options.add(getString(R.string.restore_all, restorable))
+        actions.add { restoreEverything() }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.restore_title)
+            .setItems(options.toTypedArray()) { _, which -> actions[which]() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun restoreEverything() {
+        session.restoreAll()
+            .onFailure { showError(it) }
+            .onSuccess { toast(getString(R.string.restore_queued, it)) }
+        render()
+    }
+
     /** Redraws everything that depends on the current position. */
     private fun render() {
         val photo = session.current()
@@ -429,6 +468,8 @@ class MainActivity : AppCompatActivity() {
         keepButton.isEnabled = !busy && hasPhoto
         trashButton.isEnabled = !busy && hasPhoto
         tagButton.isEnabled = !busy && hasPhoto
+        restoreButton.isEnabled = !busy && (session.currentRestorePath() != null ||
+                session.restorableCount() > 0)
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {

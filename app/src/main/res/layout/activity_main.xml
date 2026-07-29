@@ -153,11 +153,25 @@
             android:orientation="horizontal" />
     </HorizontalScrollView>
 
-    <Button
-        android:id="@+id/tagButton"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/action_tag" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/tagButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_tag" />
+
+        <Button
+            android:id="@+id/restoreButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_restore" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

@@ -52,6 +52,7 @@ class ReviewSession(
     private val pendingMoves = ArrayList<PendingMove>()
     private var storedStates: Map<Long, PhotoStateRepository.StoredState> = emptyMap()
     private var tagAssignments: Map<Long, List<String>> = emptyMap()
+    private var originalPaths: Map<Long, String> = emptyMap()
 
     var currentIndex: Int = 0
         private set
@@ -64,13 +65,15 @@ class ReviewSession(
     fun load(
         loaded: List<MediaStoreRepository.Photo>,
         states: Map<Long, PhotoStateRepository.StoredState>,
-        tags: Map<Long, List<String>>
+        tags: Map<Long, List<String>>,
+        origins: Map<Long, String>
     ) {
         photos.clear()
         photos.addAll(loaded)
         pendingMoves.clear()
         storedStates = states
         tagAssignments = tags
+        originalPaths = origins
         currentIndex = 0
     }
 
@@ -138,6 +141,58 @@ class ReviewSession(
             pendingMoves.add(PendingMove(photo, destinationRelativePath, status, destinationId))
             goNext()
         }
+    }
+
+    /**
+     * Where the current photo would go back to, or null when the app never
+     * saw it anywhere else. Also null when it is already there.
+     */
+    fun currentRestorePath(): String? {
+        val photo = current() ?: return null
+        val origin = originalPaths[photo.mediaId] ?: return null
+        return if (origin == photo.relativePath) null else origin
+    }
+
+    /** How many loaded photos could be put back where they came from. */
+    fun restorableCount(): Int = photos.count { photo ->
+        val origin = originalPaths[photo.mediaId]
+        origin != null && origin != photo.relativePath
+    }
+
+    /**
+     * Queues the current photo to go back where it came from.
+     *
+     * Restoring is not a new decision about the photo, it undoes one: the
+     * status returns to KEPT, so the photo counts as reviewed but no longer
+     * as filed or condemned.
+     */
+    fun restoreCurrent(): Result<Unit> {
+        val origin = currentRestorePath()
+            ?: return Result.failure(IllegalStateException("Nessun percorso originale noto"))
+        return queueMove(ReviewStatus.KEPT, origin, null)
+    }
+
+    /**
+     * Queues every loaded photo that has somewhere to go back to.
+     * Photos already in their original folder are skipped.
+     */
+    fun restoreAll(): Result<Int> {
+        val startIndex = currentIndex
+        var queued = 0
+        for (index in photos.indices) {
+            currentIndex = index
+            val origin = currentRestorePath() ?: continue
+            val outcome = stateRepository.record(photos[index], ReviewStatus.KEPT, null)
+            if (outcome.isFailure) {
+                currentIndex = startIndex
+                return Result.failure(outcome.exceptionOrNull() ?: IllegalStateException())
+            }
+            rememberState(photos[index].mediaId, ReviewStatus.KEPT, null)
+            pendingMoves.add(PendingMove(photos[index], origin, ReviewStatus.KEPT, null))
+            queued++
+        }
+        currentIndex = startIndex
+        return Result.success(queued)
     }
 
     /** Attaches a tag to the current photo without moving anything. */
