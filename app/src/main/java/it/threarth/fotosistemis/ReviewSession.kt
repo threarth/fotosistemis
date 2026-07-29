@@ -243,28 +243,6 @@ class ReviewSession(
     val changedCount: Int get() = recordedInSession.size
 
     /**
-     * Cancels the queued moves without forgetting that the photos were
-     * looked at: filed and condemned become kept.
-     *
-     * Deleting the record instead would send those photos back to "never
-     * seen", so a decision the user did make, that of having reviewed them,
-     * would be lost along with the one being undone. Downgrading keeps
-     * exactly what still holds.
-     */
-    fun discardQueuedMoves(): Result<Unit> {
-        for (move in pendingMoves) {
-            val outcome = stateRepository.record(move.photo, ReviewStatus.KEPT, null)
-            if (outcome.isFailure) return outcome
-            storedStates = storedStates +
-                    (move.photo.mediaId to PhotoStateRepository.StoredState(
-                        move.photo.mediaId, ReviewStatus.KEPT, null
-                    ))
-        }
-        pendingMoves.clear()
-        return Result.success(Unit)
-    }
-
-    /**
      * Undoes every decision taken since the working set was loaded, review
      * included: the photos go back to never seen.
      */

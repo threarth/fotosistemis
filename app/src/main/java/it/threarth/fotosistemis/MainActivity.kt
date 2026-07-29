@@ -589,9 +589,12 @@ class MainActivity : AppCompatActivity() {
      * Applies a change of filter, protecting work not yet applied.
      *
      * Changing folder or period reloads the working set and empties the
-     * queue, so without asking, decisions would vanish unannounced. Keeping
-     * a photo queues nothing and survives on its own, which is why the
-     * choices separate it from filing and deleting.
+     * queue, so without asking, decisions would vanish unannounced.
+     *
+     * Only two answers, deliberately. A middle option that cancelled the
+     * moves but kept the photos marked as reviewed left them
+     * indistinguishable from photos deliberately kept, and bought that
+     * ambiguity for a case neither common nor clearly useful.
      */
     private fun changeFilter(change: () -> Unit) {
         if (session.changedCount == 0) {
@@ -600,21 +603,18 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val options = arrayOf(
-            getString(R.string.pending_apply),
-            getString(R.string.pending_drop_moves),
-            getString(R.string.pending_drop_all)
-        )
         AlertDialog.Builder(this)
             .setTitle(R.string.pending_title)
             .setMessage(getString(R.string.pending_message, session.pendingCount))
             .setCancelable(false)
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> { change(); startApply() }
-                    1 -> { session.discardQueuedMoves().onFailure { showError(it) }; change(); reload() }
-                    else -> { session.discardAllChanges().onFailure { showError(it) }; change(); reload() }
-                }
+            .setPositiveButton(R.string.pending_apply) { _, _ ->
+                change()
+                startApply()
+            }
+            .setNegativeButton(R.string.pending_drop_all) { _, _ ->
+                session.discardAllChanges().onFailure { showError(it) }
+                change()
+                reload()
             }
             .show()
     }
