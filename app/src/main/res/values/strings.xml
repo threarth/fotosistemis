@@ -12,8 +12,8 @@
     <string name="pending_title">Modifiche non applicate</string>
     <string name="pending_message">%1$d spostamenti o eliminazioni sono in coda. Le foto marcate come mantenute restano tali in ogni caso.</string>
     <string name="pending_apply">Applica spostamenti ed eliminazioni</string>
-    <string name="pending_drop_moves">Ignora spostamenti ed eliminazioni</string>
-    <string name="pending_drop_all">Scarta tutte le modifiche</string>
+    <string name="pending_drop_moves">Ignora spostamenti: restano viste</string>
+    <string name="pending_drop_all">Scarta tutto: tornano mai viste</string>
     <string name="period_any">Qualsiasi periodo (%1$d)</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>
     <string name="month_mark_done">\u2713</string>

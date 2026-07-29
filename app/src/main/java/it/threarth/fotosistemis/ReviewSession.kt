@@ -243,21 +243,33 @@ class ReviewSession(
     val changedCount: Int get() = recordedInSession.size
 
     /**
-     * Drops the queued moves and the decisions behind them, leaving photos
-     * merely marked as kept untouched.
+     * Cancels the queued moves without forgetting that the photos were
+     * looked at: filed and condemned become kept.
      *
-     * Decisions are written as soon as they are made, so clearing only the
-     * queue would leave photos recorded as filed or condemned while their
-     * files never moved. Keeping a photo queues nothing, so it survives.
+     * Deleting the record instead would send those photos back to "never
+     * seen", so a decision the user did make, that of having reviewed them,
+     * would be lost along with the one being undone. Downgrading keeps
+     * exactly what still holds.
      */
-    fun discardQueuedMoves(): Result<Unit> = forget(pendingMoves.map { it.photo.mediaId })
+    fun discardQueuedMoves(): Result<Unit> {
+        for (move in pendingMoves) {
+            val outcome = stateRepository.record(move.photo, ReviewStatus.KEPT, null)
+            if (outcome.isFailure) return outcome
+            storedStates = storedStates +
+                    (move.photo.mediaId to PhotoStateRepository.StoredState(
+                        move.photo.mediaId, ReviewStatus.KEPT, null
+                    ))
+        }
+        pendingMoves.clear()
+        return Result.success(Unit)
+    }
 
-    /** Undoes every decision taken since the working set was loaded. */
-    fun discardAllChanges(): Result<Unit> = forget(recordedInSession.toList())
-
-    /** Forgets [mediaIds] and empties the queue. */
-    private fun forget(mediaIds: List<Long>): Result<Unit> {
-        for (mediaId in mediaIds) {
+    /**
+     * Undoes every decision taken since the working set was loaded, review
+     * included: the photos go back to never seen.
+     */
+    fun discardAllChanges(): Result<Unit> {
+        for (mediaId in recordedInSession.toList()) {
             val outcome = stateRepository.forget(mediaId)
             if (outcome.isFailure) return outcome
             storedStates = storedStates - mediaId
