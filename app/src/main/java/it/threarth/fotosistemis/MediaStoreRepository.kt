@@ -116,6 +116,29 @@ class MediaStoreRepository(context: Context) {
     }
 
     /**
+     * Counts the photos in one folder across every volume.
+     *
+     * Restricted to that folder on purpose: asking the folder list for the
+     * same number would read every row on the device to learn about one
+     * directory.
+     */
+    fun countPhotosIn(relativePath: String): Result<Int> = try {
+        val queryArgs = Bundle().apply {
+            putString(
+                ContentResolver.QUERY_ARG_SQL_SELECTION,
+                "${MediaStore.Images.Media.RELATIVE_PATH} = ?"
+            )
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(relativePath))
+        }
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val cursor = resolver.query(COLLECTION, projection, queryArgs, null)
+            ?: throw IllegalStateException("MediaStore returned no cursor")
+        cursor.use { Result.success(it.count) }
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    /**
      * Lists photos in one folder, newest first.
      *
      * Sorted on the resolved capture time. The period filter is applied by

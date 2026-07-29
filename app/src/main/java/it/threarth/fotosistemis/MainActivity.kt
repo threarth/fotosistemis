@@ -145,6 +145,9 @@ class MainActivity : AppCompatActivity() {
     /** Photos currently waiting to be deleted. */
     private var stagingCount = 0
 
+    /** False until the first onResume, which follows onCreate. */
+    private var resumedBefore = false
+
     /** Restores awaiting consent. Never enters the pending queue. */
     private var pendingRestore: List<ReviewSession.PendingMove> = emptyList()
 
@@ -181,7 +184,8 @@ class MainActivity : AppCompatActivity() {
 
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) reload() else statusText.setText(R.string.status_permission_needed)
+            if (granted) refreshFolders()
+            else statusText.setText(R.string.status_permission_needed)
         }
 
     /**
@@ -232,7 +236,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         buildDestinationButtons()
-        if (::session.isInitialized) refreshStagingCount()
+        // Skipped the first time: the initial folder scan is already running
+        // and will set the count itself.
+        if (resumedBefore && ::session.isInitialized) refreshStagingCount()
+        resumedBefore = true
     }
 
     /**
@@ -243,10 +250,9 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshStagingCount() {
         thread {
-            val folders = mediaRepository.queryFolders().getOrNull() ?: return@thread
-            val counted = folders
-                .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
-                .sumOf { it.photoCount }
+            val counted = mediaRepository
+                .countPhotosIn(ReviewSession.DELETION_STAGING_PATH)
+                .getOrNull() ?: return@thread
             runOnUiThread { onStagingCountRefreshed(counted) }
         }
     }
