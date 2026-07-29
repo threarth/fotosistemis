@@ -97,17 +97,14 @@ class MainActivity : AppCompatActivity() {
             if (granted) reload() else statusText.setText(R.string.status_permission_needed)
         }
 
-    /** Consent for changing files; only after this can a move succeed. */
+    /**
+     * One consent for the whole queue. Filing and trashing are both moves,
+     * so a mixed batch costs a single dialog.
+     */
     private val requestMoveConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) applyMoves()
             else refuseConsent()
-        }
-
-    /** The trash request performs the deletion itself once granted. */
-    private val requestTrashConsent =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) onTrashGranted() else refuseConsent()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -168,7 +165,7 @@ class MainActivity : AppCompatActivity() {
         keepButton.setOnClickListener { applyDecision { session.keepCurrent() } }
         trashButton.setOnClickListener { applyDecision { session.trashCurrent() } }
         tagButton.setOnClickListener { showTagDialog() }
-        undoButton.setOnClickListener { applyDecision { session.undoLastAction() } }
+        undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
         applyButton.setOnClickListener { startApply() }
         findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
         findViewById<Button>(R.id.pickRangeButton).setOnClickListener { pickDateRange() }
@@ -482,25 +479,14 @@ class MainActivity : AppCompatActivity() {
         if (bitmap != null) preview.setImageBitmap(bitmap)
     }
 
-    /**
-     * Starts applying the queue. Moves come first; trashing needs its own
-     * consent and is asked for afterwards.
-     */
+    /** Asks for one consent covering the whole queue. */
     private fun startApply() {
         val moves = session.queuedMoves
-        val trashed = session.queuedTrash
-        if (moves.isEmpty() && trashed.isEmpty()) return toast(getString(R.string.message_queue_empty))
-
+        if (moves.isEmpty()) return toast(getString(R.string.message_queue_empty))
         try {
-            if (moves.isNotEmpty()) {
-                requestMoveConsent.launch(
-                    IntentSenderRequest.Builder(mover.buildMoveConsent(moves)).build()
-                )
-            } else {
-                requestTrashConsent.launch(
-                    IntentSenderRequest.Builder(mover.buildTrashConsent(trashed)).build()
-                )
-            }
+            requestMoveConsent.launch(
+                IntentSenderRequest.Builder(mover.buildConsent(moves)).build()
+            )
         } catch (error: Exception) {
             showError(error)
         }
@@ -513,7 +499,7 @@ class MainActivity : AppCompatActivity() {
         val moves = session.queuedMoves
 
         thread {
-            val result = mover.applyMoves(moves)
+            val result = mover.applyAll(moves)
             runOnUiThread { onMovesApplied(result) }
         }
     }
@@ -532,25 +518,7 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
-
-        val trashed = session.queuedTrash
-        if (trashed.isEmpty()) {
-            session.retainFailedActions(result.failed)
-            refreshFolders()
-            return
-        }
-        session.retainFailedActions(result.failed + trashed)
-        requestTrashConsent.launch(
-            IntentSenderRequest.Builder(mover.buildTrashConsent(trashed)).build()
-        )
-    }
-
-    /** The system already moved the files; only history remains to record. */
-    private fun onTrashGranted() {
-        val trashed = session.queuedTrash
-        mover.recordTrashed(trashed)
-        toast(getString(R.string.message_trashed, trashed.size))
-        session.retainFailedActions(session.queuedActions.filterNot { it in trashed })
+        session.retainFailedMoves(result.failed)
         refreshFolders()
     }
 

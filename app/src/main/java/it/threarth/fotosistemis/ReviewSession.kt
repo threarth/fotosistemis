@@ -16,24 +16,40 @@ class ReviewSession(
     private val tagRepository: TagRepository
 ) {
 
-    /** A queued file operation, not yet applied. */
-    sealed interface PendingAction {
+    companion object {
 
-        val photo: MediaStoreRepository.Photo
-
-        /** File this photo into a destination folder. */
-        data class Move(
-            override val photo: MediaStoreRepository.Photo,
-            val destination: DestinationRepository.Destination,
-            val destinationRelativePath: String
-        ) : PendingAction
-
-        /** Hand this photo to the system trash, recoverable for 30 days. */
-        data class Trash(override val photo: MediaStoreRepository.Photo) : PendingAction
+        /**
+         * Where photos wait to be deleted.
+         *
+         * Deleting locally would leave the backed-up copy in Google Photos
+         * untouched, and no public API can remove it: the Photos API only
+         * reaches content an app created itself. So the app does not delete.
+         * It gathers the candidates into one folder, which appears under
+         * Library / Device folders in Google Photos, where a single
+         * select-all and delete removes both the cloud copy and the local
+         * file.
+         *
+         * No .nomedia file here on purpose: hiding the folder from Google
+         * Photos would defeat its whole purpose.
+         */
+        const val DELETION_STAGING_PATH = "Pictures/_FotoSistemis_DaEliminare/"
     }
 
+    /**
+     * A queued file move, not yet applied.
+     *
+     * Trashing and filing are the same operation with different
+     * destinations, which is why one consent dialog now covers a mixed batch.
+     */
+    data class PendingMove(
+        val photo: MediaStoreRepository.Photo,
+        val destinationRelativePath: String,
+        val status: ReviewStatus,
+        val destinationId: Long?
+    )
+
     private val photos = ArrayList<MediaStoreRepository.Photo>()
-    private val pendingActions = ArrayList<PendingAction>()
+    private val pendingMoves = ArrayList<PendingMove>()
     private var storedStates: Map<Long, PhotoStateRepository.StoredState> = emptyMap()
     private var tagAssignments: Map<Long, List<String>> = emptyMap()
 
@@ -41,16 +57,10 @@ class ReviewSession(
         private set
 
     val size: Int get() = photos.size
-    val pendingCount: Int get() = pendingActions.size
-    val queuedActions: List<PendingAction> get() = pendingActions.toList()
+    val pendingCount: Int get() = pendingMoves.size
+    val queuedMoves: List<PendingMove> get() = pendingMoves.toList()
 
-    val queuedMoves: List<PendingAction.Move>
-        get() = pendingActions.filterIsInstance<PendingAction.Move>()
-
-    val queuedTrash: List<PendingAction.Trash>
-        get() = pendingActions.filterIsInstance<PendingAction.Trash>()
-
-    /** Replaces the working set. Any queued action is discarded. */
+    /** Replaces the working set. Any queued move is discarded. */
     fun load(
         loaded: List<MediaStoreRepository.Photo>,
         states: Map<Long, PhotoStateRepository.StoredState>,
@@ -58,7 +68,7 @@ class ReviewSession(
     ) {
         photos.clear()
         photos.addAll(loaded)
-        pendingActions.clear()
+        pendingMoves.clear()
         storedStates = states
         tagAssignments = tags
         currentIndex = 0
@@ -67,8 +77,6 @@ class ReviewSession(
     fun current(): MediaStoreRepository.Photo? = photos.getOrNull(currentIndex)
 
     fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.mediaId]?.status }
-
-    fun currentDestinationId(): Long? = current()?.let { storedStates[it.mediaId]?.destinationId }
 
     fun currentTags(): List<String> = current()?.let { tagAssignments[it.mediaId] } ?: emptyList()
 
@@ -95,19 +103,15 @@ class ReviewSession(
      */
     fun keepCurrent(): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        return stateRepository.record(photo, ReviewStatus.KEPT, null)
-            .onSuccess { rememberState(photo.mediaId, ReviewStatus.KEPT, null); goNext() }
-    }
-
-    /** Queues the current photo for the system trash and advances. */
-    fun trashCurrent(): Result<Unit> {
-        val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        return stateRepository.record(photo, ReviewStatus.TRASHED, null).onSuccess {
-            rememberState(photo.mediaId, ReviewStatus.TRASHED, null)
-            pendingActions.add(PendingAction.Trash(photo))
+        return stateRepository.record(photo, ReviewStatus.KEPT, null).onSuccess {
+            rememberState(photo.mediaId, ReviewStatus.KEPT, null)
             goNext()
         }
     }
+
+    /** Queues the current photo for the deletion staging folder and advances. */
+    fun trashCurrent(): Result<Unit> =
+        queueMove(ReviewStatus.TRASHED, DELETION_STAGING_PATH, null)
 
     /**
      * Queues the current photo for [destination], appending the capture year
@@ -115,10 +119,23 @@ class ReviewSession(
      */
     fun fileCurrent(destination: DestinationRepository.Destination): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        val path = destination.pathFor(photo.dateTakenMillis)
-        return stateRepository.record(photo, ReviewStatus.CATEGORIZED, destination.id).onSuccess {
-            rememberState(photo.mediaId, ReviewStatus.CATEGORIZED, destination.id)
-            pendingActions.add(PendingAction.Move(photo, destination, path))
+        return queueMove(
+            ReviewStatus.CATEGORIZED,
+            destination.pathFor(photo.dateTakenMillis),
+            destination.id
+        )
+    }
+
+    /** Shared path for every action that moves a file. */
+    private fun queueMove(
+        status: ReviewStatus,
+        destinationRelativePath: String,
+        destinationId: Long?
+    ): Result<Unit> {
+        val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
+        return stateRepository.record(photo, status, destinationId).onSuccess {
+            rememberState(photo.mediaId, status, destinationId)
+            pendingMoves.add(PendingMove(photo, destinationRelativePath, status, destinationId))
             goNext()
         }
     }
@@ -144,12 +161,12 @@ class ReviewSession(
     }
 
     /**
-     * Undoes the last queued action: removes it, forgets the decision, and
+     * Undoes the last queued move: removes it, forgets the decision, and
      * returns to that photo. Tags are left alone, since tagging is not queued.
      */
-    fun undoLastAction(): Result<Unit> {
-        if (pendingActions.isEmpty()) return Result.failure(IllegalStateException("Coda vuota"))
-        val undone = pendingActions.removeAt(pendingActions.lastIndex)
+    fun undoLastMove(): Result<Unit> {
+        if (pendingMoves.isEmpty()) return Result.failure(IllegalStateException("Coda vuota"))
+        val undone = pendingMoves.removeAt(pendingMoves.lastIndex)
         return stateRepository.forget(undone.photo.mediaId).onSuccess {
             storedStates = storedStates - undone.photo.mediaId
             val position = photos.indexOfFirst { it.mediaId == undone.photo.mediaId }
@@ -157,10 +174,10 @@ class ReviewSession(
         }
     }
 
-    /** Drops applied actions from the queue, keeping the ones that failed. */
-    fun retainFailedActions(failed: List<PendingAction>) {
-        pendingActions.clear()
-        pendingActions.addAll(failed)
+    /** Drops applied moves from the queue, keeping the ones that failed. */
+    fun retainFailedMoves(failed: List<PendingMove>) {
+        pendingMoves.clear()
+        pendingMoves.addAll(failed)
     }
 
     private fun rememberState(mediaId: Long, status: ReviewStatus, destinationId: Long?) {

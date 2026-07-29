@@ -19,7 +19,7 @@
     <string name="action_next">Avanti</string>
 
     <!-- Decisions -->
-    <string name="action_trash">Cestina</string>
+    <string name="action_trash">Da eliminare</string>
     <string name="action_keep">Mantieni</string>
     <string name="action_undo">Annulla</string>
     <string name="action_apply">Applica (%1$d)</string>
@@ -65,11 +65,10 @@
     <string name="photo_state_unseen">mai vista</string>
     <string name="photo_state_kept">mantenuta</string>
     <string name="photo_state_categorized">archiviata</string>
-    <string name="photo_state_trashed">cestinata</string>
+    <string name="photo_state_trashed">da eliminare</string>
     <string name="photo_tags">tag: %1$s</string>
     <string name="message_applied">%1$d spostamenti in %2$d ms.</string>
     <string name="message_partial">%1$d riusciti, %2$d rimasti in coda. Primo errore: %3$s</string>
-    <string name="message_trashed">%1$d foto nel cestino di sistema.</string>
     <string name="message_consent_refused">Consenso rifiutato: nessuna modifica applicata.</string>
     <string name="message_error">Errore: %1$s</string>
     <string name="message_queue_empty">Coda vuota.</string>
