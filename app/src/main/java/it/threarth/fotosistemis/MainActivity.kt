@@ -124,8 +124,6 @@ class MainActivity : AppCompatActivity() {
      */
     private var preferredPeriod: PhotoFilter.Period = PhotoFilter.Period.Any
 
-    /** Guards against the spinner rebuild triggering another load. */
-    private var rebuildingPeriods = false
 
     private var customRange: PhotoFilter.Period.Range? = null
     private var busy = false
@@ -418,7 +416,9 @@ class MainActivity : AppCompatActivity() {
         if (restoredIndex >= 0) folderSpinner.setSelection(restoredIndex)
         folderSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                preferredFolder = offeredFolders.getOrNull(pos)
+                val chosen = offeredFolders.getOrNull(pos)
+                if (chosen == preferredFolder) return
+                preferredFolder = chosen
                 reload()
             }
 
@@ -459,19 +459,25 @@ class MainActivity : AppCompatActivity() {
             compareByDescending<PhotoFilter.Period.Month> { it.year }.thenByDescending { it.month }
         )
 
-        offeredPeriods.clear()
+        val rebuilt = ArrayList<PhotoFilter.Period>()
         val items = ArrayList<TintedSpinnerAdapter.Item>()
-        offeredPeriods.add(PhotoFilter.Period.Any)
+        rebuilt.add(PhotoFilter.Period.Any)
         items.add(TintedSpinnerAdapter.Item(getString(R.string.period_any, photos.size), null))
 
         for (month in ordered) {
-            offeredPeriods.add(month)
+            rebuilt.add(month)
             val total = counts[month] ?: 0
             val seen = reviewed[month] ?: 0
             items.add(monthItem(month, seen, total))
         }
         items.add(TintedSpinnerAdapter.Item(getString(R.string.period_custom_range), null))
 
+        // Rebuilding the adapter emits a selection event, which would load
+        // again and rebuild again. Touch it only when the months changed.
+        if (rebuilt == offeredPeriods && periodSpinner.adapter != null) return
+
+        offeredPeriods.clear()
+        offeredPeriods.addAll(rebuilt)
         applyPeriodSpinner(items)
     }
 
@@ -506,9 +512,12 @@ class MainActivity : AppCompatActivity() {
         return TintedSpinnerAdapter.Item(label, colorRes)
     }
 
-    /** Swaps the adapter without letting the change trigger another load. */
+    /**
+     * Swaps the adapter. Safe to call because the listener reloads only when
+     * the chosen period actually differs, so the selection event that a
+     * rebuild produces cannot start a loop.
+     */
     private fun applyPeriodSpinner(items: List<TintedSpinnerAdapter.Item>) {
-        rebuildingPeriods = true
         periodSpinner.adapter = TintedSpinnerAdapter(this, items)
 
         val index = offeredPeriods.indexOf(preferredPeriod)
@@ -524,16 +533,14 @@ class MainActivity : AppCompatActivity() {
 
         periodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                if (rebuildingPeriods) return
-                preferredPeriod = offeredPeriods.getOrNull(pos)
-                    ?: customRange
-                    ?: PhotoFilter.Period.Any
+                val chosen = offeredPeriods.getOrNull(pos) ?: customRange ?: PhotoFilter.Period.Any
+                if (chosen == preferredPeriod) return
+                preferredPeriod = chosen
                 reload()
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
-        periodSpinner.post { rebuildingPeriods = false }
     }
 
     private fun buildScopeSpinner() {
@@ -914,6 +921,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Decodes the thumbnail off the main thread, ignoring stale results. */
     private fun loadPreview(photo: MediaStoreRepository.Photo) {
+        // Already showing this photo: reloading it would only make it blink.
+        if (preview.tag == photo.mediaId && preview.drawable != null) return
+
         preview.setImageDrawable(null)
         preview.tag = photo.mediaId
         thread {
