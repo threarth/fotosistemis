@@ -91,6 +91,9 @@ class ReviewSession(
 
     fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.mediaId]?.status }
 
+    /** Destination the current photo was filed into, if any. */
+    fun currentDestinationId(): Long? = current()?.let { storedStates[it.mediaId]?.destinationId }
+
     fun currentTags(): List<String> = current()?.let { tagAssignments[it.mediaId] } ?: emptyList()
 
     fun canGoNext(): Boolean = currentIndex < photos.size - 1

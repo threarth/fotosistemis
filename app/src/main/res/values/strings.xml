@@ -93,7 +93,8 @@
     <string name="date_source_file">⚠ data del file</string>
     <string name="photo_state_unseen">mai vista</string>
     <string name="photo_state_kept">mantenuta</string>
-    <string name="photo_state_categorized">archiviata</string>
+    <string name="photo_state_categorized">archiviata in %1$s</string>
+    <string name="destination_unknown">cartella rimossa</string>
     <string name="photo_state_trashed">da eliminare</string>
     <string name="photo_tags">tag: %1$s</string>
     <string name="message_applied">%1$d spostamenti in %2$d ms.</string>

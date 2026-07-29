@@ -1130,7 +1130,21 @@ class MainActivity : AppCompatActivity() {
         null -> getString(R.string.photo_state_unseen)
         ReviewStatus.KEPT -> getString(R.string.photo_state_kept)
         ReviewStatus.TRASHED -> getString(R.string.photo_state_trashed)
-        ReviewStatus.CATEGORIZED -> getString(R.string.photo_state_categorized)
+        ReviewStatus.CATEGORIZED ->
+            getString(R.string.photo_state_categorized, currentDestinationLabel())
+    }
+
+    /**
+     * Name of the folder a photo was filed into.
+     *
+     * Falls back to a placeholder rather than showing nothing when the
+     * destination has since been deleted: the photo is still filed
+     * somewhere, and the path history records where.
+     */
+    private fun currentDestinationLabel(): String {
+        val id = session.currentDestinationId() ?: return getString(R.string.destination_unknown)
+        return destinations.firstOrNull { it.id == id }?.label
+            ?: getString(R.string.destination_unknown)
     }
 
     /**
