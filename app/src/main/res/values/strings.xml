@@ -59,6 +59,13 @@
     <string name="destination_path_hint">Percorso, es. Pictures/Famiglia</string>
     <string name="destination_year_subfolder">Crea sottocartella per anno</string>
     <string name="pattern_title">Nome sottocartella anno</string>
+    <string name="action_export">Esporta dati</string>
+    <string name="action_import">Importa dati</string>
+    <string name="backup_file_name">fotosistemis-%1$s.json</string>
+    <string name="backup_exported">Esportate %1$d righe da %2$d tabelle.</string>
+    <string name="backup_imported">Importate %1$d righe. Riapri la schermata principale.</string>
+    <string name="backup_import_title">Sostituire i dati?</string>
+    <string name="backup_import_message">L\'importazione sostituisce cartelle, tag, foto gia\' viste e storico percorsi con quelli del file. Il lavoro fatto dopo questo backup va perso.</string>
     <string name="destination_pattern_help">Segnaposto: {anno} e {etichetta}. Google Foto mostra solo l\'ultimo livello, quindi un semplice {anno} apparirebbe uguale per tutte le cartelle.</string>
     <string name="destination_with_year">con sottocartella anno</string>
     <string name="destination_without_year">senza sottocartella anno</string>

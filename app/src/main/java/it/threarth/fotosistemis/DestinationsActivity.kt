@@ -14,7 +14,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.activity.result.contract.ActivityResultContracts
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * Create, edit and delete the folders photos can be filed into.
@@ -24,8 +28,14 @@ import java.util.Calendar
  */
 class DestinationsActivity : AppCompatActivity() {
 
+    private companion object {
+        const val BACKUP_MIME_TYPE = "application/json"
+        const val BACKUP_STAMP_PATTERN = "yyyyMMdd-HHmm"
+    }
+
     private lateinit var repository: DestinationRepository
     private lateinit var settings: AppSettings
+    private lateinit var backup: BackupRepository
     private lateinit var listView: ListView
     private var destinations: List<DestinationRepository.Destination> = emptyList()
 
@@ -37,10 +47,13 @@ class DestinationsActivity : AppCompatActivity() {
 
         repository = DestinationRepository(this)
         settings = AppSettings(this)
+        backup = BackupRepository(this)
         listView = findViewById(R.id.destinationList)
         listView.setOnItemClickListener { _, _, position, _ -> editDestination(destinations[position]) }
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
+        findViewById<Button>(R.id.exportButton).setOnClickListener { startExport() }
+        findViewById<Button>(R.id.importButton).setOnClickListener { confirmImport() }
 
         refresh()
     }
@@ -77,6 +90,65 @@ class DestinationsActivity : AppCompatActivity() {
             settings.yearFolderPattern
         )
         return "${destination.label}\n${destination.relativePath}/$example/"
+    }
+
+    /**
+     * Writes a backup wherever the user chooses.
+     *
+     * The system picker is used rather than a fixed folder: it needs no
+     * storage permission and lets the copy land somewhere that survives the
+     * phone, which is the point of making one.
+     */
+    private val createBackup =
+        registerForActivityResult(ActivityResultContracts.CreateDocument(BACKUP_MIME_TYPE)) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val stream = contentResolver.openOutputStream(uri)
+            if (stream == null) {
+                toast(getString(R.string.message_error, "output"))
+                return@registerForActivityResult
+            }
+            stream.use { output ->
+                backup.exportTo(output).fold(
+                    onSuccess = { toast(getString(R.string.backup_exported, it.rowCount, it.tableCount)) },
+                    onFailure = { showError(it) }
+                )
+            }
+        }
+
+    private val openBackup =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val stream = contentResolver.openInputStream(uri)
+            if (stream == null) {
+                toast(getString(R.string.message_error, "input"))
+                return@registerForActivityResult
+            }
+            stream.use { input ->
+                backup.importFrom(input).fold(
+                    onSuccess = {
+                        toast(getString(R.string.backup_imported, it.rowCount))
+                        refresh()
+                    },
+                    onFailure = { showError(it) }
+                )
+            }
+        }
+
+    private fun startExport() {
+        val stamp = SimpleDateFormat(BACKUP_STAMP_PATTERN, Locale.ITALY).format(Date())
+        createBackup.launch(getString(R.string.backup_file_name, stamp))
+    }
+
+    /** Restoring overwrites, so it is stated plainly before it happens. */
+    private fun confirmImport() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.backup_import_title)
+            .setMessage(R.string.backup_import_message)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                openBackup.launch(arrayOf(BACKUP_MIME_TYPE))
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /**
