@@ -37,6 +37,9 @@ import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sign
 
 /**
  * The review screen: one photo at a time, with navigation that decides
@@ -60,9 +63,14 @@ class MainActivity : AppCompatActivity() {
         /** Shortest movement accepted as a deliberate swipe. */
         const val MIN_FLING_PIXELS = 80f
 
-        /** How far the incoming photo travels, as a fraction of the stage. */
-        const val ENTRY_TRAVEL_FRACTION = 0.30f
-        const val ENTRY_DURATION_MILLIS = 190L
+        /** Movement after which the drag axis is fixed. */
+        const val AXIS_LOCK_PIXELS = 18f
+
+        /** Fraction of the stage a drag must cover to perform its action. */
+        const val COMMIT_FRACTION = 0.22f
+
+        /** Time taken to finish a committed drag, or to return home. */
+        const val SETTLE_DURATION_MILLIS = 170L
 
         /** The confirmation stays put briefly, then fades. */
         const val FLASH_HOLD_MILLIS = 350L
@@ -88,6 +96,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
     private lateinit var mediaStage: View
+    private lateinit var previewAdjacent: ImageView
     private lateinit var actionFlash: TextView
     private lateinit var tagButton: Button
     private lateinit var restoreButton: Button
@@ -132,6 +141,18 @@ class MainActivity : AppCompatActivity() {
 
     /** Restores awaiting consent. Never enters the pending queue. */
     private var pendingRestore: List<ReviewSession.PendingMove> = emptyList()
+
+    /** Which way a drag has committed, once it is clear. */
+    private enum class DragAxis { UNDECIDED, HORIZONTAL, VERTICAL }
+
+    private var dragAxis = DragAxis.UNDECIDED
+    private var dragStartX = 0f
+    private var dragStartY = 0f
+    private var adjacentRestingOffset = 0f
+
+    /** Neighbouring thumbnails, kept ready so a drag reveals them at once. */
+    private var previousBitmap: Bitmap? = null
+    private var nextBitmap: Bitmap? = null
 
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -193,6 +214,7 @@ class MainActivity : AppCompatActivity() {
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         mediaStage = findViewById(R.id.mediaStage)
+        previewAdjacent = findViewById(R.id.previewAdjacent)
         actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
         restoreButton = findViewById(R.id.restoreButton)
@@ -226,83 +248,186 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Reads swipes over the preview.
+     * Follows the finger, then commits or springs back.
      *
-     * Only swipes act. Tapping a side was ambiguous: a strip on the left can
-     * mean either where the finger starts or where it travels, and the two
-     * readings give opposite actions. A swipe states its own direction.
+     * The photo moves with the drag instead of jumping when it ends, so the
+     * gesture can be seen taking effect and abandoned halfway. Only swipes
+     * act: tapping a side was ambiguous, since a strip on the left can mean
+     * either where the finger starts or where it travels.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun wireStageGestures() {
-        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(event: MotionEvent) = true
-
-            override fun onFling(
-                start: MotionEvent?,
-                end: MotionEvent,
-                velocityX: Float,
-                velocityY: Float
-            ): Boolean {
-                actionForFling(start ?: return false, end)?.invoke()
-                return true
+        mediaStage.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> beginDrag(event)
+                MotionEvent.ACTION_MOVE -> continueDrag(event)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endDrag()
+                else -> false
             }
-        })
-        mediaStage.setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+        }
     }
 
-    /** Maps a swipe direction to its action. The only way to act. */
-    private fun actionForFling(start: MotionEvent, end: MotionEvent): (() -> Unit)? {
-        val dx = end.x - start.x
-        val dy = end.y - start.y
-        if (abs(dx) < MIN_FLING_PIXELS && abs(dy) < MIN_FLING_PIXELS) return null
+    private fun beginDrag(event: MotionEvent): Boolean {
+        if (busy || session.current() == null) return false
+        preview.animate().cancel()
+        previewAdjacent.animate().cancel()
+        dragStartX = event.rawX
+        dragStartY = event.rawY
+        dragAxis = DragAxis.UNDECIDED
+        return true
+    }
 
-        return if (abs(dx) > abs(dy)) {
-            if (dx < 0) ::keepCurrent else ::trashCurrent
+    /**
+     * Moves the photo with the finger. The axis is locked once the drag has
+     * clearly committed to one, so a wobble cannot flip between advancing
+     * and filing halfway through.
+     */
+    private fun continueDrag(event: MotionEvent): Boolean {
+        val dx = event.rawX - dragStartX
+        val dy = event.rawY - dragStartY
+
+        if (dragAxis == DragAxis.UNDECIDED) {
+            if (max(abs(dx), abs(dy)) < AXIS_LOCK_PIXELS) return true
+            dragAxis = if (abs(dx) > abs(dy)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
+            showAdjacent(dragAxis, dx, dy)
+        }
+
+        if (dragAxis == DragAxis.HORIZONTAL) {
+            preview.translationX = dx
+            preview.translationY = 0f
         } else {
-            if (dy < 0) ::goNext else ::goPrevious
+            preview.translationY = dy
+            preview.translationX = 0f
+            // Vertical is paging: the neighbour travels with the current one.
+            previewAdjacent.translationY = dy + adjacentRestingOffset
+        }
+
+        previewHintForDrag(dx, dy)
+        return true
+    }
+
+    /**
+     * Puts the neighbouring photo behind the current one.
+     *
+     * Vertical drags page, so the neighbour starts one screen away and
+     * follows. Horizontal drags file the photo away, so the neighbour stays
+     * still and is uncovered as the current one slides off.
+     */
+    private fun showAdjacent(axis: DragAxis, dx: Float, dy: Float) {
+        val neighbour = when {
+            axis == DragAxis.HORIZONTAL -> nextBitmap
+            dy < 0 -> nextBitmap
+            else -> previousBitmap
+        } ?: return
+
+        previewAdjacent.setImageBitmap(neighbour)
+        previewAdjacent.visibility = View.VISIBLE
+        adjacentRestingOffset = when {
+            axis == DragAxis.HORIZONTAL -> 0f
+            dy < 0 -> mediaStage.height.toFloat()
+            else -> -mediaStage.height.toFloat()
+        }
+        previewAdjacent.translationX = 0f
+        previewAdjacent.translationY = if (axis == DragAxis.HORIZONTAL) 0f else adjacentRestingOffset
+    }
+
+    /** Names the action the drag would trigger, fading in as it commits. */
+    private fun previewHintForDrag(dx: Float, dy: Float) {
+        if (dragAxis != DragAxis.HORIZONTAL) {
+            actionFlash.alpha = 0f
+            return
+        }
+        val label = if (dx < 0) R.string.flash_keep else R.string.flash_trash
+        actionFlash.setText(label)
+        actionFlash.alpha = min(1f, abs(dx) / commitThreshold())
+    }
+
+    /** Distance past which releasing performs the action. */
+    private fun commitThreshold(): Float =
+        max(mediaStage.width, mediaStage.height) * COMMIT_FRACTION
+
+    /** Decides between performing the action and returning the photo home. */
+    private fun endDrag(): Boolean {
+        val axis = dragAxis
+        dragAxis = DragAxis.UNDECIDED
+        if (axis == DragAxis.UNDECIDED) return true
+
+        val travelled = if (axis == DragAxis.HORIZONTAL) preview.translationX else preview.translationY
+        if (abs(travelled) < commitThreshold()) {
+            springBack()
+            return true
+        }
+        commitDrag(axis, travelled)
+        return true
+    }
+
+    /** Abandoned drag: everything slides home and nothing is recorded. */
+    private fun springBack() {
+        actionFlash.animate().alpha(0f).setDuration(SETTLE_DURATION_MILLIS).start()
+        preview.animate()
+            .translationX(0f)
+            .translationY(0f)
+            .setDuration(SETTLE_DURATION_MILLIS)
+            .withEndAction { previewAdjacent.visibility = View.INVISIBLE }
+            .start()
+        previewAdjacent.animate()
+            .translationY(adjacentRestingOffset)
+            .setDuration(SETTLE_DURATION_MILLIS)
+            .start()
+    }
+
+    /** Carries the photo the rest of the way out, then performs the action. */
+    private fun commitDrag(axis: DragAxis, travelled: Float) {
+        val exitX = if (axis == DragAxis.HORIZONTAL) sign(travelled) * mediaStage.width else 0f
+        val exitY = if (axis == DragAxis.VERTICAL) sign(travelled) * mediaStage.height else 0f
+
+        previewAdjacent.animate()
+            .translationY(0f)
+            .setDuration(SETTLE_DURATION_MILLIS)
+            .start()
+
+        preview.animate()
+            .translationX(exitX)
+            .translationY(exitY)
+            .setDuration(SETTLE_DURATION_MILLIS)
+            .withEndAction {
+                preview.translationX = 0f
+                preview.translationY = 0f
+                previewAdjacent.visibility = View.INVISIBLE
+                performDragAction(axis, travelled)
+            }
+            .start()
+    }
+
+    /** Maps the completed drag to its action. */
+    private fun performDragAction(axis: DragAxis, travelled: Float) {
+        if (axis == DragAxis.HORIZONTAL) {
+            if (travelled < 0) keepCurrent() else trashCurrent()
+        } else {
+            if (travelled < 0) goNext() else goPrevious()
         }
     }
 
     private fun goPrevious() {
         if (busy || !session.goPrevious()) return
         render()
-        animateEntry(0f, mediaStage.height * ENTRY_TRAVEL_FRACTION)
     }
 
     private fun goNext() {
         if (busy || !session.goNext()) return
         render()
-        animateEntry(0f, -mediaStage.height * ENTRY_TRAVEL_FRACTION)
     }
 
     private fun keepCurrent() {
         if (!canDecide()) return
         applyDecision { session.keepCurrent() }
         flashAction(getString(R.string.flash_keep))
-        animateEntry(mediaStage.width * ENTRY_TRAVEL_FRACTION, 0f)
     }
 
     private fun trashCurrent() {
         if (!canDecide()) return
         applyDecision { session.trashCurrent() }
         flashAction(getString(R.string.flash_trash))
-        animateEntry(-mediaStage.width * ENTRY_TRAVEL_FRACTION, 0f)
-    }
-
-    /**
-     * Slides the new photo in from the direction the gesture came from, so a
-     * swipe reads as leafing through an album rather than as a redraw.
-     */
-    private fun animateEntry(fromX: Float, fromY: Float) {
-        preview.translationX = fromX
-        preview.translationY = fromY
-        preview.alpha = 0f
-        preview.animate()
-            .translationX(0f)
-            .translationY(0f)
-            .alpha(1f)
-            .setDuration(ENTRY_DURATION_MILLIS)
-            .start()
     }
 
     /**
@@ -961,6 +1086,31 @@ class MainActivity : AppCompatActivity() {
         thread {
             val bitmap = mediaRepository.loadThumbnail(photo).getOrNull()
             runOnUiThread { showPreviewIfCurrent(photo.mediaId, bitmap) }
+        }
+        preloadNeighbours()
+    }
+
+    /**
+     * Decodes the photos either side in the background.
+     *
+     * A drag has to reveal the neighbour the instant it starts; decoding it
+     * on touch would show an empty frame for the first moments of every
+     * gesture.
+     */
+    private fun preloadNeighbours() {
+        val next = session.peek(1)
+        val previous = session.peek(-1)
+        nextBitmap = null
+        previousBitmap = null
+
+        thread {
+            val loadedNext = next?.let { mediaRepository.loadThumbnail(it).getOrNull() }
+            val loadedPrevious = previous?.let { mediaRepository.loadThumbnail(it).getOrNull() }
+            runOnUiThread {
+                // Discard if the user moved on while these were decoding.
+                if (session.peek(1)?.mediaId == next?.mediaId) nextBitmap = loadedNext
+                if (session.peek(-1)?.mediaId == previous?.mediaId) previousBitmap = loadedPrevious
+            }
         }
     }
 

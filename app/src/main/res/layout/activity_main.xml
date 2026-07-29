@@ -110,6 +110,17 @@
         android:layout_marginTop="6dp"
         android:layout_weight="1">
 
+        <!-- Sits under the current photo and shows the neighbouring one, so
+             a drag reveals where it is going instead of cutting to it. -->
+        <ImageView
+            android:id="@+id/previewAdjacent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:adjustViewBounds="true"
+            android:contentDescription="@string/preview_description"
+            android:scaleType="fitCenter"
+            android:visibility="invisible" />
+
         <ImageView
             android:id="@+id/preview"
             android:layout_width="match_parent"

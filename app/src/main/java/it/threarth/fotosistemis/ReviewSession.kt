@@ -90,6 +90,9 @@ class ReviewSession(
 
     fun current(): MediaStoreRepository.Photo? = photos.getOrNull(currentIndex)
 
+    /** Photo [offset] places away, used to show where a drag is heading. */
+    fun peek(offset: Int): MediaStoreRepository.Photo? = photos.getOrNull(currentIndex + offset)
+
     fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.mediaId]?.status }
 
     fun currentTags(): List<String> = current()?.let { tagAssignments[it.mediaId] } ?: emptyList()
