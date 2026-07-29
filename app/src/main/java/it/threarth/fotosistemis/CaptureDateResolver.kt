@@ -35,6 +35,11 @@ object CaptureDateResolver {
     private const val MIN_YEAR = 1990
     private const val MAX_YEAR = 2100
 
+    /** 1990-01-01 in milliseconds: no digital photo predates it. */
+    private const val MIN_PLAUSIBLE_MILLIS = 631_152_000_000L
+
+    private const val MILLIS_PER_SECOND = 1000L
+
     /**
      * Date and time together, e.g. IMG_20260728_153045.jpg,
      * PXL_20260728_153045123.jpg, Screenshot_20260728-153045.png.
@@ -56,10 +61,27 @@ object CaptureDateResolver {
      * [exifMillis] should be null or zero when MediaStore has no DATE_TAKEN.
      */
     fun resolve(displayName: String, exifMillis: Long?, fileMillis: Long): Resolved {
-        if (exifMillis != null && exifMillis > 0L) return Resolved(exifMillis, Source.EXIF)
+        val exif = normaliseExif(exifMillis)
+        if (exif != null) return Resolved(exif, Source.EXIF)
         val fromName = parseFileName(displayName)
         if (fromName != null) return Resolved(fromName, Source.FILENAME)
         return Resolved(fileMillis, Source.FILE_TIMESTAMP)
+    }
+
+    /**
+     * Accepts DATE_TAKEN only when it can be a real capture time.
+     *
+     * The column is documented as milliseconds, but some devices fill it
+     * with seconds. Read as milliseconds such a value lands in 1970, which
+     * silently pushes every photo outside any period filter instead of
+     * failing visibly. A value too small to be a plausible date in
+     * milliseconds, but plausible once multiplied, is treated as seconds.
+     */
+    private fun normaliseExif(exifMillis: Long?): Long? {
+        if (exifMillis == null || exifMillis <= 0L) return null
+        if (exifMillis >= MIN_PLAUSIBLE_MILLIS) return exifMillis
+        val asMillis = exifMillis * MILLIS_PER_SECOND
+        return if (asMillis >= MIN_PLAUSIBLE_MILLIS) asMillis else null
     }
 
     /** Extracts a timestamp from [displayName], or null when none is found. */

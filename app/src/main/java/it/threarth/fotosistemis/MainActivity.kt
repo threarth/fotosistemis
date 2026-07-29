@@ -405,7 +405,7 @@ class MainActivity : AppCompatActivity() {
 
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
-        if (visible.isEmpty()) explainEmptyResult(loadedPhotos.size, inPeriod.size, period)
+        if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
     }
 
     /**
@@ -413,14 +413,24 @@ class MainActivity : AppCompatActivity() {
      * is impossible to guess from an empty screen, and the folder, the
      * period and the review state each hide photos for different reasons.
      */
-    private fun explainEmptyResult(inFolder: Int, inPeriod: Int, period: LongRange?) {
+    private fun explainEmptyResult(
+        inFolder: List<MediaStoreRepository.Photo>,
+        inPeriod: Int,
+        period: LongRange?
+    ) {
         val dateFormat = SimpleDateFormat(DAY_PATTERN, Locale.ITALY)
         val periodText = if (period == null) {
             getString(R.string.period_any)
         } else {
             "${dateFormat.format(Date(period.first))} - ${dateFormat.format(Date(period.last))}"
         }
-        statusText.text = getString(R.string.status_empty_detail, inFolder, periodText, inPeriod)
+        val dates = inFolder.map { it.dateTakenMillis }
+        val presentText = if (dates.isEmpty()) "-" else
+            "${dateFormat.format(Date(dates.min()))} - ${dateFormat.format(Date(dates.max()))}"
+
+        statusText.text = getString(
+            R.string.status_empty_detail, inFolder.size, periodText, inPeriod, presentText
+        )
     }
 
     /** Runs a decision, reports failure, and refreshes the screen. */

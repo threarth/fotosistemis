@@ -89,6 +89,26 @@ class PhotoFilterTest {
     }
 
     @Test
+    fun `exif in seconds is recognised and rescaled`() {
+        val julyMillis = millisOf(2026, 7, 15)
+        val julySeconds = julyMillis / 1000
+
+        val fromSeconds = CaptureDateResolver.resolve("IMG_0001.jpg", julySeconds, 0L)
+        assertEquals(CaptureDateResolver.Source.EXIF, fromSeconds.source)
+        assertTrue(
+            "Un valore in secondi deve essere riportato a millisecondi",
+            fromSeconds.millis in PhotoFilter(PhotoFilter.Period.Month(7, 2026))
+                .resolvePeriodMillis()!!
+        )
+    }
+
+    @Test
+    fun `implausible exif falls back to the file name`() {
+        val resolved = CaptureDateResolver.resolve("20200804_180537.jpg", 42L, 0L)
+        assertEquals(CaptureDateResolver.Source.FILENAME, resolved.source)
+    }
+
+    @Test
     fun `file name parsing rejects impossible dates`() {
         assertNull(CaptureDateResolver.parseFileName("20260231_120000.jpg"))
         assertNull(CaptureDateResolver.parseFileName("IMG_0001.jpg"))
