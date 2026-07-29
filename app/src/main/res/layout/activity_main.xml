@@ -119,69 +119,22 @@
             android:contentDescription="@string/preview_description"
             android:scaleType="fitCenter" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clickable="false"
-            android:focusable="false"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/zoneKeep"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:alpha="0.45"
-                android:background="#18000000"
-                android:gravity="center"
-                android:text="@string/zone_keep"
-                android:textSize="13sp" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="2"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/zonePrevious"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:alpha="0.45"
-                    android:background="#18000000"
-                    android:gravity="center"
-                    android:text="@string/zone_previous"
-                    android:textSize="13sp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/zoneNext"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:alpha="0.45"
-                    android:background="#18000000"
-                    android:gravity="center"
-                    android:text="@string/zone_next"
-                    android:textSize="13sp" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/zoneTrash"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:alpha="0.45"
-                android:background="#18000000"
-                android:gravity="center"
-                android:text="@string/zone_trash"
-                android:textSize="13sp" />
-        </LinearLayout>
+        <!-- Legend only: every action is a swipe. Tap zones were removed
+             because "left" is ambiguous, meaning either where the finger
+             starts or where it travels, and the two readings disagree. -->
+        <TextView
+            android:id="@+id/swipeLegend"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_margin="8dp"
+            android:alpha="0.55"
+            android:background="#66000000"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="@string/swipe_legend"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
 
         <!-- Confirms the gesture just made, then fades out. -->
         <TextView

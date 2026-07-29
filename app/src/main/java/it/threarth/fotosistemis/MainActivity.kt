@@ -56,17 +56,8 @@ class MainActivity : AppCompatActivity() {
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
         const val IMAGE_MIME_TYPE = "image/*"
 
-        /** Width of the left and right tap strips, as a fraction of the stage. */
-        const val SIDE_ZONE_FRACTION = 0.25f
-
-        /** Height of the top and bottom tap strips. */
-        const val EDGE_ZONE_FRACTION = 0.33f
-
         /** Shortest movement accepted as a deliberate swipe. */
         const val MIN_FLING_PIXELS = 80f
-
-        const val ZONE_ALPHA_ACTIVE = 0.45f
-        const val ZONE_ALPHA_DISABLED = 0.12f
 
         /** How far the incoming photo travels, as a fraction of the stage. */
         const val ENTRY_TRAVEL_FRACTION = 0.30f
@@ -93,10 +84,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
     private lateinit var mediaStage: View
-    private lateinit var zonePrevious: View
-    private lateinit var zoneNext: View
-    private lateinit var zoneKeep: View
-    private lateinit var zoneTrash: View
     private lateinit var actionFlash: TextView
     private lateinit var tagButton: Button
     private lateinit var restoreButton: Button
@@ -108,14 +95,14 @@ class MainActivity : AppCompatActivity() {
     private val offeredPeriods = ArrayList<PhotoFilter.Period>()
 
     /** Folders offered by the spinner; null at index 0 means "every folder". */
-    private val offeredFolders = ArrayList<String?>()
+    private val offeredFolders = ArrayList<MediaStoreRepository.FolderSummary?>()
 
     /**
      * Folder the user last chose. Kept separately from the spinner so that
      * rebuilding the list after a batch does not silently change what is
      * being reviewed.
      */
-    private var preferredFolder: String? = DEFAULT_SOURCE_FOLDER
+    private var preferredFolder: MediaStoreRepository.FolderSummary? = null
     private var destinations: List<DestinationRepository.Destination> = emptyList()
     /**
      * Period the user last chose. Kept apart from the spinner because the
@@ -202,10 +189,6 @@ class MainActivity : AppCompatActivity() {
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         mediaStage = findViewById(R.id.mediaStage)
-        zonePrevious = findViewById(R.id.zonePrevious)
-        zoneNext = findViewById(R.id.zoneNext)
-        zoneKeep = findViewById(R.id.zoneKeep)
-        zoneTrash = findViewById(R.id.zoneTrash)
         actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
         restoreButton = findViewById(R.id.restoreButton)
@@ -239,22 +222,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Reads taps and flings over the preview.
+     * Reads swipes over the preview.
      *
-     * One handler covers both: the overlay strips are labels only, so a tap
-     * is located by coordinate rather than by which view was hit. Tap and
-     * fling share the same four directions, so the gesture and the visible
-     * zone can never disagree.
+     * Only swipes act. Tapping a side was ambiguous: a strip on the left can
+     * mean either where the finger starts or where it travels, and the two
+     * readings give opposite actions. A swipe states its own direction.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun wireStageGestures() {
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(event: MotionEvent) = true
-
-            override fun onSingleTapUp(event: MotionEvent): Boolean {
-                actionForTap(event.x, event.y)?.invoke()
-                return true
-            }
 
             override fun onFling(
                 start: MotionEvent?,
@@ -269,22 +246,7 @@ class MainActivity : AppCompatActivity() {
         mediaStage.setOnTouchListener { _, event -> detector.onTouchEvent(event) }
     }
 
-    /** Maps a tap position to an action, mirroring the visible strips. */
-    private fun actionForTap(x: Float, y: Float): (() -> Unit)? {
-        val width = mediaStage.width.toFloat()
-        val height = mediaStage.height.toFloat()
-        if (width <= 0f || height <= 0f) return null
-
-        return when {
-            x < width * SIDE_ZONE_FRACTION -> ::keepCurrent
-            x > width * (1f - SIDE_ZONE_FRACTION) -> ::trashCurrent
-            y < height * EDGE_ZONE_FRACTION -> ::goPrevious
-            y > height * (1f - EDGE_ZONE_FRACTION) -> ::goNext
-            else -> null
-        }
-    }
-
-    /** Maps a fling to the same action as a tap in that direction. */
+    /** Maps a swipe direction to its action. The only way to act. */
     private fun actionForFling(start: MotionEvent, end: MotionEvent): (() -> Unit)? {
         val dx = end.x - start.x
         val dy = end.y - start.y
@@ -363,7 +325,7 @@ class MainActivity : AppCompatActivity() {
      * for deletion, which is a contradiction.
      */
     private fun canDecide(): Boolean = !busy && session.current() != null &&
-            preferredFolder != ReviewSession.DELETION_STAGING_PATH
+            preferredFolder?.relativePath != ReviewSession.DELETION_STAGING_PATH
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
     private fun ensureReadPermission() {
@@ -398,8 +360,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         stagingCount = folders
-            .firstOrNull { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
-            ?.photoCount ?: 0
+            .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
+            .sumOf { it.photoCount }
         stagingButton.text = getString(R.string.action_staging, stagingCount)
 
         offeredFolders.clear()
@@ -407,19 +369,33 @@ class MainActivity : AppCompatActivity() {
         offeredFolders.add(null)
         labels.add(getString(R.string.folder_all))
         for (folder in folders) {
-            offeredFolders.add(folder.relativePath)
-            labels.add(getString(R.string.folder_entry, folder.relativePath, folder.photoCount))
+            offeredFolders.add(folder)
+            // Photos on a memory card are marked: they stay on their own
+            // volume when filed, because MediaStore cannot move a file
+            // across volumes without copying every byte.
+            val name = if (folder.isRemovable) {
+                getString(R.string.folder_removable, folder.relativePath)
+            } else {
+                folder.relativePath
+            }
+            labels.add(getString(R.string.folder_entry, name, folder.photoCount))
+        }
+
+        if (preferredFolder == null) {
+            preferredFolder = folders.firstOrNull {
+                !it.isRemovable && it.relativePath == DEFAULT_SOURCE_FOLDER
+            }
         }
 
         folderSpinner.adapter = simpleAdapter(labels)
-        val restoredIndex = offeredFolders.indexOf(preferredFolder)
+        val restoredIndex = offeredFolders.indexOfFirst { it?.sameAs(preferredFolder) == true }
         if (restoredIndex >= 0) folderSpinner.setSelection(restoredIndex)
         folderSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
                 val chosen = offeredFolders.getOrNull(pos)
-                if (chosen == preferredFolder) return
-                preferredFolder = chosen
-                reload()
+                if (chosen?.sameAs(preferredFolder) == true) return
+                if (chosen == null && preferredFolder == null) return
+                changeFilter { preferredFolder = chosen }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -535,8 +511,7 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
                 val chosen = offeredPeriods.getOrNull(pos) ?: customRange ?: PhotoFilter.Period.Any
                 if (chosen == preferredPeriod) return
-                preferredPeriod = chosen
-                reload()
+                changeFilter { preferredPeriod = chosen }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -583,7 +558,7 @@ class MainActivity : AppCompatActivity() {
      * Folder currently selected, or null for every folder. Matching is exact,
      * so a folder never includes its own subfolders.
      */
-    private fun currentFolder(): String? =
+    private fun currentFolder(): MediaStoreRepository.FolderSummary? =
         offeredFolders.getOrNull(folderSpinner.selectedItemPosition)
 
     /** Builds the filter currently selected in the two spinners. */
@@ -607,6 +582,40 @@ class MainActivity : AppCompatActivity() {
             }, today.get(Calendar.YEAR), today.get(Calendar.MONTH), today.get(Calendar.DAY_OF_MONTH))
                 .show()
         }, today.get(Calendar.YEAR), today.get(Calendar.MONTH), today.get(Calendar.DAY_OF_MONTH))
+            .show()
+    }
+
+    /**
+     * Applies a change of filter, protecting work not yet applied.
+     *
+     * Changing folder or period reloads the working set and empties the
+     * queue, so without asking, decisions would vanish unannounced. Keeping
+     * a photo queues nothing and survives on its own, which is why the
+     * choices separate it from filing and deleting.
+     */
+    private fun changeFilter(change: () -> Unit) {
+        if (session.changedCount == 0) {
+            change()
+            reload()
+            return
+        }
+
+        val options = arrayOf(
+            getString(R.string.pending_apply),
+            getString(R.string.pending_drop_moves),
+            getString(R.string.pending_drop_all)
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pending_title)
+            .setMessage(getString(R.string.pending_message, session.pendingCount))
+            .setCancelable(false)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> { change(); startApply() }
+                    1 -> { session.discardQueuedMoves().onFailure { showError(it) }; change(); reload() }
+                    else -> { session.discardAllChanges().onFailure { showError(it) }; change(); reload() }
+                }
+            }
             .show()
     }
 
@@ -816,10 +825,12 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showStagingFolder() {
         if (stagingCount == 0) return toast(getString(R.string.staging_empty))
-        val index = offeredFolders.indexOf(ReviewSession.DELETION_STAGING_PATH)
+        val index = offeredFolders.indexOfFirst {
+            it?.relativePath == ReviewSession.DELETION_STAGING_PATH
+        }
         if (index < 0) return toast(getString(R.string.staging_empty))
 
-        preferredFolder = ReviewSession.DELETION_STAGING_PATH
+        preferredFolder = offeredFolders[index]
         folderSpinner.setSelection(index)
         toast(getString(R.string.staging_hint))
     }
@@ -871,10 +882,6 @@ class MainActivity : AppCompatActivity() {
         val hasPhoto = session.current() != null
 
         val canDecide = canDecide()
-        setZoneActive(zonePrevious, !busy && session.canGoPrevious())
-        setZoneActive(zoneNext, !busy && session.canGoNext())
-        setZoneActive(zoneKeep, canDecide)
-        setZoneActive(zoneTrash, canDecide)
         tagButton.isEnabled = !busy && hasPhoto
         openExternalButton.isEnabled = !busy && hasPhoto
         stagingButton.isEnabled = !busy && stagingCount > 0
@@ -885,11 +892,6 @@ class MainActivity : AppCompatActivity() {
         for (index in 0 until destinationActions.childCount) {
             destinationActions.getChildAt(index).isEnabled = canDecide
         }
-    }
-
-    /** Dims a zone whose action is unavailable, instead of hiding it. */
-    private fun setZoneActive(zone: View, active: Boolean) {
-        zone.alpha = if (active) ZONE_ALPHA_ACTIVE else ZONE_ALPHA_DISABLED
     }
 
     /** Name, size, capture date and recorded decision for one photo. */

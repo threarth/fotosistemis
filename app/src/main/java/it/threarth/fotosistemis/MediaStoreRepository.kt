@@ -25,6 +25,7 @@ class MediaStoreRepository(context: Context) {
     /** A single photo as indexed by MediaStore. */
     data class Photo(
         val mediaId: Long,
+        val volumeName: String,
         val uri: Uri,
         val displayName: String,
         val relativePath: String,
@@ -35,12 +36,21 @@ class MediaStoreRepository(context: Context) {
 
     private companion object {
 
-        /** Primary external volume: internal shared storage, never the SD card. */
+        /**
+         * Every mounted volume, so photos on a memory card are listed too.
+         *
+         * A photo keeps its own volume when filed: RELATIVE_PATH is relative
+         * to the volume the file already lives on, and MediaStore cannot
+         * move a file across volumes with an update. Crossing volumes would
+         * mean copying every byte, which is exactly the cost the native
+         * version exists to avoid.
+         */
         private val COLLECTION: Uri =
-            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
 
         private val PROJECTION = arrayOf(
             MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.VOLUME_NAME,
             MediaStore.Images.Media.DISPLAY_NAME,
             MediaStore.Images.Media.RELATIVE_PATH,
             MediaStore.Images.Media.SIZE,
@@ -55,8 +65,24 @@ class MediaStoreRepository(context: Context) {
         private const val THUMBNAIL_EDGE_PIXELS = 1024
     }
 
-    /** A folder that currently holds photos, and how many. */
-    data class FolderSummary(val relativePath: String, val photoCount: Int)
+    /** A folder on one volume that currently holds photos, and how many. */
+    data class FolderSummary(
+        val volumeName: String,
+        val relativePath: String,
+        val photoCount: Int
+    ) {
+
+        /** True when the folder lives on a memory card rather than internal storage. */
+        val isRemovable: Boolean get() = volumeName != MediaStore.VOLUME_EXTERNAL_PRIMARY
+
+        /**
+         * Identity without the photo count, which changes as photos move.
+         * Comparing whole objects would make a folder look different from
+         * itself after every batch.
+         */
+        fun sameAs(other: FolderSummary?): Boolean =
+            other != null && other.volumeName == volumeName && other.relativePath == relativePath
+    }
 
     /**
      * Lists the folders that directly contain photos, with their counts.
@@ -66,18 +92,24 @@ class MediaStoreRepository(context: Context) {
      * in a projection.
      */
     fun queryFolders(): Result<List<FolderSummary>> = try {
-        val counts = HashMap<String, Int>()
-        val projection = arrayOf(MediaStore.Images.Media.RELATIVE_PATH)
+        val counts = HashMap<Pair<String, String>, Int>()
+        val projection = arrayOf(
+            MediaStore.Images.Media.VOLUME_NAME,
+            MediaStore.Images.Media.RELATIVE_PATH
+        )
         val cursor = resolver.query(COLLECTION, projection, null, null, null)
             ?: throw IllegalStateException("MediaStore returned no cursor")
         cursor.use {
             while (it.moveToNext()) {
-                val path = it.getString(0) ?: continue
-                counts[path] = (counts[path] ?: 0) + 1
+                val volume = it.getString(0) ?: continue
+                val path = it.getString(1) ?: continue
+                val key = volume to path
+                counts[key] = (counts[key] ?: 0) + 1
             }
         }
         Result.success(
-            counts.map { FolderSummary(it.key, it.value) }.sortedBy { it.relativePath }
+            counts.map { FolderSummary(it.key.first, it.key.second, it.value) }
+                .sortedWith(compareBy({ it.isRemovable }, { it.relativePath }))
         )
     } catch (error: Exception) {
         Result.failure(error)
@@ -98,16 +130,17 @@ class MediaStoreRepository(context: Context) {
      *
      * Photos in the system trash are omitted by MediaStore itself.
      */
-    fun queryPhotos(folderRelativePath: String?): Result<List<Photo>> {
+    fun queryPhotos(folder: FolderSummary?): Result<List<Photo>> {
         val queryArgs = Bundle().apply {
-            if (folderRelativePath != null) {
+            if (folder != null) {
                 putString(
                     ContentResolver.QUERY_ARG_SQL_SELECTION,
-                    "${MediaStore.Images.Media.RELATIVE_PATH} = ?"
+                    "${MediaStore.Images.Media.VOLUME_NAME} = ? " +
+                            "AND ${MediaStore.Images.Media.RELATIVE_PATH} = ?"
                 )
                 putStringArray(
                     ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                    arrayOf(folderRelativePath)
+                    arrayOf(folder.volumeName, folder.relativePath)
                 )
             }
         }
@@ -125,6 +158,7 @@ class MediaStoreRepository(context: Context) {
     /** Drains [cursor] into Photo objects. */
     private fun readPhotos(cursor: Cursor): List<Photo> {
         val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        val volumeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.VOLUME_NAME)
         val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
         val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
         val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
@@ -134,6 +168,7 @@ class MediaStoreRepository(context: Context) {
         val photos = ArrayList<Photo>(cursor.count)
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idColumn)
+            val volume = cursor.getString(volumeColumn) ?: MediaStore.VOLUME_EXTERNAL_PRIMARY
             val displayName = cursor.getString(nameColumn) ?: ""
             val exifMillis = if (cursor.isNull(takenColumn)) null else cursor.getLong(takenColumn)
             val resolved = CaptureDateResolver.resolve(
@@ -144,7 +179,12 @@ class MediaStoreRepository(context: Context) {
             photos.add(
                 Photo(
                     mediaId = id,
-                    uri = ContentUris.withAppendedId(COLLECTION, id),
+                    volumeName = volume,
+                    // Built on the photo's own volume: an update must reach
+                    // the row on the volume that actually holds the file.
+                    uri = ContentUris.withAppendedId(
+                        MediaStore.Images.Media.getContentUri(volume), id
+                    ),
                     displayName = displayName,
                     relativePath = cursor.getString(pathColumn) ?: "",
                     sizeBytes = cursor.getLong(sizeColumn),
