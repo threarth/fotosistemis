@@ -78,6 +78,9 @@ class MainActivity : AppCompatActivity() {
 
         /** Thickness of the coloured frame showing the recorded state. */
         const val FRAME_WIDTH_DP = 5f
+
+        /** Current photo plus its two neighbours, with a little slack. */
+        const val THUMBNAIL_CACHE_SIZE = 4
     }
 
     private lateinit var mediaRepository: MediaStoreRepository
@@ -150,9 +153,25 @@ class MainActivity : AppCompatActivity() {
     private var dragStartY = 0f
     private var adjacentRestingOffset = 0f
 
-    /** Neighbouring thumbnails, kept ready so a drag reveals them at once. */
-    private var previousBitmap: Bitmap? = null
-    private var nextBitmap: Bitmap? = null
+    /** Set when a gesture asked for an action the folder does not allow. */
+    private var dragBlocked = false
+
+    /**
+     * Recently decoded thumbnails, keyed by MediaStore id.
+     *
+     * Holds the current photo and its neighbours, so completing a gesture
+     * shows the next photo immediately instead of blanking the view while it
+     * is decoded again, and a drag can reveal the neighbour at once.
+     */
+    private val thumbnails = object : LinkedHashMap<Long, Bitmap>(
+        THUMBNAIL_CACHE_SIZE, 0.75f, true
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?) =
+            size > THUMBNAIL_CACHE_SIZE
+    }
+
+    private val previousBitmap: Bitmap? get() = session.peek(-1)?.let { thumbnails[it.mediaId] }
+    private val nextBitmap: Bitmap? get() = session.peek(1)?.let { thumbnails[it.mediaId] }
 
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -269,6 +288,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun beginDrag(event: MotionEvent): Boolean {
         if (busy || session.current() == null) return false
+        dragBlocked = false
         preview.animate().cancel()
         previewAdjacent.animate().cancel()
         dragStartX = event.rawX
@@ -283,12 +303,22 @@ class MainActivity : AppCompatActivity() {
      * and filing halfway through.
      */
     private fun continueDrag(event: MotionEvent): Boolean {
+        if (dragBlocked) return true
         val dx = event.rawX - dragStartX
         val dy = event.rawY - dragStartY
 
         if (dragAxis == DragAxis.UNDECIDED) {
             if (max(abs(dx), abs(dy)) < AXIS_LOCK_PIXELS) return true
             dragAxis = if (abs(dx) > abs(dy)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
+
+            // Filing and deleting mean nothing in the deletion folder, where
+            // the only sensible act is putting a photo back. The drag is
+            // abandoned rather than moving the photo to no effect.
+            if (dragAxis == DragAxis.HORIZONTAL && !canDecide()) {
+                dragBlocked = true
+                dragAxis = DragAxis.UNDECIDED
+                return true
+            }
             showAdjacent(dragAxis, dx, dy)
         }
 
@@ -1079,15 +1109,30 @@ class MainActivity : AppCompatActivity() {
     /** Decodes the thumbnail off the main thread, ignoring stale results. */
     private fun loadPreview(photo: MediaStoreRepository.Photo) {
         // Already showing this photo: reloading it would only make it blink.
-        if (preview.tag == photo.mediaId && preview.drawable != null) return
+        if (preview.tag == photo.mediaId && preview.drawable != null) {
+            preloadNeighbours()
+            return
+        }
+        preview.tag = photo.mediaId
+
+        val cached = thumbnails[photo.mediaId]
+        if (cached != null) {
+            // Decoded already, most likely as the neighbour of the photo just
+            // left behind: show it at once so the gesture has no aftermath.
+            preview.setImageBitmap(cached)
+            preloadNeighbours()
+            return
+        }
 
         preview.setImageDrawable(null)
-        preview.tag = photo.mediaId
         thread {
             val bitmap = mediaRepository.loadThumbnail(photo).getOrNull()
-            runOnUiThread { showPreviewIfCurrent(photo.mediaId, bitmap) }
+            runOnUiThread {
+                if (bitmap != null) thumbnails[photo.mediaId] = bitmap
+                showPreviewIfCurrent(photo.mediaId, bitmap)
+                preloadNeighbours()
+            }
         }
-        preloadNeighbours()
     }
 
     /**
@@ -1098,19 +1143,15 @@ class MainActivity : AppCompatActivity() {
      * gesture.
      */
     private fun preloadNeighbours() {
-        val next = session.peek(1)
-        val previous = session.peek(-1)
-        nextBitmap = null
-        previousBitmap = null
+        val wanted = listOfNotNull(session.peek(1), session.peek(-1))
+            .filterNot { thumbnails.containsKey(it.mediaId) }
+        if (wanted.isEmpty()) return
 
         thread {
-            val loadedNext = next?.let { mediaRepository.loadThumbnail(it).getOrNull() }
-            val loadedPrevious = previous?.let { mediaRepository.loadThumbnail(it).getOrNull() }
-            runOnUiThread {
-                // Discard if the user moved on while these were decoding.
-                if (session.peek(1)?.mediaId == next?.mediaId) nextBitmap = loadedNext
-                if (session.peek(-1)?.mediaId == previous?.mediaId) previousBitmap = loadedPrevious
+            val decoded = wanted.mapNotNull { photo ->
+                mediaRepository.loadThumbnail(photo).getOrNull()?.let { photo.mediaId to it }
             }
+            runOnUiThread { decoded.forEach { thumbnails[it.first] = it.second } }
         }
     }
 

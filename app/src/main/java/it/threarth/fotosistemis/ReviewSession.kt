@@ -85,7 +85,12 @@ class ReviewSession(
         tagAssignments = tags
         originalPaths = origins
         recordedInSession.clear()
-        currentIndex = 0
+
+        // Resume where the reviewing stopped: the first photo with no
+        // decision recorded. Starting from the beginning would mean
+        // scrolling past everything already done to reach the work left.
+        val firstUndecided = loaded.indexOfFirst { states[it.mediaId] == null }
+        currentIndex = if (firstUndecided >= 0) firstUndecided else 0
     }
 
     fun current(): MediaStoreRepository.Photo? = photos.getOrNull(currentIndex)
