@@ -25,6 +25,7 @@ import java.util.Calendar
 class DestinationsActivity : AppCompatActivity() {
 
     private lateinit var repository: DestinationRepository
+    private lateinit var settings: AppSettings
     private lateinit var listView: ListView
     private var destinations: List<DestinationRepository.Destination> = emptyList()
 
@@ -35,9 +36,11 @@ class DestinationsActivity : AppCompatActivity() {
         applySystemBarInsets()
 
         repository = DestinationRepository(this)
+        settings = AppSettings(this)
         listView = findViewById(R.id.destinationList)
         listView.setOnItemClickListener { _, _, position, _ -> editDestination(destinations[position]) }
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
+        findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
 
         refresh()
     }
@@ -69,21 +72,47 @@ class DestinationsActivity : AppCompatActivity() {
             return "${destination.label}\n${destination.relativePath}/ · " +
                     getString(R.string.destination_without_year)
         }
-        val example = destination.yearFolderName(Calendar.getInstance().get(Calendar.YEAR))
+        val example = destination.yearFolderName(
+            Calendar.getInstance().get(Calendar.YEAR),
+            settings.yearFolderPattern
+        )
         return "${destination.label}\n${destination.relativePath}/$example/"
     }
 
+    /**
+     * Edits the year folder name shared by every destination.
+     *
+     * Changing it does not touch folders already created: photos filed
+     * earlier stay where they are, and only new ones follow the new name.
+     */
+    private fun editPattern() {
+        val form = LayoutInflater.from(this).inflate(R.layout.dialog_tag, null)
+        val field = form.findViewById<EditText>(R.id.tagName)
+        field.setText(settings.yearFolderPattern)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pattern_title)
+            .setMessage(getString(R.string.destination_pattern_help))
+            .setView(form)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                settings.yearFolderPattern = field.text.toString()
+                refresh()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
     private fun addDestination() {
-        showEditor(null) { label, path, yearSubfolder, pattern ->
-            repository.insert(label, path, yearSubfolder, pattern)
+        showEditor(null) { label, path, yearSubfolder ->
+            repository.insert(label, path, yearSubfolder)
                 .onFailure { showError(it) }
                 .onSuccess { refresh() }
         }
     }
 
     private fun editDestination(destination: DestinationRepository.Destination) {
-        showEditor(destination) { label, path, yearSubfolder, pattern ->
-            repository.update(destination.id, label, path, yearSubfolder, pattern)
+        showEditor(destination) { label, path, yearSubfolder ->
+            repository.update(destination.id, label, path, yearSubfolder)
                 .onFailure { showError(it) }
                 .onSuccess { refresh() }
         }
@@ -95,29 +124,24 @@ class DestinationsActivity : AppCompatActivity() {
      */
     private fun showEditor(
         existing: DestinationRepository.Destination?,
-        onConfirm: (String, String, Boolean, String) -> Unit
+        onConfirm: (String, String, Boolean) -> Unit
     ) {
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_destination, null)
         val labelField = form.findViewById<EditText>(R.id.destinationLabel)
         val pathField = form.findViewById<EditText>(R.id.destinationPath)
         val yearCheck = form.findViewById<CheckBox>(R.id.destinationYearSubfolder)
-        val patternField = form.findViewById<EditText>(R.id.destinationPattern)
 
         existing?.let {
             labelField.setText(it.label)
             pathField.setText(it.relativePath)
             yearCheck.isChecked = it.yearSubfolder
-            patternField.setText(it.yearFolderPattern)
-        } ?: run {
-            yearCheck.isChecked = true
-            patternField.setText(PhotoStateDatabase.DEFAULT_YEAR_FOLDER_PATTERN)
-        }
+        } ?: run { yearCheck.isChecked = true }
 
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.destination_new else R.string.destination_edit)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
-                confirmEditor(labelField, pathField, yearCheck, patternField, onConfirm)
+                confirmEditor(labelField, pathField, yearCheck, onConfirm)
             }
             .setNegativeButton(R.string.action_cancel, null)
 
@@ -132,8 +156,7 @@ class DestinationsActivity : AppCompatActivity() {
         labelField: EditText,
         pathField: EditText,
         yearCheck: CheckBox,
-        patternField: EditText,
-        onConfirm: (String, String, Boolean, String) -> Unit
+        onConfirm: (String, String, Boolean) -> Unit
     ) {
         val label = labelField.text.toString().trim()
         val path = pathField.text.toString().trim().trim('/')
@@ -141,7 +164,7 @@ class DestinationsActivity : AppCompatActivity() {
             toast(getString(R.string.destination_invalid))
             return
         }
-        onConfirm(label, path, yearCheck.isChecked, patternField.text.toString())
+        onConfirm(label, path, yearCheck.isChecked)
     }
 
     /** Deleting a shortcut is not deleting photos, and says so. */

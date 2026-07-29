@@ -25,9 +25,10 @@ class PhotoStateDatabase(context: Context) :
 
         /**
          * v2 introduced destinations, tags and path history.
-         * v3 made the year folder name configurable.
+         * v3 made the year folder name configurable per destination.
+         * v4 moved that name to a single application-wide setting.
          */
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
 
         const val TABLE_DESTINATIONS = "destinations"
         const val TABLE_PHOTO_STATE = "photo_state"
@@ -39,17 +40,7 @@ class PhotoStateDatabase(context: Context) :
         const val COLUMN_LABEL = "label"
         const val COLUMN_RELATIVE_PATH = "relative_path"
         const val COLUMN_YEAR_SUBFOLDER = "year_subfolder"
-        const val COLUMN_YEAR_FOLDER_PATTERN = "year_folder_pattern"
         const val COLUMN_SORT_ORDER = "sort_order"
-
-        /**
-         * Default name of the year folder.
-         *
-         * Google Photos labels a device folder with its last path segment, so
-         * a bare "2026" would appear identically for every destination.
-         * Including the label keeps them apart.
-         */
-        const val DEFAULT_YEAR_FOLDER_PATTERN = "{anno}_{etichetta}"
 
         /** MediaStore _ID. Stable across moves inside the same volume. */
         const val COLUMN_MEDIA_ID = "media_id"
@@ -80,7 +71,6 @@ class PhotoStateDatabase(context: Context) :
                 $COLUMN_LABEL TEXT NOT NULL,
                 $COLUMN_RELATIVE_PATH TEXT NOT NULL,
                 $COLUMN_YEAR_SUBFOLDER INTEGER NOT NULL DEFAULT 1,
-                $COLUMN_YEAR_FOLDER_PATTERN TEXT NOT NULL DEFAULT '$DEFAULT_YEAR_FOLDER_PATTERN',
                 $COLUMN_SORT_ORDER INTEGER NOT NULL DEFAULT 0
             )
         """
@@ -125,6 +115,9 @@ class PhotoStateDatabase(context: Context) :
             )
         """
 
+        /** Column removed in v4; named only so the migration can find it. */
+        private const val OBSOLETE_YEAR_FOLDER_PATTERN = "year_folder_pattern"
+
         private val CREATE_INDEXES = listOf(
             "CREATE INDEX IF NOT EXISTS idx_state_status ON $TABLE_PHOTO_STATE ($COLUMN_STATUS)",
             "CREATE INDEX IF NOT EXISTS idx_tags_media ON $TABLE_PHOTO_TAGS ($COLUMN_MEDIA_ID)",
@@ -151,7 +144,7 @@ class PhotoStateDatabase(context: Context) :
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         createSchema(db)
         if (oldVersion < 2) migrateToVersion2(db)
-        if (oldVersion < 3) migrateToVersion3(db)
+        if (oldVersion < 4) migrateToVersion4(db)
     }
 
     private fun createSchema(db: SQLiteDatabase) {
@@ -172,15 +165,24 @@ class PhotoStateDatabase(context: Context) :
     }
 
     /**
-     * Existing destinations keep filing into a bare year folder, so photos
-     * already archived are not orphaned from the folder they went into.
+     * Drops the per-destination year folder pattern introduced in v3: it is
+     * now one setting shared by every folder.
+     *
+     * SQLite before 3.35 cannot drop a column, and the version shipped with
+     * API 33 is older than that, so the table is rebuilt and refilled. Doing
+     * it inside the caller's transaction keeps the data safe if it fails.
      */
-    private fun migrateToVersion3(db: SQLiteDatabase) {
-        if (hasColumn(db, TABLE_DESTINATIONS, COLUMN_YEAR_FOLDER_PATTERN)) return
+    private fun migrateToVersion4(db: SQLiteDatabase) {
+        if (!hasColumn(db, TABLE_DESTINATIONS, OBSOLETE_YEAR_FOLDER_PATTERN)) return
+        val columns = "$COLUMN_ID, $COLUMN_LABEL, $COLUMN_RELATIVE_PATH, " +
+                "$COLUMN_YEAR_SUBFOLDER, $COLUMN_SORT_ORDER"
+        db.execSQL("ALTER TABLE $TABLE_DESTINATIONS RENAME TO ${TABLE_DESTINATIONS}_old")
+        db.execSQL(CREATE_DESTINATIONS)
         db.execSQL(
-            "ALTER TABLE $TABLE_DESTINATIONS ADD COLUMN $COLUMN_YEAR_FOLDER_PATTERN " +
-                    "TEXT NOT NULL DEFAULT '{anno}'"
+            "INSERT INTO $TABLE_DESTINATIONS ($columns) " +
+                    "SELECT $columns FROM ${TABLE_DESTINATIONS}_old"
         )
+        db.execSQL("DROP TABLE ${TABLE_DESTINATIONS}_old")
     }
 
     /**

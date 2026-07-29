@@ -13,7 +13,8 @@ package it.threarth.fotosistemis
  */
 class ReviewSession(
     private val stateRepository: PhotoStateRepository,
-    private val tagRepository: TagRepository
+    private val tagRepository: TagRepository,
+    private val settings: AppSettings
 ) {
 
     companion object {
@@ -124,7 +125,7 @@ class ReviewSession(
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
         return queueMove(
             ReviewStatus.CATEGORIZED,
-            destination.pathFor(photo.dateTakenMillis),
+            destination.pathFor(photo.dateTakenMillis, settings.yearFolderPattern),
             destination.id
         )
     }

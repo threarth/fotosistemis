@@ -45,7 +45,7 @@
     <string name="destination_label_hint">Etichetta, es. Famiglia</string>
     <string name="destination_path_hint">Percorso, es. Pictures/Famiglia</string>
     <string name="destination_year_subfolder">Crea sottocartella per anno</string>
-    <string name="destination_pattern_hint">Nome sottocartella, es. {anno}_{etichetta}</string>
+    <string name="pattern_title">Nome sottocartella anno</string>
     <string name="destination_pattern_help">Segnaposto: {anno} e {etichetta}. Google Foto mostra solo l\'ultimo livello, quindi un semplice {anno} apparirebbe uguale per tutte le cartelle.</string>
     <string name="destination_with_year">con sottocartella anno</string>
     <string name="destination_without_year">senza sottocartella anno</string>

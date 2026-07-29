@@ -93,6 +93,14 @@ class MainActivity : AppCompatActivity() {
     private var customRange: PhotoFilter.Period.Range? = null
     private var busy = false
 
+    /**
+     * Identifies the newest load request. Results carrying an older
+     * number are discarded: without this the reply to a superseded
+     * filter could arrive last and win, showing photos the user did not
+     * ask for.
+     */
+    private var loadGeneration = 0
+
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) reload() else statusText.setText(R.string.status_permission_needed)
@@ -120,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         tagRepository = TagRepository(this)
         destinationRepository = DestinationRepository(this)
         mover = BatchMover(this, mediaRepository, stateRepository)
-        session = ReviewSession(stateRepository, tagRepository)
+        session = ReviewSession(stateRepository, tagRepository, AppSettings(this))
 
         buildPeriodSpinner()
         buildScopeSpinner()
@@ -328,18 +336,21 @@ class MainActivity : AppCompatActivity() {
 
     /** Loads photos matching the filter, off the main thread. */
     private fun reload() {
-        if (busy) return
         setBusy(true)
         statusText.setText(R.string.status_loading)
         val filter = currentFilter()
         val folder = currentFolder()
+        val generation = ++loadGeneration
 
         thread {
             val photos = mediaRepository.queryPhotos(folder, filter.resolvePeriodMillis())
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()
-            runOnUiThread { onLoaded(filter, photos, states, tags, origins) }
+            runOnUiThread {
+                if (generation != loadGeneration) return@runOnUiThread
+                onLoaded(filter, photos, states, tags, origins)
+            }
         }
     }
 

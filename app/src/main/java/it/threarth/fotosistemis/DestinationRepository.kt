@@ -7,9 +7,7 @@ import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_ID
 import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_LABEL
 import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_RELATIVE_PATH
 import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_SORT_ORDER
-import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_YEAR_FOLDER_PATTERN
 import it.threarth.fotosistemis.PhotoStateDatabase.Companion.COLUMN_YEAR_SUBFOLDER
-import it.threarth.fotosistemis.PhotoStateDatabase.Companion.DEFAULT_YEAR_FOLDER_PATTERN
 import it.threarth.fotosistemis.PhotoStateDatabase.Companion.TABLE_DESTINATIONS
 import java.util.Calendar
 import java.util.Locale
@@ -38,17 +36,19 @@ class DestinationRepository(context: Context) {
         val label: String,
         val relativePath: String,
         val yearSubfolder: Boolean,
-        val yearFolderPattern: String,
         val sortOrder: Int
     ) {
 
-        /** Full RELATIVE_PATH for a photo taken at [captureMillis]. */
-        fun pathFor(captureMillis: Long): String {
+        /**
+         * Full RELATIVE_PATH for a photo taken at [captureMillis].
+         * [yearFolderPattern] is the application-wide setting.
+         */
+        fun pathFor(captureMillis: Long, yearFolderPattern: String): String {
             val trimmed = relativePath.trim('/')
             if (!yearSubfolder) return "$trimmed/"
             val year = Calendar.getInstance().apply { timeInMillis = captureMillis }
                 .get(Calendar.YEAR)
-            return "$trimmed/${yearFolderName(year)}/"
+            return "$trimmed/${yearFolderName(year, yearFolderPattern)}/"
         }
 
         /**
@@ -56,10 +56,10 @@ class DestinationRepository(context: Context) {
          * folder after its last segment, so including the label keeps
          * Famiglia/2026 and Lavoro/2026 distinguishable there.
          */
-        fun yearFolderName(year: Int): String {
+        fun yearFolderName(year: Int, yearFolderPattern: String): String {
             val resolved = yearFolderPattern
-                .replace(PLACEHOLDER_YEAR, year.toString())
-                .replace(PLACEHOLDER_LABEL, sanitise(label))
+                .replace(AppSettings.PLACEHOLDER_YEAR, year.toString())
+                .replace(AppSettings.PLACEHOLDER_LABEL, sanitise(label))
             return sanitise(resolved).ifEmpty { year.toString() }
         }
 
@@ -67,17 +67,12 @@ class DestinationRepository(context: Context) {
         private fun sanitise(value: String): String = value.trim().lowercase(Locale.ITALY)
             .replace(Regex("[^a-z0-9._{}-]+"), "_")
             .trim('_', '.', '-')
-
-        companion object {
-            const val PLACEHOLDER_YEAR = "{anno}"
-            const val PLACEHOLDER_LABEL = "{etichetta}"
-        }
     }
 
     private companion object {
         val PROJECTION = arrayOf(
             COLUMN_ID, COLUMN_LABEL, COLUMN_RELATIVE_PATH,
-            COLUMN_YEAR_SUBFOLDER, COLUMN_YEAR_FOLDER_PATTERN, COLUMN_SORT_ORDER
+            COLUMN_YEAR_SUBFOLDER, COLUMN_SORT_ORDER
         )
         const val ORDER_BY = "$COLUMN_SORT_ORDER ASC, $COLUMN_LABEL ASC"
     }
@@ -95,9 +90,7 @@ class DestinationRepository(context: Context) {
                             label = cursor.getString(1),
                             relativePath = cursor.getString(2),
                             yearSubfolder = cursor.getInt(3) != 0,
-                            yearFolderPattern = cursor.getString(4)
-                                ?: DEFAULT_YEAR_FOLDER_PATTERN,
-                            sortOrder = cursor.getInt(5)
+                            sortOrder = cursor.getInt(4)
                         )
                     )
                 }
@@ -108,30 +101,21 @@ class DestinationRepository(context: Context) {
     }
 
     /** Adds a destination and returns its new id. */
-    fun insert(
-        label: String,
-        relativePath: String,
-        yearSubfolder: Boolean,
-        yearFolderPattern: String
-    ): Result<Long> = inTransaction { db ->
-        db.insertOrThrow(
-            TABLE_DESTINATIONS,
-            null,
-            valuesOf(label, relativePath, yearSubfolder, yearFolderPattern)
-        )
-    }
+    fun insert(label: String, relativePath: String, yearSubfolder: Boolean): Result<Long> =
+        inTransaction { db ->
+            db.insertOrThrow(TABLE_DESTINATIONS, null, valuesOf(label, relativePath, yearSubfolder))
+        }
 
     /** Updates an existing destination in place. */
     fun update(
         id: Long,
         label: String,
         relativePath: String,
-        yearSubfolder: Boolean,
-        yearFolderPattern: String
+        yearSubfolder: Boolean
     ): Result<Long> = inTransaction { db ->
         db.update(
             TABLE_DESTINATIONS,
-            valuesOf(label, relativePath, yearSubfolder, yearFolderPattern),
+            valuesOf(label, relativePath, yearSubfolder),
             "$COLUMN_ID = ?",
             arrayOf(id.toString())
         ).toLong()
@@ -145,20 +129,12 @@ class DestinationRepository(context: Context) {
         db.delete(TABLE_DESTINATIONS, "$COLUMN_ID = ?", arrayOf(id.toString())).toLong()
     }
 
-    private fun valuesOf(
-        label: String,
-        relativePath: String,
-        yearSubfolder: Boolean,
-        yearFolderPattern: String
-    ) = ContentValues().apply {
-        put(COLUMN_LABEL, label.trim())
-        put(COLUMN_RELATIVE_PATH, relativePath.trim().trim('/'))
-        put(COLUMN_YEAR_SUBFOLDER, if (yearSubfolder) 1 else 0)
-        put(
-            COLUMN_YEAR_FOLDER_PATTERN,
-            yearFolderPattern.trim().ifEmpty { DEFAULT_YEAR_FOLDER_PATTERN }
-        )
-    }
+    private fun valuesOf(label: String, relativePath: String, yearSubfolder: Boolean) =
+        ContentValues().apply {
+            put(COLUMN_LABEL, label.trim())
+            put(COLUMN_RELATIVE_PATH, relativePath.trim().trim('/'))
+            put(COLUMN_YEAR_SUBFOLDER, if (yearSubfolder) 1 else 0)
+        }
 
     /** Runs [block] in a transaction, rolling back on failure. */
     private fun inTransaction(block: (SQLiteDatabase) -> Long): Result<Long> {

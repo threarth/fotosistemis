@@ -27,17 +27,4 @@
         android:layout_height="wrap_content"
         android:text="@string/destination_year_subfolder" />
 
-    <EditText
-        android:id="@+id/destinationPattern"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:autofillHints="name"
-        android:hint="@string/destination_pattern_hint"
-        android:inputType="text" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/destination_pattern_help"
-        android:textSize="11sp" />
 </LinearLayout>

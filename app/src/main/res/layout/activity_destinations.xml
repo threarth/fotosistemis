@@ -27,6 +27,12 @@
         android:layout_weight="1" />
 
     <Button
+        android:id="@+id/patternButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/pattern_title" />
+
+    <Button
         android:id="@+id/addDestinationButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
