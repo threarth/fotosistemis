@@ -99,60 +99,104 @@
         android:textStyle="italic"
         tools:text="tag: festatommy2024" />
 
-    <!-- Preview. Takes all remaining vertical space. -->
-    <ImageView
-        android:id="@+id/preview"
+    <!-- Preview with the four actions laid over it, which saves the two
+         rows of buttons they replace. Taps are hit-tested by coordinate and
+         flings are read in the same directions, so the overlay is only a
+         label: it never intercepts touches itself. -->
+    <FrameLayout
+        android:id="@+id/mediaStage"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="6dp"
-        android:layout_weight="1"
-        android:adjustViewBounds="true"
-        android:background="#10000000"
-        android:contentDescription="@string/preview_description"
-        android:scaleType="fitCenter" />
+        android:layout_weight="1">
 
-    <!-- Pure navigation: moving through photos decides nothing. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
+        <ImageView
+            android:id="@+id/preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:adjustViewBounds="true"
+            android:background="#10000000"
+            android:contentDescription="@string/preview_description"
+            android:scaleType="fitCenter" />
 
-        <Button
-            android:id="@+id/previousButton"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"
+            android:focusable="false"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/zoneKeep"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:alpha="0.45"
+                android:background="#18000000"
+                android:gravity="center"
+                android:text="@string/zone_keep"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="2"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/zonePrevious"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:alpha="0.45"
+                    android:background="#18000000"
+                    android:gravity="center"
+                    android:text="@string/zone_previous"
+                    android:textSize="13sp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/zoneNext"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:alpha="0.45"
+                    android:background="#18000000"
+                    android:gravity="center"
+                    android:text="@string/zone_next"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/zoneTrash"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:alpha="0.45"
+                android:background="#18000000"
+                android:gravity="center"
+                android:text="@string/zone_trash"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Confirms the gesture just made, then fades out. -->
+        <TextView
+            android:id="@+id/actionFlash"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_previous" />
-
-        <Button
-            android:id="@+id/nextButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_next" />
-    </LinearLayout>
-
-    <!-- Decisions. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/trashButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_trash" />
-
-        <Button
-            android:id="@+id/keepButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_keep" />
-    </LinearLayout>
+            android:layout_gravity="center"
+            android:alpha="0"
+            android:background="#CC000000"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+    </FrameLayout>
 
     <!-- One button per destination folder, built from the database. -->
     <HorizontalScrollView

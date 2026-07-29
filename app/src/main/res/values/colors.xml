@@ -2,4 +2,10 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Review progress of a month. Always paired with a symbol in the label:
+         colour must never be the only carrier of meaning. -->
+    <color name="month_done">#2E9E4F</color>
+    <color name="month_partial">#E08A00</color>
+    <color name="month_todo">#D64545</color>
 </resources>

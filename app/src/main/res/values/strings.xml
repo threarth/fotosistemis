@@ -9,20 +9,23 @@
     <string name="folder_all">Tutte le cartelle</string>
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="period_any">Qualsiasi periodo (%1$d)</string>
-    <string name="period_month">%1$s (%2$d)</string>
+    <string name="period_month">%1$s %2$s %3$d/%4$d</string>
+    <string name="month_mark_done">\u2713</string>
+    <string name="month_mark_partial">\u25D0</string>
+    <string name="month_mark_todo">\u25CB</string>
+    <string name="zone_keep">\u2190 Mantieni</string>
+    <string name="zone_trash">Da eliminare \u2192</string>
+    <string name="zone_previous">\u2191 Precedente</string>
+    <string name="zone_next">\u2193 Successiva</string>
+    <string name="flash_keep">Mantenuta</string>
+    <string name="flash_trash">Da eliminare</string>
     <string name="period_any_plain">qualsiasi periodo</string>
     <string name="period_custom_range">Intervallo scelto</string>
     <string name="scope_all">Tutte</string>
     <string name="scope_unseen">Solo non viste</string>
     <string name="scope_uncategorized">Non categorizzate</string>
 
-    <!-- Navigation, which records no decision -->
-    <string name="action_previous">Indietro</string>
-    <string name="action_next">Avanti</string>
-
     <!-- Decisions -->
-    <string name="action_trash">Da eliminare</string>
-    <string name="action_keep">Mantieni</string>
     <string name="action_undo">Annulla</string>
     <string name="action_apply">Applica (%1$d)</string>
     <string name="action_tag">Tag…</string>

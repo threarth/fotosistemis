@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
@@ -9,7 +10,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -32,6 +35,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 /**
  * The review screen: one photo at a time, with navigation that decides
@@ -51,6 +55,26 @@ class MainActivity : AppCompatActivity() {
         const val DAY_PATTERN = "dd/MM/yyyy"
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
         const val IMAGE_MIME_TYPE = "image/*"
+
+        /** Width of the left and right tap strips, as a fraction of the stage. */
+        const val SIDE_ZONE_FRACTION = 0.25f
+
+        /** Height of the top and bottom tap strips. */
+        const val EDGE_ZONE_FRACTION = 0.33f
+
+        /** Shortest movement accepted as a deliberate swipe. */
+        const val MIN_FLING_PIXELS = 80f
+
+        const val ZONE_ALPHA_ACTIVE = 0.45f
+        const val ZONE_ALPHA_DISABLED = 0.12f
+
+        /** How far the incoming photo travels, as a fraction of the stage. */
+        const val ENTRY_TRAVEL_FRACTION = 0.30f
+        const val ENTRY_DURATION_MILLIS = 190L
+
+        /** The confirmation stays put briefly, then fades. */
+        const val FLASH_HOLD_MILLIS = 350L
+        const val FLASH_FADE_MILLIS = 260L
     }
 
     private lateinit var mediaRepository: MediaStoreRepository
@@ -68,10 +92,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var folderSpinner: Spinner
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
-    private lateinit var previousButton: Button
-    private lateinit var nextButton: Button
-    private lateinit var keepButton: Button
-    private lateinit var trashButton: Button
+    private lateinit var mediaStage: View
+    private lateinit var zonePrevious: View
+    private lateinit var zoneNext: View
+    private lateinit var zoneKeep: View
+    private lateinit var zoneTrash: View
+    private lateinit var actionFlash: TextView
     private lateinit var tagButton: Button
     private lateinit var restoreButton: Button
     private lateinit var stagingButton: Button
@@ -177,10 +203,12 @@ class MainActivity : AppCompatActivity() {
         folderSpinner = findViewById(R.id.folderSpinner)
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
-        previousButton = findViewById(R.id.previousButton)
-        nextButton = findViewById(R.id.nextButton)
-        keepButton = findViewById(R.id.keepButton)
-        trashButton = findViewById(R.id.trashButton)
+        mediaStage = findViewById(R.id.mediaStage)
+        zonePrevious = findViewById(R.id.zonePrevious)
+        zoneNext = findViewById(R.id.zoneNext)
+        zoneKeep = findViewById(R.id.zoneKeep)
+        zoneTrash = findViewById(R.id.zoneTrash)
+        actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
         restoreButton = findViewById(R.id.restoreButton)
         stagingButton = findViewById(R.id.stagingButton)
@@ -198,10 +226,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wireActions() {
-        previousButton.setOnClickListener { if (session.goPrevious()) render() }
-        nextButton.setOnClickListener { if (session.goNext()) render() }
-        keepButton.setOnClickListener { applyDecision { session.keepCurrent() } }
-        trashButton.setOnClickListener { applyDecision { session.trashCurrent() } }
+        wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
         restoreButton.setOnClickListener { showRestoreDialog() }
         stagingButton.setOnClickListener { showStagingFolder() }
@@ -214,6 +239,133 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, DestinationsActivity::class.java))
         }
     }
+
+    /**
+     * Reads taps and flings over the preview.
+     *
+     * One handler covers both: the overlay strips are labels only, so a tap
+     * is located by coordinate rather than by which view was hit. Tap and
+     * fling share the same four directions, so the gesture and the visible
+     * zone can never disagree.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wireStageGestures() {
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: MotionEvent) = true
+
+            override fun onSingleTapUp(event: MotionEvent): Boolean {
+                actionForTap(event.x, event.y)?.invoke()
+                return true
+            }
+
+            override fun onFling(
+                start: MotionEvent?,
+                end: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                actionForFling(start ?: return false, end)?.invoke()
+                return true
+            }
+        })
+        mediaStage.setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+    }
+
+    /** Maps a tap position to an action, mirroring the visible strips. */
+    private fun actionForTap(x: Float, y: Float): (() -> Unit)? {
+        val width = mediaStage.width.toFloat()
+        val height = mediaStage.height.toFloat()
+        if (width <= 0f || height <= 0f) return null
+
+        return when {
+            x < width * SIDE_ZONE_FRACTION -> ::keepCurrent
+            x > width * (1f - SIDE_ZONE_FRACTION) -> ::trashCurrent
+            y < height * EDGE_ZONE_FRACTION -> ::goPrevious
+            y > height * (1f - EDGE_ZONE_FRACTION) -> ::goNext
+            else -> null
+        }
+    }
+
+    /** Maps a fling to the same action as a tap in that direction. */
+    private fun actionForFling(start: MotionEvent, end: MotionEvent): (() -> Unit)? {
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        if (abs(dx) < MIN_FLING_PIXELS && abs(dy) < MIN_FLING_PIXELS) return null
+
+        return if (abs(dx) > abs(dy)) {
+            if (dx < 0) ::keepCurrent else ::trashCurrent
+        } else {
+            if (dy < 0) ::goPrevious else ::goNext
+        }
+    }
+
+    private fun goPrevious() {
+        if (busy || !session.goPrevious()) return
+        render()
+        animateEntry(0f, -mediaStage.height * ENTRY_TRAVEL_FRACTION)
+    }
+
+    private fun goNext() {
+        if (busy || !session.goNext()) return
+        render()
+        animateEntry(0f, mediaStage.height * ENTRY_TRAVEL_FRACTION)
+    }
+
+    private fun keepCurrent() {
+        if (!canDecide()) return
+        applyDecision { session.keepCurrent() }
+        flashAction(getString(R.string.flash_keep))
+        animateEntry(mediaStage.width * ENTRY_TRAVEL_FRACTION, 0f)
+    }
+
+    private fun trashCurrent() {
+        if (!canDecide()) return
+        applyDecision { session.trashCurrent() }
+        flashAction(getString(R.string.flash_trash))
+        animateEntry(-mediaStage.width * ENTRY_TRAVEL_FRACTION, 0f)
+    }
+
+    /**
+     * Slides the new photo in from the direction the gesture came from, so a
+     * swipe reads as leafing through an album rather than as a redraw.
+     */
+    private fun animateEntry(fromX: Float, fromY: Float) {
+        preview.translationX = fromX
+        preview.translationY = fromY
+        preview.alpha = 0f
+        preview.animate()
+            .translationX(0f)
+            .translationY(0f)
+            .alpha(1f)
+            .setDuration(ENTRY_DURATION_MILLIS)
+            .start()
+    }
+
+    /**
+     * Names the action just performed and fades out.
+     *
+     * A gesture leaves no trace of itself, so without this the only evidence
+     * of having filed or kept a photo would be that a different one is now
+     * on screen.
+     */
+    private fun flashAction(message: String) {
+        actionFlash.text = message
+        actionFlash.animate().cancel()
+        actionFlash.alpha = 1f
+        actionFlash.animate()
+            .alpha(0f)
+            .setStartDelay(FLASH_HOLD_MILLIS)
+            .setDuration(FLASH_FADE_MILLIS)
+            .start()
+    }
+
+    /**
+     * Inside the deletion folder the only sensible action is putting a photo
+     * back. Keeping one there would mark it reviewed while leaving it queued
+     * for deletion, which is a contradiction.
+     */
+    private fun canDecide(): Boolean = !busy && session.current() != null &&
+            preferredFolder != ReviewSession.DELETION_STAGING_PATH
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
     private fun ensureReadPermission() {
@@ -284,8 +436,12 @@ class MainActivity : AppCompatActivity() {
      * pick the year folder, so the list also exposes at a glance when those
      * dates are wrong.
      */
-    private fun rebuildPeriodSpinner(photos: List<MediaStoreRepository.Photo>) {
+    private fun rebuildPeriodSpinner(
+        photos: List<MediaStoreRepository.Photo>,
+        states: Map<Long, PhotoStateRepository.StoredState>
+    ) {
         val counts = LinkedHashMap<PhotoFilter.Period.Month, Int>()
+        val reviewed = LinkedHashMap<PhotoFilter.Period.Month, Int>()
         val calendar = Calendar.getInstance()
         for (photo in photos) {
             calendar.timeInMillis = photo.dateTakenMillis
@@ -294,6 +450,9 @@ class MainActivity : AppCompatActivity() {
                 calendar.get(Calendar.YEAR)
             )
             counts[month] = (counts[month] ?: 0) + 1
+            if (states.containsKey(photo.mediaId)) {
+                reviewed[month] = (reviewed[month] ?: 0) + 1
+            }
         }
 
         val ordered = counts.keys.sortedWith(
@@ -301,33 +460,61 @@ class MainActivity : AppCompatActivity() {
         )
 
         offeredPeriods.clear()
-        val labels = ArrayList<String>()
+        val items = ArrayList<TintedSpinnerAdapter.Item>()
         offeredPeriods.add(PhotoFilter.Period.Any)
-        labels.add(getString(R.string.period_any, photos.size))
+        items.add(TintedSpinnerAdapter.Item(getString(R.string.period_any, photos.size), null))
+
         for (month in ordered) {
             offeredPeriods.add(month)
-            labels.add(
-                getString(
-                    R.string.period_month,
-                    "%02d-%d".format(month.month, month.year),
-                    counts[month] ?: 0
-                )
-            )
+            val total = counts[month] ?: 0
+            val seen = reviewed[month] ?: 0
+            items.add(monthItem(month, seen, total))
         }
-        labels.add(getString(R.string.period_custom_range))
+        items.add(TintedSpinnerAdapter.Item(getString(R.string.period_custom_range), null))
 
-        applyPeriodSpinner(labels)
+        applyPeriodSpinner(items)
+    }
+
+    /**
+     * Builds one month row: green when every photo has been reviewed, red
+     * when none has, amber in between. The symbol carries the same meaning,
+     * so the row still reads without relying on colour.
+     */
+    private fun monthItem(
+        month: PhotoFilter.Period.Month,
+        seen: Int,
+        total: Int
+    ): TintedSpinnerAdapter.Item {
+        val done = total > 0 && seen == total
+        val markRes = when {
+            done -> R.string.month_mark_done
+            seen == 0 -> R.string.month_mark_todo
+            else -> R.string.month_mark_partial
+        }
+        val colorRes = when {
+            done -> R.color.month_done
+            seen == 0 -> R.color.month_todo
+            else -> R.color.month_partial
+        }
+        val label = getString(
+            R.string.period_month,
+            "%02d-%d".format(month.month, month.year),
+            getString(markRes),
+            seen,
+            total
+        )
+        return TintedSpinnerAdapter.Item(label, colorRes)
     }
 
     /** Swaps the adapter without letting the change trigger another load. */
-    private fun applyPeriodSpinner(labels: List<String>) {
+    private fun applyPeriodSpinner(items: List<TintedSpinnerAdapter.Item>) {
         rebuildingPeriods = true
-        periodSpinner.adapter = simpleAdapter(labels)
+        periodSpinner.adapter = TintedSpinnerAdapter(this, items)
 
         val index = offeredPeriods.indexOf(preferredPeriod)
         when {
             index >= 0 -> periodSpinner.setSelection(index)
-            preferredPeriod is PhotoFilter.Period.Range -> periodSpinner.setSelection(labels.size - 1)
+            preferredPeriod is PhotoFilter.Period.Range -> periodSpinner.setSelection(items.size - 1)
             else -> {
                 // The chosen month no longer exists in this folder.
                 preferredPeriod = PhotoFilter.Period.Any
@@ -450,7 +637,7 @@ class MainActivity : AppCompatActivity() {
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
-        rebuildPeriodSpinner(loadedPhotos)
+        rebuildPeriodSpinner(loadedPhotos, loadedStates)
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
@@ -676,18 +863,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateButtonState() {
         val hasPhoto = session.current() != null
 
-        /*
-         * Inside the deletion folder the only sensible action is putting a
-         * photo back. Keeping one there would mark it reviewed while leaving
-         * it queued for deletion, which is a contradiction, and filing it
-         * elsewhere is what restore already does.
-         */
-        val inStaging = preferredFolder == ReviewSession.DELETION_STAGING_PATH
-        val canDecide = hasPhoto && !inStaging
-        previousButton.isEnabled = !busy && session.canGoPrevious()
-        nextButton.isEnabled = !busy && session.canGoNext()
-        keepButton.isEnabled = !busy && canDecide
-        trashButton.isEnabled = !busy && canDecide
+        val canDecide = canDecide()
+        setZoneActive(zonePrevious, !busy && session.canGoPrevious())
+        setZoneActive(zoneNext, !busy && session.canGoNext())
+        setZoneActive(zoneKeep, canDecide)
+        setZoneActive(zoneTrash, canDecide)
         tagButton.isEnabled = !busy && hasPhoto
         openExternalButton.isEnabled = !busy && hasPhoto
         stagingButton.isEnabled = !busy && stagingCount > 0
@@ -696,8 +876,13 @@ class MainActivity : AppCompatActivity() {
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {
-            destinationActions.getChildAt(index).isEnabled = !busy && canDecide
+            destinationActions.getChildAt(index).isEnabled = canDecide
         }
+    }
+
+    /** Dims a zone whose action is unavailable, instead of hiding it. */
+    private fun setZoneActive(zone: View, active: Boolean) {
+        zone.alpha = if (active) ZONE_ALPHA_ACTIVE else ZONE_ALPHA_DISABLED
     }
 
     /** Name, size, capture date and recorded decision for one photo. */
