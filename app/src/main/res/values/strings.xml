@@ -10,9 +10,9 @@
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="folder_removable">SD: %1$s</string>
     <string name="pending_title">Modifiche non applicate</string>
-    <string name="pending_message">%1$d modifiche non applicate.\n\nApplica tutto: le foto si spostano e il mese resta visto fin dove sei arrivato.\nScarta tutto: il mese torna non visto e va rivisto da capo.</string>
-    <string name="pending_apply">Applica tutto</string>
-    <string name="pending_drop_all">Scarta tutto</string>
+    <string name="pending_message">%1$d spostamenti o eliminazioni non applicati.\n\nApplica: le foto si spostano davvero.\nScarta: quelle foto tornano non viste. Le foto mantenute restano tali in ogni caso.</string>
+    <string name="pending_apply">Applica</string>
+    <string name="pending_drop_all">Scarta</string>
     <string name="period_any">Qualsiasi periodo (%1$d)</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>
     <string name="month_mark_done">\u2713</string>

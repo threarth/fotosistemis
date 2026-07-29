@@ -55,14 +55,6 @@ class ReviewSession(
     private var tagAssignments: Map<Long, List<String>> = emptyMap()
     private var originalPaths: Map<Long, String> = emptyMap()
 
-    /**
-     * Photos whose state was written since this working set was loaded.
-     *
-     * Needed to undo a whole session: the queue only knows about photos that
-     * are due to move, while keeping a photo writes a decision without
-     * queueing anything.
-     */
-    private val recordedInSession = HashSet<Long>()
 
     var currentIndex: Int = 0
         private set
@@ -84,7 +76,6 @@ class ReviewSession(
         storedStates = states
         tagAssignments = tags
         originalPaths = origins
-        recordedInSession.clear()
 
         // Resume where the reviewing stopped: the first photo with no
         // decision recorded. Starting from the beginning would mean
@@ -253,25 +244,25 @@ class ReviewSession(
         val undone = pendingMoves.removeAt(pendingMoves.lastIndex)
         return stateRepository.forget(undone.photo.mediaId).onSuccess {
             storedStates = storedStates - undone.photo.mediaId
-            recordedInSession.remove(undone.photo.mediaId)
             val position = photos.indexOfFirst { it.mediaId == undone.photo.mediaId }
             if (position >= 0) currentIndex = position
         }
     }
 
-    /** Photos kept or filed since the working set was loaded. */
-    val changedCount: Int get() = recordedInSession.size
-
     /**
-     * Undoes every decision taken since the working set was loaded, review
-     * included: the photos go back to never seen.
+     * Throws away the queued moves and the decisions that produced them.
+     *
+     * Only those: a photo merely marked as kept has nothing queued, its
+     * record is already complete and correct, and there is nothing to undo.
+     * The photos that were going to move go back to never seen, because
+     * leaving them recorded as filed while their files never moved would be
+     * a state the app could never make true.
      */
-    fun discardAllChanges(): Result<Unit> {
-        for (mediaId in recordedInSession.toList()) {
-            val outcome = stateRepository.forget(mediaId)
+    fun discardQueue(): Result<Unit> {
+        for (move in pendingMoves) {
+            val outcome = stateRepository.forget(move.photo.mediaId)
             if (outcome.isFailure) return outcome
-            storedStates = storedStates - mediaId
-            recordedInSession.remove(mediaId)
+            storedStates = storedStates - move.photo.mediaId
         }
         pendingMoves.clear()
         return Result.success(Unit)
@@ -286,6 +277,5 @@ class ReviewSession(
     private fun rememberState(mediaId: Long, status: ReviewStatus, destinationId: Long?) {
         storedStates = storedStates +
                 (mediaId to PhotoStateRepository.StoredState(mediaId, status, destinationId))
-        recordedInSession.add(mediaId)
     }
 }

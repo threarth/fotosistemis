@@ -223,10 +223,43 @@ class MainActivity : AppCompatActivity() {
         ensureReadPermission()
     }
 
-    /** Destinations may have changed in the other screen. */
+    /**
+     * Destinations may have changed in the other screen, and the deletion
+     * folder may have been emptied from Google Photos while the app was in
+     * the background: neither change announces itself, so both are checked
+     * on the way back.
+     */
     override fun onResume() {
         super.onResume()
         buildDestinationButtons()
+        if (::session.isInitialized) refreshStagingCount()
+    }
+
+    /**
+     * Re-counts the photos awaiting deletion without disturbing the review.
+     *
+     * A full reload would lose the current position every time the app is
+     * reopened, which is too high a price for a number in a button.
+     */
+    private fun refreshStagingCount() {
+        thread {
+            val folders = mediaRepository.queryFolders().getOrNull() ?: return@thread
+            val counted = folders
+                .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
+                .sumOf { it.photoCount }
+            runOnUiThread { onStagingCountRefreshed(counted) }
+        }
+    }
+
+    private fun onStagingCountRefreshed(counted: Int) {
+        if (counted == stagingCount) return
+        stagingCount = counted
+        stagingButton.text = getString(R.string.action_staging, stagingCount)
+        updateButtonState()
+
+        // Emptied while we were looking at it: what is on screen no longer
+        // exists, so the list has to be rebuilt.
+        if (preferredFolder?.relativePath == ReviewSession.DELETION_STAGING_PATH) refreshFolders()
     }
 
     private fun bindViews() {
@@ -766,13 +799,13 @@ class MainActivity : AppCompatActivity() {
      * Changing folder or period reloads the working set and empties the
      * queue, so without asking, decisions would vanish unannounced.
      *
-     * Only two answers, deliberately. A middle option that cancelled the
-     * moves but kept the photos marked as reviewed left them
-     * indistinguishable from photos deliberately kept, and bought that
-     * ambiguity for a case neither common nor clearly useful.
+     * Only queued moves raise the question. Marking a photo as kept writes
+     * a record and nothing else: it is already saved, cannot fail, and has
+     * no counterpart to apply, so asking about it would be asking about
+     * work already done.
      */
     private fun changeFilter(change: () -> Unit) {
-        if (session.changedCount == 0) {
+        if (session.pendingCount == 0) {
             change()
             reload()
             return
@@ -787,7 +820,7 @@ class MainActivity : AppCompatActivity() {
                 startApply()
             }
             .setNegativeButton(R.string.pending_drop_all) { _, _ ->
-                session.discardAllChanges().onFailure { showError(it) }
+                session.discardQueue().onFailure { showError(it) }
                 change()
                 reload()
             }
