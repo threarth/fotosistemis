@@ -59,6 +59,9 @@
     <string name="status_permission_needed">Permesso alle foto necessario.</string>
     <string name="status_applying">Applicazione modifiche…</string>
     <string name="photo_info">%1$s · %2$s</string>
+    <string name="date_source_exif">EXIF</string>
+    <string name="date_source_filename">da nome file</string>
+    <string name="date_source_file">⚠ data del file</string>
     <string name="photo_state_unseen">mai vista</string>
     <string name="photo_state_kept">mantenuta</string>
     <string name="photo_state_categorized">archiviata</string>

@@ -443,8 +443,20 @@ class MainActivity : AppCompatActivity() {
     private fun describe(photo: MediaStoreRepository.Photo): String {
         val taken = SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(photo.dateTakenMillis))
         val megabytes = photo.sizeBytes / BYTES_PER_MEGABYTE
-        val detail = "%.1f MB · %s · %s".format(megabytes, taken, describeStatus())
+        val detail = "%.1f MB · %s (%s) · %s".format(
+            megabytes, taken, describeDateSource(photo.dateSource), describeStatus()
+        )
         return getString(R.string.photo_info, photo.displayName, detail)
+    }
+
+    /**
+     * Shows where the date came from. A photo filed by file timestamp is
+     * likely to land in the wrong year, so the user must be able to see it.
+     */
+    private fun describeDateSource(source: CaptureDateResolver.Source): String = when (source) {
+        CaptureDateResolver.Source.EXIF -> getString(R.string.date_source_exif)
+        CaptureDateResolver.Source.FILENAME -> getString(R.string.date_source_filename)
+        CaptureDateResolver.Source.FILE_TIMESTAMP -> getString(R.string.date_source_file)
     }
 
     private fun describeStatus(): String = when (session.currentStatus()) {

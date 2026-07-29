@@ -29,7 +29,8 @@ class MediaStoreRepository(context: Context) {
         val displayName: String,
         val relativePath: String,
         val sizeBytes: Long,
-        val dateTakenMillis: Long
+        val dateTakenMillis: Long,
+        val dateSource: CaptureDateResolver.Source
     )
 
     private companion object {
@@ -47,16 +48,9 @@ class MediaStoreRepository(context: Context) {
             MediaStore.Images.Media.DATE_MODIFIED
         )
 
-        /**
-         * Best known capture time. DATE_TAKEN comes from EXIF and is absent on
-         * screenshots and downloads, so DATE_MODIFIED (seconds) is the
-         * fallback. The web version had to guess this from the file name.
-         */
-        private const val CAPTURE_TIME =
-            "COALESCE(${MediaStore.Images.Media.DATE_TAKEN}, " +
-                    "${MediaStore.Images.Media.DATE_MODIFIED} * 1000)"
+        /** DATE_MODIFIED is stored in seconds, everything else in millis. */
+        private const val MILLIS_PER_SECOND = 1000L
 
-        private const val SORT_NEWEST_FIRST = "$CAPTURE_TIME DESC"
         private const val EXPECTED_UPDATED_ROWS = 1
         private const val THUMBNAIL_EDGE_PIXELS = 1024
     }
@@ -101,37 +95,43 @@ class MediaStoreRepository(context: Context) {
      * Photos in the system trash are omitted by MediaStore itself.
      */
     fun queryPhotos(folderRelativePath: String?, periodMillis: LongRange?): Result<List<Photo>> {
-        val conditions = ArrayList<String>()
-        val arguments = ArrayList<String>()
-
-        if (folderRelativePath != null) {
-            conditions.add("${MediaStore.Images.Media.RELATIVE_PATH} = ?")
-            arguments.add(folderRelativePath)
-        }
-        if (periodMillis != null) {
-            conditions.add("$CAPTURE_TIME BETWEEN ? AND ?")
-            arguments.add(periodMillis.first.toString())
-            arguments.add(periodMillis.last.toString())
-        }
-
         val queryArgs = Bundle().apply {
-            if (conditions.isNotEmpty()) {
-                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, conditions.joinToString(" AND "))
+            if (folderRelativePath != null) {
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION,
+                    "${MediaStore.Images.Media.RELATIVE_PATH} = ?"
+                )
                 putStringArray(
                     ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                    arguments.toTypedArray()
+                    arrayOf(folderRelativePath)
                 )
             }
-            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, SORT_NEWEST_FIRST)
         }
 
         return try {
             val cursor = resolver.query(COLLECTION, PROJECTION, queryArgs, null)
                 ?: return Result.failure(IllegalStateException("MediaStore returned no cursor"))
-            cursor.use { Result.success(readPhotos(it)) }
+            val photos = cursor.use { readPhotos(it) }
+            Result.success(applyPeriod(photos, periodMillis))
         } catch (error: Exception) {
             Result.failure(error)
         }
+    }
+
+    /**
+     * Filters and sorts on the resolved capture time.
+     *
+     * This cannot be done in SQL: when EXIF is missing the real date comes
+     * from the file name, which the database knows nothing about. Filtering
+     * in SQL on DATE_MODIFIED would put a 2020 photo copied today into 2026.
+     */
+    private fun applyPeriod(photos: List<Photo>, periodMillis: LongRange?): List<Photo> {
+        val selected = if (periodMillis == null) {
+            photos
+        } else {
+            photos.filter { it.dateTakenMillis in periodMillis }
+        }
+        return selected.sortedByDescending { it.dateTakenMillis }
     }
 
     /** Drains [cursor] into Photo objects. */
@@ -146,27 +146,26 @@ class MediaStoreRepository(context: Context) {
         val photos = ArrayList<Photo>(cursor.count)
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idColumn)
+            val displayName = cursor.getString(nameColumn) ?: ""
+            val exifMillis = if (cursor.isNull(takenColumn)) null else cursor.getLong(takenColumn)
+            val resolved = CaptureDateResolver.resolve(
+                displayName = displayName,
+                exifMillis = exifMillis,
+                fileMillis = cursor.getLong(modifiedColumn) * MILLIS_PER_SECOND
+            )
             photos.add(
                 Photo(
                     mediaId = id,
                     uri = ContentUris.withAppendedId(COLLECTION, id),
-                    displayName = cursor.getString(nameColumn) ?: "",
+                    displayName = displayName,
                     relativePath = cursor.getString(pathColumn) ?: "",
                     sizeBytes = cursor.getLong(sizeColumn),
-                    dateTakenMillis = captureTimeOf(cursor, takenColumn, modifiedColumn)
+                    dateTakenMillis = resolved.millis,
+                    dateSource = resolved.source
                 )
             )
         }
         return photos
-    }
-
-    /** Mirrors the SQL COALESCE, so sort order and displayed date agree. */
-    private fun captureTimeOf(cursor: Cursor, takenColumn: Int, modifiedColumn: Int): Long {
-        if (!cursor.isNull(takenColumn)) {
-            val taken = cursor.getLong(takenColumn)
-            if (taken > 0L) return taken
-        }
-        return cursor.getLong(modifiedColumn) * 1000L
     }
 
     /**
