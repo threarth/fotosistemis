@@ -9,6 +9,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.LayoutInflater
@@ -66,6 +67,9 @@ class MainActivity : AppCompatActivity() {
         /** The confirmation stays put briefly, then fades. */
         const val FLASH_HOLD_MILLIS = 350L
         const val FLASH_FADE_MILLIS = 260L
+
+        /** Thickness of the coloured frame showing the recorded state. */
+        const val FRAME_WIDTH_DP = 5f
     }
 
     private lateinit var mediaRepository: MediaStoreRepository
@@ -255,20 +259,20 @@ class MainActivity : AppCompatActivity() {
         return if (abs(dx) > abs(dy)) {
             if (dx < 0) ::keepCurrent else ::trashCurrent
         } else {
-            if (dy < 0) ::goPrevious else ::goNext
+            if (dy < 0) ::goNext else ::goPrevious
         }
     }
 
     private fun goPrevious() {
         if (busy || !session.goPrevious()) return
         render()
-        animateEntry(0f, -mediaStage.height * ENTRY_TRAVEL_FRACTION)
+        animateEntry(0f, mediaStage.height * ENTRY_TRAVEL_FRACTION)
     }
 
     private fun goNext() {
         if (busy || !session.goNext()) return
         render()
-        animateEntry(0f, mediaStage.height * ENTRY_TRAVEL_FRACTION)
+        animateEntry(0f, -mediaStage.height * ENTRY_TRAVEL_FRACTION)
     }
 
     private fun keepCurrent() {
@@ -830,7 +834,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (index < 0) return toast(getString(R.string.staging_empty))
 
-        preferredFolder = offeredFolders[index]
+        // Selecting the folder is enough: the spinner listener reloads and
+        // asks about unapplied work. Setting preferredFolder here first
+        // would make that listener see no change and skip the reload.
         folderSpinner.setSelection(index)
         toast(getString(R.string.staging_hint))
     }
@@ -866,10 +872,12 @@ class MainActivity : AppCompatActivity() {
 
         if (photo == null) {
             preview.setImageDrawable(null)
+            applyStateFrame(null)
             photoInfo.setText(R.string.status_empty)
             photoTags.text = ""
             return
         }
+        applyStateFrame(session.currentStatus())
         photoInfo.text = describe(photo)
         photoTags.text = getString(
             R.string.photo_tags,
@@ -919,6 +927,28 @@ class MainActivity : AppCompatActivity() {
         ReviewStatus.KEPT -> getString(R.string.photo_state_kept)
         ReviewStatus.TRASHED -> getString(R.string.photo_state_trashed)
         ReviewStatus.CATEGORIZED -> getString(R.string.photo_state_categorized)
+    }
+
+    /**
+     * Frames the photo in the colour of its recorded state, so the decision
+     * already taken is visible while leafing through rather than only in the
+     * line of text above.
+     */
+    private fun applyStateFrame(status: ReviewStatus?) {
+        val colorRes = when (status) {
+            ReviewStatus.KEPT -> R.color.state_kept
+            ReviewStatus.CATEGORIZED -> R.color.state_categorized
+            ReviewStatus.TRASHED -> R.color.state_trashed
+            null -> null
+        }
+        if (colorRes == null) {
+            mediaStage.foreground = null
+            return
+        }
+        val widthPx = (FRAME_WIDTH_DP * resources.displayMetrics.density).toInt()
+        mediaStage.foreground = GradientDrawable().apply {
+            setStroke(widthPx, ContextCompat.getColor(this@MainActivity, colorRes))
+        }
     }
 
     /** Decodes the thumbnail off the main thread, ignoring stale results. */

@@ -8,4 +8,11 @@
     <color name="month_done">#2E9E4F</color>
     <color name="month_partial">#E08A00</color>
     <color name="month_todo">#D64545</color>
+
+    <!-- Frame around the photo, showing the decision already recorded.
+         Kept separate from the month colours: those measure progress,
+         these name a state. -->
+    <color name="state_kept">#2E9E4F</color>
+    <color name="state_categorized">#2F6FD0</color>
+    <color name="state_trashed">#D64545</color>
 </resources>

@@ -18,7 +18,7 @@
     <string name="month_mark_done">\u2713</string>
     <string name="month_mark_partial">\u25D0</string>
     <string name="month_mark_todo">\u25CB</string>
-    <string name="swipe_legend">scorri: \u2190 mantieni · \u2192 da eliminare · \u2191 precedente · \u2193 successiva</string>
+    <string name="swipe_legend">scorri: \u2190 mantieni · \u2192 da eliminare · \u2191 successiva · \u2193 precedente</string>
     <string name="flash_keep">Mantenuta</string>
     <string name="flash_trash">Da eliminare</string>
     <string name="period_any_plain">qualsiasi periodo</string>
