@@ -1,8 +1,7 @@
 package it.threarth.fotosistemis
 
-import android.content.ContentValues
-import android.content.Context
-import android.database.sqlite.SQLiteDatabase
+import it.threarth.fotosistemis.core.data.Schema
+import it.threarth.fotosistemis.core.port.Database
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
@@ -17,14 +16,18 @@ import java.io.OutputStream
  * uninstalling, clearing app data, or a change of signing key all destroy it
  * without warning, so a copy the user keeps is the only real protection.
  *
- * JSON rather than a copy of the .db file: it survives a change of schema,
- * can be read and repaired by hand, and needs no dependency, since org.json
- * ships with Android.
+ * JSON rather than a copy of the database file: it survives a change of
+ * schema, can be read and repaired by hand, and needs no dependency, since
+ * org.json ships with Android.
+ *
+ * Still in the Android module for that last reason: a desktop build would
+ * need its own JSON writer, and inventing one before there is a desktop
+ * build would be guesswork.
  */
-class BackupRepository(context: Context) {
-
-    private val helper = PhotoStateDatabase(context.applicationContext)
-    private val settings = AppSettings(context)
+class BackupRepository(
+    private val database: Database,
+    private val settings: AppSettings
+) {
 
     private companion object {
 
@@ -37,11 +40,29 @@ class BackupRepository(context: Context) {
 
         /** Tables copied, in an order that reads naturally when inspected. */
         val TABLES = listOf(
-            PhotoStateDatabase.TABLE_DESTINATIONS,
-            PhotoStateDatabase.TABLE_PHOTO_STATE,
-            PhotoStateDatabase.TABLE_TAGS,
-            PhotoStateDatabase.TABLE_PHOTO_TAGS,
-            PhotoStateDatabase.TABLE_PHOTO_PATHS
+            Schema.TABLE_DESTINATIONS,
+            Schema.TABLE_PHOTO_STATE,
+            Schema.TABLE_TAGS,
+            Schema.TABLE_PHOTO_TAGS,
+            Schema.TABLE_PHOTO_PATHS
+        )
+
+        /** Columns to read back, per table, in the order they are inserted. */
+        val COLUMNS = mapOf(
+            Schema.TABLE_DESTINATIONS to listOf(
+                Schema.COLUMN_ID, Schema.COLUMN_LABEL, Schema.COLUMN_RELATIVE_PATH,
+                Schema.COLUMN_YEAR_SUBFOLDER, Schema.COLUMN_SORT_ORDER
+            ),
+            Schema.TABLE_PHOTO_STATE to listOf(
+                Schema.COLUMN_MEDIA_ID, Schema.COLUMN_DISPLAY_NAME, Schema.COLUMN_SIZE_BYTES,
+                Schema.COLUMN_STATUS, Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT
+            ),
+            Schema.TABLE_TAGS to listOf(Schema.COLUMN_ID, Schema.COLUMN_NAME),
+            Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_MEDIA_ID, Schema.COLUMN_TAG_ID),
+            Schema.TABLE_PHOTO_PATHS to listOf(
+                Schema.COLUMN_ID, Schema.COLUMN_MEDIA_ID, Schema.COLUMN_PATH,
+                Schema.COLUMN_KIND, Schema.COLUMN_RECORDED_AT
+            )
         )
     }
 
@@ -49,24 +70,21 @@ class BackupRepository(context: Context) {
     data class Summary(val rowCount: Int, val tableCount: Int)
 
     /** Writes every table to [output] as JSON. */
-    fun exportTo(output: OutputStream): Result<Summary> = try {
+    fun exportTo(output: OutputStream): Result<Summary> = runCatching {
         val document = JSONObject()
         document.put(KEY_VERSION, BACKUP_VERSION)
         document.put(KEY_EXPORTED_AT, System.currentTimeMillis())
         document.put(KEY_YEAR_PATTERN, settings.yearFolderPattern)
 
         var rows = 0
-        val database = helper.readableDatabase
         for (table in TABLES) {
-            val dumped = dumpTable(database, table)
+            val dumped = dumpTable(table)
             rows += dumped.length()
             document.put(table, dumped)
         }
 
         output.bufferedWriter().use { it.write(document.toString(2)) }
-        Result.success(Summary(rows, TABLES.size))
-    } catch (error: Exception) {
-        Result.failure(error)
+        Summary(rows, TABLES.size)
     }
 
     /**
@@ -78,64 +96,52 @@ class BackupRepository(context: Context) {
      * Everything happens in one transaction, so a malformed file leaves the
      * existing data untouched.
      */
-    fun importFrom(input: InputStream): Result<Summary> {
-        val database = helper.writableDatabase
-        return try {
-            val text = input.bufferedReader().use { it.readText() }
-            val document = JSONObject(text)
-            require(document.optInt(KEY_VERSION) == BACKUP_VERSION) {
-                "Formato di backup non riconosciuto"
-            }
-
-            database.beginTransaction()
-            var rows = 0
-            for (table in TABLES) {
-                database.delete(table, null, null)
-                rows += restoreTable(database, table, document.optJSONArray(table))
-            }
-            database.setTransactionSuccessful()
-
-            document.optString(KEY_YEAR_PATTERN).takeIf { it.isNotBlank() }
-                ?.let { settings.yearFolderPattern = it }
-            Result.success(Summary(rows, TABLES.size))
-        } catch (error: Exception) {
-            Result.failure(error)
-        } finally {
-            if (database.inTransaction()) database.endTransaction()
+    fun importFrom(input: InputStream): Result<Summary> = runCatching {
+        val text = input.bufferedReader().use { it.readText() }
+        val document = JSONObject(text)
+        require(document.optInt(KEY_VERSION) == BACKUP_VERSION) {
+            "Formato di backup non riconosciuto"
         }
+
+        val rows = database.transaction {
+            var restored = 0
+            for (table in TABLES) {
+                database.execute("DELETE FROM $table")
+                restored += restoreTable(table, document.optJSONArray(table))
+            }
+            restored
+        }
+
+        document.optString(KEY_YEAR_PATTERN).takeIf { it.isNotBlank() }
+            ?.let { settings.yearFolderPattern = it }
+        Summary(rows, TABLES.size)
     }
 
-    /** Reads a whole table, using the column names the cursor reports. */
-    private fun dumpTable(database: SQLiteDatabase, table: String): JSONArray {
+    /** Reads a whole table into JSON objects keyed by column name. */
+    private fun dumpTable(table: String): JSONArray {
+        val columns = COLUMNS.getValue(table)
         val rows = JSONArray()
-        database.query(table, null, null, null, null, null, null).use { cursor ->
-            while (cursor.moveToNext()) {
-                val row = JSONObject()
-                for (index in 0 until cursor.columnCount) {
-                    if (!cursor.isNull(index)) {
-                        row.put(cursor.getColumnName(index), cursor.getString(index))
-                    }
-                }
-                rows.put(row)
-            }
+        database.query("SELECT ${columns.joinToString(", ")} FROM $table").forEach { row ->
+            val entry = JSONObject()
+            for (column in columns) row.getString(column)?.let { entry.put(column, it) }
+            rows.put(entry)
         }
         return rows
     }
 
     /** Inserts the rows of [values] into [table], returning how many. */
-    private fun restoreTable(
-        database: SQLiteDatabase,
-        table: String,
-        values: JSONArray?
-    ): Int {
+    private fun restoreTable(table: String, values: JSONArray?): Int {
         if (values == null) return 0
+        val columns = COLUMNS.getValue(table)
+        val placeholders = columns.joinToString(", ") { "?" }
+        val sql = "INSERT OR REPLACE INTO $table (${columns.joinToString(", ")}) " +
+                "VALUES ($placeholders)"
+
         for (index in 0 until values.length()) {
             val row = values.getJSONObject(index)
-            val content = ContentValues()
-            for (name in row.keys()) content.put(name, row.getString(name))
-            database.insertWithOnConflict(
-                table, null, content, SQLiteDatabase.CONFLICT_REPLACE
-            )
+            database.execute(sql, columns.map { column ->
+                if (row.has(column)) row.getString(column) else null
+            })
         }
         return values.length()
     }

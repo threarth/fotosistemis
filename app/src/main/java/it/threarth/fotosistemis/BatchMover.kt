@@ -3,6 +3,8 @@ package it.threarth.fotosistemis
 import android.content.Context
 import android.content.IntentSender
 import android.provider.MediaStore
+import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.review.ReviewSession
 
 /**
  * Applies the queued moves in one batch.
@@ -13,7 +15,7 @@ import android.provider.MediaStore
  */
 class BatchMover(
     private val context: Context,
-    private val mediaRepository: MediaStoreRepository,
+    private val photoSource: MediaStorePhotoSource,
     private val stateRepository: PhotoStateRepository
 ) {
 
@@ -30,7 +32,7 @@ class BatchMover(
     fun buildConsent(moves: List<ReviewSession.PendingMove>): IntentSender =
         MediaStore.createWriteRequest(
             context.contentResolver,
-            moves.map { it.photo.uri }
+            moves.map { photoSource.uriFor(it.photo) }
         ).intentSender
 
     /**
@@ -45,10 +47,10 @@ class BatchMover(
 
         val startedAt = System.currentTimeMillis()
         for (move in moves) {
-            mediaRepository.move(move.photo, move.destinationRelativePath).fold(
+            photoSource.move(move.photo, move.destinationRelativePath).fold(
                 onSuccess = {
                     succeeded++
-                    stateRepository.recordMovedPath(move.photo.mediaId, move.destinationRelativePath)
+                    stateRepository.recordMovedPath(move.photo.platformId, move.destinationRelativePath)
                 },
                 onFailure = { error ->
                     failed.add(move)

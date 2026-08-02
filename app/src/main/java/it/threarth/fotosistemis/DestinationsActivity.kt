@@ -12,6 +12,16 @@ import android.widget.ListView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.TagRepository
+import it.threarth.fotosistemis.core.model.CaptureDateResolver
+import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderSummary
+import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.PhotoFilter
+import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,7 +47,7 @@ class DestinationsActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
     private lateinit var backup: BackupRepository
     private lateinit var listView: ListView
-    private var destinations: List<DestinationRepository.Destination> = emptyList()
+    private var destinations: List<Destination> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,9 +55,10 @@ class DestinationsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_destinations)
         applySystemBarInsets()
 
-        repository = DestinationRepository(this)
+        val database = AndroidDatabase(this)
+        repository = DestinationRepository(database)
         settings = AppSettings(this)
-        backup = BackupRepository(this)
+        backup = BackupRepository(database, AppSettings(this))
         listView = findViewById(R.id.destinationList)
         listView.setOnItemClickListener { _, _, position, _ -> editDestination(destinations[position]) }
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
@@ -80,7 +91,7 @@ class DestinationsActivity : AppCompatActivity() {
     }
 
     /** One line per destination: label, path, and whether years are added. */
-    private fun describe(destination: DestinationRepository.Destination): String {
+    private fun describe(destination: Destination): String {
         if (!destination.yearSubfolder) {
             return "${destination.label}\n${destination.relativePath}/ · " +
                     getString(R.string.destination_without_year)
@@ -182,7 +193,7 @@ class DestinationsActivity : AppCompatActivity() {
         }
     }
 
-    private fun editDestination(destination: DestinationRepository.Destination) {
+    private fun editDestination(destination: Destination) {
         showEditor(destination) { label, path, yearSubfolder ->
             repository.update(destination.id, label, path, yearSubfolder)
                 .onFailure { showError(it) }
@@ -195,7 +206,7 @@ class DestinationsActivity : AppCompatActivity() {
      * The delete button only appears when editing.
      */
     private fun showEditor(
-        existing: DestinationRepository.Destination?,
+        existing: Destination?,
         onConfirm: (String, String, Boolean) -> Unit
     ) {
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_destination, null)
@@ -240,7 +251,7 @@ class DestinationsActivity : AppCompatActivity() {
     }
 
     /** Deleting a shortcut is not deleting photos, and says so. */
-    private fun confirmDelete(destination: DestinationRepository.Destination) {
+    private fun confirmDelete(destination: Destination) {
         AlertDialog.Builder(this)
             .setTitle(R.string.destination_delete_title)
             .setMessage(getString(R.string.destination_delete_message, destination.label))

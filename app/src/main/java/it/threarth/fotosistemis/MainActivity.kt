@@ -28,6 +28,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.TagRepository
+import it.threarth.fotosistemis.core.model.CaptureDateResolver
+import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderSummary
+import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.PhotoFilter
+import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -60,6 +70,9 @@ class MainActivity : AppCompatActivity() {
         const val BYTES_PER_MEGABYTE = 1024.0 * 1024.0
         const val IMAGE_MIME_TYPE = "image/*"
 
+        /** Longest edge of the preview: larger than any phone screen needs. */
+        const val THUMBNAIL_EDGE_PIXELS = 1024
+
         /** Shortest movement accepted as a deliberate swipe. */
         const val MIN_FLING_PIXELS = 80f
 
@@ -86,7 +99,7 @@ class MainActivity : AppCompatActivity() {
         const val THUMBNAIL_CACHE_SIZE = 4
     }
 
-    private lateinit var mediaRepository: MediaStoreRepository
+    private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var stateRepository: PhotoStateRepository
     private lateinit var tagRepository: TagRepository
     private lateinit var destinationRepository: DestinationRepository
@@ -114,15 +127,15 @@ class MainActivity : AppCompatActivity() {
     private val offeredPeriods = ArrayList<PhotoFilter.Period>()
 
     /** Folders offered by the spinner; null at index 0 means "every folder". */
-    private val offeredFolders = ArrayList<MediaStoreRepository.FolderSummary?>()
+    private val offeredFolders = ArrayList<FolderSummary?>()
 
     /**
      * Folder the user last chose. Kept separately from the spinner so that
      * rebuilding the list after a batch does not silently change what is
      * being reviewed.
      */
-    private var preferredFolder: MediaStoreRepository.FolderSummary? = null
-    private var destinations: List<DestinationRepository.Destination> = emptyList()
+    private var preferredFolder: FolderSummary? = null
+    private var destinations: List<Destination> = emptyList()
     /**
      * Period the user last chose. Kept apart from the spinner because the
      * spinner is rebuilt from the photos of each folder, and rebuilding it
@@ -179,8 +192,8 @@ class MainActivity : AppCompatActivity() {
             size > THUMBNAIL_CACHE_SIZE
     }
 
-    private val previousBitmap: Bitmap? get() = session.peek(-1)?.let { thumbnails[it.mediaId] }
-    private val nextBitmap: Bitmap? get() = session.peek(1)?.let { thumbnails[it.mediaId] }
+    private val previousBitmap: Bitmap? get() = session.peek(-1)?.let { thumbnails[it.platformId] }
+    private val nextBitmap: Bitmap? get() = session.peek(1)?.let { thumbnails[it.platformId] }
 
     private val requestReadPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -215,12 +228,14 @@ class MainActivity : AppCompatActivity() {
         bindViews()
         applySystemBarInsets()
 
-        mediaRepository = MediaStoreRepository(this)
-        stateRepository = PhotoStateRepository(this)
-        tagRepository = TagRepository(this)
-        destinationRepository = DestinationRepository(this)
-        mover = BatchMover(this, mediaRepository, stateRepository)
-        session = ReviewSession(stateRepository, tagRepository, AppSettings(this))
+        val database = AndroidDatabase(this)
+        val settings = AppSettings(this)
+        photoSource = MediaStorePhotoSource(this)
+        stateRepository = PhotoStateRepository(database)
+        tagRepository = TagRepository(database)
+        destinationRepository = DestinationRepository(database)
+        mover = BatchMover(this, photoSource, stateRepository)
+        session = ReviewSession(stateRepository, tagRepository) { settings.yearFolderPattern }
 
         buildScopeSpinner()
         wireActions()
@@ -250,7 +265,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshStagingCount() {
         thread {
-            val counted = mediaRepository
+            val counted = photoSource
                 .countPhotosIn(ReviewSession.DELETION_STAGING_PATH)
                 .getOrNull() ?: return@thread
             runOnUiThread { onStagingCountRefreshed(counted) }
@@ -561,12 +576,12 @@ class MainActivity : AppCompatActivity() {
         setBusy(true)
         statusText.setText(R.string.status_loading)
         thread {
-            val folders = mediaRepository.queryFolders()
+            val folders = photoSource.listFolders()
             runOnUiThread { onFoldersLoaded(folders) }
         }
     }
 
-    private fun onFoldersLoaded(result: Result<List<MediaStoreRepository.FolderSummary>>) {
+    private fun onFoldersLoaded(result: Result<List<FolderSummary>>) {
         setBusy(false)
         val folders = result.getOrElse {
             showError(it)
@@ -627,7 +642,7 @@ class MainActivity : AppCompatActivity() {
      * dates are wrong.
      */
     private fun rebuildPeriodSpinner(
-        photos: List<MediaStoreRepository.Photo>,
+        photos: List<PhotoRecord>,
         states: Map<Long, PhotoStateRepository.StoredState>
     ) {
         val counts = LinkedHashMap<PhotoFilter.Period.Month, Int>()
@@ -640,7 +655,7 @@ class MainActivity : AppCompatActivity() {
                 calendar.get(Calendar.YEAR)
             )
             counts[month] = (counts[month] ?: 0) + 1
-            if (states.containsKey(photo.mediaId)) {
+            if (states.containsKey(photo.platformId)) {
                 reviewed[month] = (reviewed[month] ?: 0) + 1
             }
         }
@@ -772,7 +787,7 @@ class MainActivity : AppCompatActivity() {
      * Folder currently selected, or null for every folder. Matching is exact,
      * so a folder never includes its own subfolders.
      */
-    private fun currentFolder(): MediaStoreRepository.FolderSummary? =
+    private fun currentFolder(): FolderSummary? =
         offeredFolders.getOrNull(folderSpinner.selectedItemPosition)
 
     /** Builds the filter currently selected in the two spinners. */
@@ -842,7 +857,7 @@ class MainActivity : AppCompatActivity() {
         val generation = ++loadGeneration
 
         thread {
-            val photos = mediaRepository.queryPhotos(folder)
+            val photos = photoSource.listPhotos(folder)
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()
@@ -856,7 +871,7 @@ class MainActivity : AppCompatActivity() {
     /** Applies the review-state axis of the filter and shows the first photo. */
     private fun onLoaded(
         filter: PhotoFilter,
-        photos: Result<List<MediaStoreRepository.Photo>>,
+        photos: Result<List<PhotoRecord>>,
         states: Result<Map<Long, PhotoStateRepository.StoredState>>,
         tags: Result<Map<Long, List<String>>>,
         origins: Result<Map<Long, String>>
@@ -871,7 +886,7 @@ class MainActivity : AppCompatActivity() {
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
-        val visible = inPeriod.filter { filter.accepts(loadedStates[it.mediaId]?.status) }
+        val visible = inPeriod.filter { filter.accepts(loadedStates[it.platformId]?.status) }
 
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
@@ -884,7 +899,7 @@ class MainActivity : AppCompatActivity() {
      * period and the review state each hide photos for different reasons.
      */
     private fun explainEmptyResult(
-        inFolder: List<MediaStoreRepository.Photo>,
+        inFolder: List<PhotoRecord>,
         inPeriod: Int,
         period: LongRange?
     ) {
@@ -911,7 +926,7 @@ class MainActivity : AppCompatActivity() {
      * name, or the file timestamp are three different failure modes and an
      * aggregate date range alone cannot tell them apart.
      */
-    private fun describeSources(photos: List<MediaStoreRepository.Photo>): String {
+    private fun describeSources(photos: List<PhotoRecord>): String {
         val counts = photos.groupingBy { it.dateSource }.eachCount()
         return CaptureDateResolver.Source.entries.joinToString(" ") { source ->
             "${describeDateSource(source)}=${counts[source] ?: 0}"
@@ -1058,7 +1073,7 @@ class MainActivity : AppCompatActivity() {
     private fun openCurrentExternally() {
         val photo = session.current() ?: return
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(photo.uri, IMAGE_MIME_TYPE)
+            setDataAndType(photoSource.uriFor(photo), IMAGE_MIME_TYPE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
@@ -1113,7 +1128,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Name, size, capture date and recorded decision for one photo. */
-    private fun describe(photo: MediaStoreRepository.Photo): String {
+    private fun describe(photo: PhotoRecord): String {
         val taken = SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(photo.dateTakenMillis))
         val megabytes = photo.sizeBytes / BYTES_PER_MEGABYTE
         val detail = "%.1f MB · %s (%s) · %s".format(
@@ -1176,15 +1191,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Decodes the thumbnail off the main thread, ignoring stale results. */
-    private fun loadPreview(photo: MediaStoreRepository.Photo) {
+    private fun loadPreview(photo: PhotoRecord) {
         // Already showing this photo: reloading it would only make it blink.
-        if (preview.tag == photo.mediaId && preview.drawable != null) {
+        if (preview.tag == photo.platformId && preview.drawable != null) {
             preloadNeighbours()
             return
         }
-        preview.tag = photo.mediaId
+        preview.tag = photo.platformId
 
-        val cached = thumbnails[photo.mediaId]
+        val cached = thumbnails[photo.platformId]
         if (cached != null) {
             // Decoded already, most likely as the neighbour of the photo just
             // left behind: show it at once so the gesture has no aftermath.
@@ -1195,10 +1210,10 @@ class MainActivity : AppCompatActivity() {
 
         preview.setImageDrawable(null)
         thread {
-            val bitmap = mediaRepository.loadThumbnail(photo).getOrNull()
+            val bitmap = photoSource.loadThumbnail(photo, THUMBNAIL_EDGE_PIXELS).getOrNull()
             runOnUiThread {
-                if (bitmap != null) thumbnails[photo.mediaId] = bitmap
-                showPreviewIfCurrent(photo.mediaId, bitmap)
+                if (bitmap != null) thumbnails[photo.platformId] = bitmap
+                showPreviewIfCurrent(photo.platformId, bitmap)
                 preloadNeighbours()
             }
         }
@@ -1213,12 +1228,12 @@ class MainActivity : AppCompatActivity() {
      */
     private fun preloadNeighbours() {
         val wanted = listOfNotNull(session.peek(1), session.peek(-1))
-            .filterNot { thumbnails.containsKey(it.mediaId) }
+            .filterNot { thumbnails.containsKey(it.platformId) }
         if (wanted.isEmpty()) return
 
         thread {
             val decoded = wanted.mapNotNull { photo ->
-                mediaRepository.loadThumbnail(photo).getOrNull()?.let { photo.mediaId to it }
+                photoSource.loadThumbnail(photo, THUMBNAIL_EDGE_PIXELS).getOrNull()?.let { photo.platformId to it }
             }
             runOnUiThread { decoded.forEach { thumbnails[it.first] = it.second } }
         }

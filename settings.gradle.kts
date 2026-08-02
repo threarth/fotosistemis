@@ -23,5 +23,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "fotosistemis"
+include(":core")
 include(":app")
  

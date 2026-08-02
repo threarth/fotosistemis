@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis
 
 import android.content.Context
+import it.threarth.fotosistemis.core.model.Destination
 
 /**
  * Application-wide preferences.
@@ -17,15 +18,13 @@ class AppSettings(context: Context) {
         private const val PREFERENCES_NAME = "fotosistemis-settings"
         private const val KEY_YEAR_FOLDER_PATTERN = "year_folder_pattern"
 
-        const val PLACEHOLDER_YEAR = "{anno}"
-        const val PLACEHOLDER_LABEL = "{etichetta}"
 
         /**
          * Google Photos labels a device folder with its last path segment, so
          * a bare year would look identical for every destination. Including
          * the label keeps Famiglia and Lavoro apart there.
          */
-        const val DEFAULT_YEAR_FOLDER_PATTERN = "$PLACEHOLDER_YEAR-$PLACEHOLDER_LABEL"
+        const val DEFAULT_YEAR_FOLDER_PATTERN = Destination.DEFAULT_YEAR_FOLDER_PATTERN
     }
 
     /**

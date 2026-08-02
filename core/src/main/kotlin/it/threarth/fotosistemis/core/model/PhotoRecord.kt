@@ -1,0 +1,34 @@
+package it.threarth.fotosistemis.core.model
+
+/**
+ * One photo as the app knows it, independent of where it was read from.
+ *
+ * Android fills this from MediaStore, a desktop build would fill it from the
+ * file system. Nothing here is specific to either.
+ */
+data class PhotoRecord(
+
+    /**
+     * Identifier assigned by the platform: the MediaStore _ID on Android.
+     *
+     * Convenient but not an identity. The platform may reassign it when a
+     * card is remounted or the media index is rebuilt, so it is treated as a
+     * shortcut that can be rewritten, never as the way a photo is known.
+     */
+    val platformId: Long,
+
+    /** Storage volume holding the file. Photos never leave their own. */
+    val volumeName: String,
+
+    val displayName: String,
+
+    /** Folder holding the file, relative to the volume root, trailing slash. */
+    val relativePath: String,
+
+    val sizeBytes: Long,
+
+    /** Best available capture time, resolved by [CaptureDateResolver]. */
+    val dateTakenMillis: Long,
+
+    val dateSource: CaptureDateResolver.Source
+)
