@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="it.threarth.fotosistemis.core.review.PhotoFilterTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-08-04T20:39:09.141Z" hostname="BECANA" time="0.025">
+<testsuite name="it.threarth.fotosistemis.core.review.PhotoFilterTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-08-04T20:45:05.261Z" hostname="BECANA" time="0.02">
   <properties/>
-  <testcase name="file name parsing rejects impossible dates" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.01"/>
+  <testcase name="file name parsing rejects impossible dates" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.008"/>
   <testcase name="implausible exif falls back to the file name" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.001"/>
   <testcase name="any period places no restriction" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.003"/>
-  <testcase name="month filter covers the whole month" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.005"/>
+  <testcase name="month filter covers the whole month" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.004"/>
   <testcase name="capture date prefers exif then file name then file timestamp" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.0"/>
   <testcase name="exif in seconds is recognised and rescaled" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.001"/>
   <testcase name="month filter excludes neighbouring months" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.0"/>
-  <testcase name="review scope filters on stored status" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.003"/>
+  <testcase name="review scope filters on stored status" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.002"/>
   <testcase name="explicit range includes the whole final day" classname="it.threarth.fotosistemis.core.review.PhotoFilterTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>

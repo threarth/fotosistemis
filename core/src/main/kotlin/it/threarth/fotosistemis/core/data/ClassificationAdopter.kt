@@ -5,74 +5,130 @@ import it.threarth.fotosistemis.core.model.Destination
 /**
  * Reads the classification already present on disk.
  *
- * Photos filed into destination folders before the app knew about them, by a
+ * Photos filed into category folders before the app knew about them, by a
  * previous install or by hand, are indistinguishable from unreviewed ones:
  * the app would offer them for review again and the user would redo work
- * already done. Where a photo sits is itself a statement about it, and this
- * turns that statement into a recorded decision.
+ * already done. After moving to another phone, that is the whole archive.
  *
- * Only photos with nothing recorded are considered. A decision already taken
- * is never overwritten, whatever the folder suggests.
+ * Where a photo sits is itself a statement about it, and this turns that
+ * statement into a recorded decision. Nothing is moved.
  */
 object ClassificationAdopter {
 
-    /** A photo sitting in a destination folder, and where. */
+    /**
+     * Shape a folder must have to count as classified: a category holding
+     * year folders, such as Pictures/Famiglia/2026-famiglia.
+     *
+     * Requiring the year is what keeps the reading honest. Without it any
+     * folder under Pictures would look like a category, and screenshots or a
+     * download folder would be adopted as though they had been sorted.
+     */
+    private val YEAR_IN_NAME = Regex("""(?:^|[^0-9])((?:19|20)\d{2})(?:[^0-9]|$)""")
+
+    /** Folders searched for that shape. */
+    val DEFAULT_ROOTS = listOf("Pictures", "DCIM")
+
+    /** One photo as the inventory holds it. */
+    data class InventoryEntry(val photoId: Long, val relativePath: String)
+
+    /** A photo recognised as filed, and the category it sits in. */
     data class Candidate(
         val photoId: Long,
         val relativePath: String,
-        val destination: Destination
+        val categoryLabel: String,
+
+        /** Folder it belongs to, or null when that folder is not known yet. */
+        val destinationId: Long?
     )
 
-    /** What adopting would record, per destination. */
-    data class Preview(val candidates: List<Candidate>) {
+    /** A category found on disk that the app has no destination for. */
+    data class ProposedCategory(
+        val label: String,
+        val relativePath: String,
+        val photoCount: Int
+    )
 
+    /** What adopting would record, stated before anything is written. */
+    data class Proposal(
+        val candidates: List<Candidate>,
+        val proposedCategories: List<ProposedCategory>
+    ) {
         val total: Int get() = candidates.size
 
-        /** Counts per destination label, for showing before anything changes. */
-        val byDestination: Map<String, Int>
-            get() = candidates.groupingBy { it.destination.label }.eachCount()
+        /** Photos per category, for showing what is about to happen. */
+        val byCategory: Map<String, Int>
+            get() = candidates.groupingBy { it.categoryLabel }.eachCount()
+
+        /** True when accepting would also create folders. */
+        val createsCategories: Boolean get() = proposedCategories.isNotEmpty()
     }
 
-    /** One photo as the inventory holds it, for the purposes of adopting. */
-    data class InventoryEntry(val photoId: Long, val relativePath: String)
-
     /**
-     * Finds photos that sit inside a destination folder and carry no
-     * decision yet.
+     * Works out which photos are already filed, and under what.
      *
-     * Matching is by path prefix rather than by rebuilding the expected year
-     * folder name: that name is configurable and may have changed, and older
-     * installs used a different one. Anything under the destination counts,
-     * whatever the year folders happen to be called.
+     * Categories are read from the paths rather than taken from
+     * [destinations] alone: on a new phone the folders exist on disk while
+     * the app knows nothing of them, so insisting on a destination that
+     * already exists would find nothing.
+     *
+     * A decision already recorded is never overwritten, whatever the folder
+     * suggests.
      */
-    fun preview(
+    fun propose(
         inventory: List<InventoryEntry>,
         destinations: List<Destination>,
-        alreadyDecided: Set<Long>
-    ): Preview {
-        // Longest path first, so a destination nested inside another wins
-        // over the one containing it.
-        val ordered = destinations.sortedByDescending { it.relativePath.trim('/').length }
+        alreadyDecided: Set<Long>,
+        roots: List<String> = DEFAULT_ROOTS
+    ): Proposal {
+        val knownByPath = destinations.associateBy { it.relativePath.trim('/').lowercase() }
+        val candidates = ArrayList<Candidate>()
+        val discovered = LinkedHashMap<String, ProposedCategory>()
 
-        val candidates = inventory.mapNotNull { entry ->
-            if (entry.photoId in alreadyDecided) return@mapNotNull null
-            val destination = ordered.firstOrNull { contains(it, entry.relativePath) }
-                ?: return@mapNotNull null
-            Candidate(entry.photoId, entry.relativePath, destination)
+        for (entry in inventory) {
+            if (entry.photoId in alreadyDecided) continue
+            val category = categoryOf(entry.relativePath, roots) ?: continue
+
+            val known = knownByPath[category.path.lowercase()]
+            candidates.add(
+                Candidate(entry.photoId, entry.relativePath, known?.label ?: category.label, known?.id)
+            )
+            if (known == null) {
+                val existing = discovered[category.path]
+                discovered[category.path] = ProposedCategory(
+                    category.label,
+                    category.path,
+                    (existing?.photoCount ?: 0) + 1
+                )
+            }
         }
-        return Preview(candidates)
+        return Proposal(candidates, discovered.values.sortedByDescending { it.photoCount })
     }
 
+    /** The category folder a photo sits in, when its path has that shape. */
+    private data class Category(val label: String, val path: String)
+
     /**
-     * True when [photoPath] lies inside the folder of [destination].
+     * Reads root, category and year folder out of a path.
      *
-     * The comparison stops at a path separator, so Pictures/Famiglia does
-     * not swallow Pictures/FamigliaAllargata.
+     * Exactly three segments: deeper nesting was never something this app
+     * produces, and treating it as a category would put photos from an
+     * unrelated structure into one.
      */
-    private fun contains(destination: Destination, photoPath: String): Boolean {
-        val root = destination.relativePath.trim('/')
-        if (root.isEmpty()) return false
-        val path = photoPath.trim('/')
-        return path == root || path.startsWith("$root/")
+    private fun categoryOf(relativePath: String, roots: List<String>): Category? {
+        val segments = relativePath.trim('/').split('/').filter { it.isNotEmpty() }
+        if (segments.size != 3) return null
+
+        val root = segments[0]
+        if (roots.none { it.equals(root, ignoreCase = true) }) return null
+
+        val category = segments[1]
+        val yearFolder = segments[2]
+        if (!YEAR_IN_NAME.containsMatchIn(yearFolder)) return null
+
+        // A category named after a year would mean the shape was read one
+        // level off, with the real categories sitting deeper.
+        if (YEAR_IN_NAME.containsMatchIn(category)) return null
+
+        return Category(label = category, path = "$root/$category")
     }
 }

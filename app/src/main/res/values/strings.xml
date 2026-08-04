@@ -61,8 +61,9 @@
     <string name="pattern_title">Nome sottocartella anno</string>
     <string name="action_adopt">Riconosci foto gia\' ordinate</string>
     <string name="adopt_title">Foto gia\' nelle cartelle</string>
-    <string name="adopt_message">Trovate %1$d foto che stanno gia\' in una cartella di destinazione e non risultano ancora archiviate.\n\n%2$s\nNessun file viene spostato: viene solo registrato dove si trovano.</string>
-    <string name="adopt_none">Nessuna foto da riconoscere. Apri prima la schermata principale, cosi\' l\'inventario viene aggiornato.</string>
+    <string name="adopt_message">Trovate %1$d foto in cartelle del tipo categoria/anno che non risultano ancora archiviate.\n\n%2$s\n%3$s\nNessun file viene spostato: viene solo registrato dove si trovano.</string>
+    <string name="adopt_new_categories">\nVerranno create le cartelle: %1$s\n</string>
+    <string name="adopt_none">Nessuna foto da riconoscere. Vengono considerate solo cartelle del tipo Pictures/Categoria/2026. Apri prima la schermata principale, cosi\' l\'inventario viene aggiornato.</string>
     <string name="adopt_done">%1$d foto registrate come archiviate.</string>
     <string name="adopt_confirm">Registra</string>
     <string name="action_export">Esporta dati</string>

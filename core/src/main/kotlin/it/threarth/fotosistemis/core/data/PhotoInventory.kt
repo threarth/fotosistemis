@@ -101,16 +101,33 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
-     * Records the candidates of a preview as filed, in one transaction.
+     * Records a proposal as filed, creating the categories it found.
      *
-     * Their current folder is written as the original one: it is the first
-     * place the app ever saw them, and restoring has to put them back
+     * One transaction: creating folders and recording the photos that
+     * belong to them is a single act, and half of it would leave photos
+     * pointing at a folder that does not exist.
+     *
+     * Each photo's current folder is written as its original one: it is the
+     * first place the app ever saw it, and restoring has to put it back
      * exactly there.
      */
-    fun adopt(candidates: List<ClassificationAdopter.Candidate>): Result<Int> = runCatching {
+    fun adopt(
+        proposal: ClassificationAdopter.Proposal,
+        destinationRepository: DestinationRepository
+    ): Result<Int> = runCatching {
         val now = System.currentTimeMillis()
         database.transaction {
-            for (candidate in candidates) {
+            val createdIds = HashMap<String, Long>()
+            for (category in proposal.proposedCategories) {
+                createdIds[category.label] = destinationRepository
+                    .insert(category.label, category.relativePath, yearSubfolder = true)
+                    .getOrThrow()
+            }
+
+            for (candidate in proposal.candidates) {
+                val destinationId = candidate.destinationId
+                    ?: createdIds[candidate.categoryLabel]
+                    ?: continue
                 database.execute(
                     "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
                             "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
@@ -119,7 +136,7 @@ class PhotoInventory(private val database: Database) {
                     listOf(
                         candidate.photoId,
                         ReviewStatus.CATEGORIZED.storedValue,
-                        candidate.destination.id,
+                        destinationId,
                         now
                     )
                 )
@@ -142,7 +159,7 @@ class PhotoInventory(private val database: Database) {
                     )
                 }
             }
-            candidates.size
+            proposal.total
         }
     }
 

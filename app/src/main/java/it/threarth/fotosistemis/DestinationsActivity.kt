@@ -158,20 +158,27 @@ class DestinationsActivity : AppCompatActivity() {
         val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
         val destinations = repository.loadAll().getOrElse { return showError(it) }
 
-        val preview = ClassificationAdopter.preview(entries, destinations, decided)
-        if (preview.total == 0) return toast(getString(R.string.adopt_none))
+        val proposal = ClassificationAdopter.propose(entries, destinations, decided)
+        if (proposal.total == 0) return toast(getString(R.string.adopt_none))
 
-        val breakdown = preview.byDestination.entries
+        val breakdown = proposal.byCategory.entries
             .sortedByDescending { it.value }
-            .joinToString("\n") { "${it.key}: ${it.value}" }
+            .joinToString("\n") { "  ${it.key}: ${it.value}" }
+        val newFolders = if (!proposal.createsCategories) "" else getString(
+            R.string.adopt_new_categories,
+            proposal.proposedCategories.joinToString(", ") { it.label }
+        )
 
         AlertDialog.Builder(this)
             .setTitle(R.string.adopt_title)
-            .setMessage(getString(R.string.adopt_message, preview.total, breakdown))
+            .setMessage(getString(R.string.adopt_message, proposal.total, breakdown, newFolders))
             .setPositiveButton(R.string.adopt_confirm) { _, _ ->
-                inventory.adopt(preview.candidates)
+                inventory.adopt(proposal, repository)
                     .onFailure { showError(it) }
-                    .onSuccess { toast(getString(R.string.adopt_done, it)) }
+                    .onSuccess {
+                        toast(getString(R.string.adopt_done, it))
+                        refresh()
+                    }
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()

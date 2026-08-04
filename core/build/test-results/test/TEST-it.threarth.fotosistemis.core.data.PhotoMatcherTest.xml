@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="it.threarth.fotosistemis.core.data.PhotoMatcherTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-04T20:39:09.065Z" hostname="BECANA" time="0.07">
+<testsuite name="it.threarth.fotosistemis.core.data.PhotoMatcherTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-04T20:45:05.224Z" hostname="BECANA" time="0.033">
   <properties/>
-  <testcase name="refuses to guess when several photos share size and date" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.065"/>
-  <testcase name="unseen photos are reported as new" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
-  <testcase name="matches on the platform id when it still resolves" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
+  <testcase name="refuses to guess when several photos share size and date" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.029"/>
+  <testcase name="unseen photos are reported as new" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.0"/>
+  <testcase name="matches on the platform id when it still resolves" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.0"/>
   <testcase name="missing photos surface only after a complete scan" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
-  <testcase name="a photo with no stored platform id is still recognised" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.0"/>
+  <testcase name="a photo with no stored platform id is still recognised" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
   <testcase name="recognises a renamed photo when only one candidate fits" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
-  <testcase name="recognises a photo whose platform id changed" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.0"/>
-  <testcase name="a stored photo is claimed only once" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
+  <testcase name="recognises a photo whose platform id changed" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.001"/>
+  <testcase name="a stored photo is claimed only once" classname="it.threarth.fotosistemis.core.data.PhotoMatcherTest" time="0.0"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
