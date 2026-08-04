@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-08-04T20:39:08.986Z" hostname="BECANA" time="0.069">
+  <properties/>
+  <testcase name="a similar name is not a containing folder" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.039"/>
+  <testcase name="a nested destination wins over the one containing it" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.017"/>
+  <testcase name="adopts photos in a year subfolder whatever it is called" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.007"/>
+  <testcase name="leaves photos outside any destination alone" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.0"/>
+  <testcase name="never overrides a decision already taken" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.001"/>
+  <testcase name="adopts photos sitting directly in the destination" classname="it.threarth.fotosistemis.core.data.ClassificationAdopterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

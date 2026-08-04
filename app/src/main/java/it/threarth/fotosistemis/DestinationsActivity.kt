@@ -14,18 +14,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
-import it.threarth.fotosistemis.core.data.TagRepository
-import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
-import it.threarth.fotosistemis.core.model.FolderSummary
-import it.threarth.fotosistemis.core.model.PhotoRecord
-import it.threarth.fotosistemis.core.model.ReviewStatus
-import it.threarth.fotosistemis.core.review.PhotoFilter
-import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import java.text.SimpleDateFormat
+import it.threarth.fotosistemis.core.data.ClassificationAdopter
+import it.threarth.fotosistemis.core.data.PhotoInventory
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -46,6 +41,8 @@ class DestinationsActivity : AppCompatActivity() {
     private lateinit var repository: DestinationRepository
     private lateinit var settings: AppSettings
     private lateinit var backup: BackupRepository
+    private lateinit var inventory: PhotoInventory
+    private lateinit var stateRepository: PhotoStateRepository
     private lateinit var listView: ListView
     private var destinations: List<Destination> = emptyList()
 
@@ -59,10 +56,13 @@ class DestinationsActivity : AppCompatActivity() {
         repository = DestinationRepository(database)
         settings = AppSettings(this)
         backup = BackupRepository(database, AppSettings(this))
+        inventory = PhotoInventory(database)
+        stateRepository = PhotoStateRepository(database)
         listView = findViewById(R.id.destinationList)
         listView.setOnItemClickListener { _, _, position, _ -> editDestination(destinations[position]) }
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
+        findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
         findViewById<Button>(R.id.exportButton).setOnClickListener { startExport() }
         findViewById<Button>(R.id.importButton).setOnClickListener { confirmImport() }
 
@@ -144,6 +144,38 @@ class DestinationsActivity : AppCompatActivity() {
                 )
             }
         }
+
+    /**
+     * Offers to record photos that already sit in a destination folder.
+     *
+     * Useful after moving to another phone, or over an archive tidied by
+     * hand: without it those photos come back for review and the work is
+     * done twice. Nothing is moved, and what would be recorded is shown
+     * first.
+     */
+    private fun previewAdoption() {
+        val entries = inventory.loadForAdoption().getOrElse { return showError(it) }
+        val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
+        val destinations = repository.loadAll().getOrElse { return showError(it) }
+
+        val preview = ClassificationAdopter.preview(entries, destinations, decided)
+        if (preview.total == 0) return toast(getString(R.string.adopt_none))
+
+        val breakdown = preview.byDestination.entries
+            .sortedByDescending { it.value }
+            .joinToString("\n") { "${it.key}: ${it.value}" }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.adopt_title)
+            .setMessage(getString(R.string.adopt_message, preview.total, breakdown))
+            .setPositiveButton(R.string.adopt_confirm) { _, _ ->
+                inventory.adopt(preview.candidates)
+                    .onFailure { showError(it) }
+                    .onSuccess { toast(getString(R.string.adopt_done, it)) }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
 
     private fun startExport() {
         val stamp = SimpleDateFormat(BACKUP_STAMP_PATTERN, Locale.ITALY).format(Date())

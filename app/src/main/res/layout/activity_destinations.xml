@@ -47,6 +47,12 @@
     </LinearLayout>
 
     <Button
+        android:id="@+id/adoptButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/action_adopt" />
+
+    <Button
         android:id="@+id/patternButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
