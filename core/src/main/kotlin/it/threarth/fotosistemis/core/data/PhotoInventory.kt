@@ -1,5 +1,6 @@
 package it.threarth.fotosistemis.core.data
 
+import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
@@ -160,6 +161,42 @@ class PhotoInventory(private val database: Database) {
                 }
             }
             proposal.total
+        }
+    }
+
+    /**
+     * Rebuilds records for [photoIds], enough to show the photos.
+     *
+     * Reading them back from the inventory rather than the platform means a
+     * preview can be assembled from what the app already knows, without a
+     * second pass over the media index.
+     */
+    fun loadRecords(photoIds: List<Long>): Result<List<PhotoRecord>> = runCatching {
+        if (photoIds.isEmpty()) return@runCatching emptyList()
+        val wanted = photoIds.toHashSet()
+
+        database.query(
+            "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, " +
+                    "${Schema.COLUMN_VOLUME_NAME}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                    "${Schema.COLUMN_RELATIVE_PATH}, ${Schema.COLUMN_SIZE_BYTES}, " +
+                    "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE} " +
+                    "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "ORDER BY ${Schema.COLUMN_DATE_TAKEN} DESC"
+        ).mapNotNull { row ->
+            val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
+            if (photoId !in wanted) return@mapNotNull null
+            PhotoRecord(
+                photoId = photoId,
+                platformId = row.getLong(Schema.COLUMN_MEDIA_ID) ?: 0L,
+                volumeName = row.getString(Schema.COLUMN_VOLUME_NAME).orEmpty(),
+                displayName = row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty(),
+                relativePath = row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty(),
+                sizeBytes = row.getLong(Schema.COLUMN_SIZE_BYTES) ?: 0L,
+                dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
+                dateSource = CaptureDateResolver.Source.entries
+                    .firstOrNull { it.name == row.getString(Schema.COLUMN_DATE_SOURCE) }
+                    ?: CaptureDateResolver.Source.FILE_TIMESTAMP
+            )
         }
     }
 

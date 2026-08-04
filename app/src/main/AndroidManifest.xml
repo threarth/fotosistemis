@@ -34,6 +34,11 @@
         </activity>
 
         <activity
+            android:name=".PhotoPreviewActivity"
+            android:exported="false"
+            android:label="@string/adopt_title" />
+
+        <activity
             android:name=".DestinationsActivity"
             android:exported="false"
             android:label="@string/destinations_title" />

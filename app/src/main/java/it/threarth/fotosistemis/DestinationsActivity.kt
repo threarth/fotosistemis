@@ -17,6 +17,7 @@ import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import java.text.SimpleDateFormat
 import it.threarth.fotosistemis.core.data.ClassificationAdopter
@@ -43,6 +44,14 @@ class DestinationsActivity : AppCompatActivity() {
     private lateinit var backup: BackupRepository
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+
+    /** Held while the user looks at the photos it would affect. */
+    private var pendingProposal: ClassificationAdopter.Proposal? = null
+
+    private val reviewLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) applyAdoption() else pendingProposal = null
+        }
     private lateinit var listView: ListView
     private var destinations: List<Destination> = emptyList()
 
@@ -169,19 +178,41 @@ class DestinationsActivity : AppCompatActivity() {
             proposal.proposedCategories.joinToString(", ") { it.label }
         )
 
+        pendingProposal = proposal
         AlertDialog.Builder(this)
             .setTitle(R.string.adopt_title)
             .setMessage(getString(R.string.adopt_message, proposal.total, breakdown, newFolders))
-            .setPositiveButton(R.string.adopt_confirm) { _, _ ->
-                inventory.adopt(proposal, repository)
-                    .onFailure { showError(it) }
-                    .onSuccess {
-                        toast(getString(R.string.adopt_done, it))
-                        refresh()
-                    }
-            }
+            .setPositiveButton(R.string.adopt_confirm) { _, _ -> applyAdoption() }
+            .setNeutralButton(R.string.adopt_review) { _, _ -> reviewAdoption(proposal) }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
+    }
+
+    /**
+     * Opens the photos before anything is written.
+     *
+     * A count cannot be checked: three thousand is either right or a
+     * disaster, and only looking tells them apart.
+     */
+    private fun reviewAdoption(proposal: ClassificationAdopter.Proposal) {
+        val records = inventory.loadRecords(proposal.candidates.map { it.photoId })
+            .getOrElse { return showError(it) }
+        if (records.isEmpty()) return toast(getString(R.string.adopt_none))
+
+        PhotoPreviewActivity.pendingPhotos = records
+        PhotoPreviewActivity.pendingSummary = getString(R.string.adopt_review_summary, records.size)
+        reviewLauncher.launch(Intent(this, PhotoPreviewActivity::class.java))
+    }
+
+    private fun applyAdoption() {
+        val proposal = pendingProposal ?: return
+        pendingProposal = null
+        inventory.adopt(proposal, repository)
+            .onFailure { showError(it) }
+            .onSuccess {
+                toast(getString(R.string.adopt_done, it))
+                refresh()
+            }
     }
 
     private fun startExport() {
