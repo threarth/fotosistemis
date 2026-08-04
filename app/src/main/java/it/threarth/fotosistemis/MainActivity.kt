@@ -29,6 +29,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
@@ -100,6 +101,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var photoSource: MediaStorePhotoSource
+    private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
     private lateinit var tagRepository: TagRepository
     private lateinit var destinationRepository: DestinationRepository
@@ -231,6 +233,7 @@ class MainActivity : AppCompatActivity() {
         val database = AndroidDatabase(this)
         val settings = AppSettings(this)
         photoSource = MediaStorePhotoSource(this)
+        inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
         tagRepository = TagRepository(database)
         destinationRepository = DestinationRepository(database)
@@ -265,7 +268,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshStagingCount() {
         thread {
-            val counted = photoSource
+            val counted = inventory
                 .countPhotosIn(ReviewSession.DELETION_STAGING_PATH)
                 .getOrNull() ?: return@thread
             runOnUiThread { onStagingCountRefreshed(counted) }
@@ -576,9 +579,31 @@ class MainActivity : AppCompatActivity() {
         setBusy(true)
         statusText.setText(R.string.status_loading)
         thread {
-            val folders = photoSource.listFolders()
+            // Our own inventory answers first, so the screen is usable
+            // without waiting for the platform.
+            val known = inventory.loadFolders().getOrNull().orEmpty()
+            if (known.isNotEmpty()) runOnUiThread { onFoldersLoaded(Result.success(known)) }
+
+            reconcileWithPlatform()
+            val folders = inventory.loadFolders()
             runOnUiThread { onFoldersLoaded(folders) }
         }
+    }
+
+    /**
+     * Brings the inventory in line with what the platform reports.
+     *
+     * A full pass rather than an incremental one: only comparing everything
+     * reveals what has been deleted elsewhere, and having compared
+     * everything there is nothing left for an incremental path to add.
+     */
+    private fun reconcileWithPlatform() {
+        val records = photoSource.listPhotos(null).getOrElse { error ->
+            runOnUiThread { showError(error) }
+            return
+        }
+        inventory.reconcile(records, recordsAreComplete = true)
+            .onFailure { error -> runOnUiThread { showError(error) } }
     }
 
     private fun onFoldersLoaded(result: Result<List<FolderSummary>>) {
@@ -858,6 +883,7 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             val photos = photoSource.listPhotos(folder)
+                .mapCatching { inventory.reconcile(it).getOrThrow().first }
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()

@@ -31,8 +31,14 @@ class BackupRepository(
 
     private companion object {
 
-        /** Format of the backup itself, not of the database. */
-        const val BACKUP_VERSION = 1
+        /**
+         * Format of the backup itself, not of the database.
+         *
+         * Raised to 2 with the photos inventory: a v1 file keys decisions by
+         * platform id, which no longer identifies anything, so restoring one
+         * would silently attach them to the wrong photographs.
+         */
+        const val BACKUP_VERSION = 2
 
         const val KEY_VERSION = "backupVersion"
         const val KEY_EXPORTED_AT = "exportedAt"
@@ -40,6 +46,7 @@ class BackupRepository(
 
         /** Tables copied, in an order that reads naturally when inspected. */
         val TABLES = listOf(
+            Schema.TABLE_PHOTOS,
             Schema.TABLE_DESTINATIONS,
             Schema.TABLE_PHOTO_STATE,
             Schema.TABLE_TAGS,
@@ -49,18 +56,27 @@ class BackupRepository(
 
         /** Columns to read back, per table, in the order they are inserted. */
         val COLUMNS = mapOf(
+            Schema.TABLE_PHOTOS to listOf(
+                Schema.COLUMN_ID, Schema.COLUMN_MEDIA_ID, Schema.COLUMN_VOLUME_NAME,
+                Schema.COLUMN_DISPLAY_NAME, Schema.COLUMN_RELATIVE_PATH,
+                Schema.COLUMN_SIZE_BYTES, Schema.COLUMN_DATE_TAKEN, Schema.COLUMN_DATE_SOURCE,
+                Schema.COLUMN_MEDIA_TYPE, Schema.COLUMN_WIDTH, Schema.COLUMN_HEIGHT,
+                Schema.COLUMN_DURATION_MILLIS, Schema.COLUMN_CONTENT_HASH,
+                Schema.COLUMN_FIRST_SEEN_AT, Schema.COLUMN_LAST_SEEN_AT,
+                Schema.COLUMN_MISSING_SINCE
+            ),
             Schema.TABLE_DESTINATIONS to listOf(
                 Schema.COLUMN_ID, Schema.COLUMN_LABEL, Schema.COLUMN_RELATIVE_PATH,
                 Schema.COLUMN_YEAR_SUBFOLDER, Schema.COLUMN_SORT_ORDER
             ),
             Schema.TABLE_PHOTO_STATE to listOf(
-                Schema.COLUMN_MEDIA_ID, Schema.COLUMN_DISPLAY_NAME, Schema.COLUMN_SIZE_BYTES,
-                Schema.COLUMN_STATUS, Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT
+                Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STATUS,
+                Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT
             ),
             Schema.TABLE_TAGS to listOf(Schema.COLUMN_ID, Schema.COLUMN_NAME),
-            Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_MEDIA_ID, Schema.COLUMN_TAG_ID),
+            Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_PHOTO_ID, Schema.COLUMN_TAG_ID),
             Schema.TABLE_PHOTO_PATHS to listOf(
-                Schema.COLUMN_ID, Schema.COLUMN_MEDIA_ID, Schema.COLUMN_PATH,
+                Schema.COLUMN_ID, Schema.COLUMN_PHOTO_ID, Schema.COLUMN_PATH,
                 Schema.COLUMN_KIND, Schema.COLUMN_RECORDED_AT
             )
         )
@@ -99,8 +115,15 @@ class BackupRepository(
     fun importFrom(input: InputStream): Result<Summary> = runCatching {
         val text = input.bufferedReader().use { it.readText() }
         val document = JSONObject(text)
-        require(document.optInt(KEY_VERSION) == BACKUP_VERSION) {
-            "Formato di backup non riconosciuto"
+        val version = document.optInt(KEY_VERSION)
+        require(version == BACKUP_VERSION) {
+            if (version == 1) {
+                "Backup della versione precedente: le decisioni vi sono legate " +
+                        "all'identificatore di sistema e non sono piu' riconducibili " +
+                        "alle foto giuste."
+            } else {
+                "Formato di backup non riconosciuto"
+            }
         }
 
         val rows = database.transaction {

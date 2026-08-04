@@ -86,7 +86,7 @@ class ReviewSession(
         // Resume where the reviewing stopped: the first photo with no
         // decision recorded. Starting from the beginning would mean
         // scrolling past everything already done to reach the work left.
-        val firstUndecided = loaded.indexOfFirst { states[it.platformId] == null }
+        val firstUndecided = loaded.indexOfFirst { states[it.photoId] == null }
         currentIndex = if (firstUndecided >= 0) firstUndecided else 0
     }
 
@@ -95,12 +95,12 @@ class ReviewSession(
     /** Photo [offset] places away, used to show where a drag is heading. */
     fun peek(offset: Int): PhotoRecord? = photos.getOrNull(currentIndex + offset)
 
-    fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.platformId]?.status }
+    fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.photoId]?.status }
 
     /** Destination the current photo was filed into, if any. */
-    fun currentDestinationId(): Long? = current()?.let { storedStates[it.platformId]?.destinationId }
+    fun currentDestinationId(): Long? = current()?.let { storedStates[it.photoId]?.destinationId }
 
-    fun currentTags(): List<String> = current()?.let { tagAssignments[it.platformId] } ?: emptyList()
+    fun currentTags(): List<String> = current()?.let { tagAssignments[it.photoId] } ?: emptyList()
 
     fun canGoNext(): Boolean = currentIndex < photos.size - 1
 
@@ -129,8 +129,8 @@ class ReviewSession(
             // Keeping a photo revokes any move queued for it earlier: the
             // last decision is the one that counts, and leaving the old
             // entry would move a photo the user has since chosen to keep.
-            dequeue(photo.platformId)
-            rememberState(photo.platformId, ReviewStatus.KEPT, null)
+            dequeue(photo.photoId)
+            rememberState(photo.photoId, ReviewStatus.KEPT, null)
             goNext()
         }
     }
@@ -162,8 +162,8 @@ class ReviewSession(
         return stateRepository.record(photo, status, destinationId).onSuccess {
             // One photo, one destination: changing mind replaces the queued
             // move instead of adding a second, contradictory one.
-            dequeue(photo.platformId)
-            rememberState(photo.platformId, status, destinationId)
+            dequeue(photo.photoId)
+            rememberState(photo.photoId, status, destinationId)
             pendingMoves.add(PendingMove(photo, destinationRelativePath, status, destinationId))
             goNext()
         }
@@ -175,7 +175,7 @@ class ReviewSession(
      */
     fun currentRestorePath(): String? {
         val photo = current() ?: return null
-        val origin = originalPaths[photo.platformId] ?: return null
+        val origin = originalPaths[photo.photoId] ?: return null
         return if (origin == photo.relativePath) null else origin
     }
 
@@ -208,29 +208,29 @@ class ReviewSession(
         for (move in applied) {
             val outcome = stateRepository.record(move.photo, ReviewStatus.KEPT, null)
             if (outcome.isFailure) return outcome
-            rememberState(move.photo.platformId, ReviewStatus.KEPT, null)
+            rememberState(move.photo.photoId, ReviewStatus.KEPT, null)
         }
         return Result.success(Unit)
     }
 
     /** Original folder of [photo], or null when there is nothing to undo. */
     private fun restorePathOf(photo: PhotoRecord): String? {
-        val origin = originalPaths[photo.platformId] ?: return null
+        val origin = originalPaths[photo.photoId] ?: return null
         return if (origin == photo.relativePath) null else origin
     }
 
     /** Removes any queued move for [mediaId]. */
     private fun dequeue(mediaId: Long) {
-        pendingMoves.removeAll { it.photo.platformId == mediaId }
+        pendingMoves.removeAll { it.photo.photoId == mediaId }
     }
 
     /** Attaches a tag to the current photo without moving anything. */
     fun tagCurrent(rawName: String): Result<String> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        return tagRepository.assign(photo.platformId, rawName).onSuccess { name ->
-            val existing = tagAssignments[photo.platformId].orEmpty()
+        return tagRepository.assign(photo.photoId, rawName).onSuccess { name ->
+            val existing = tagAssignments[photo.photoId].orEmpty()
             if (name !in existing) {
-                tagAssignments = tagAssignments + (photo.platformId to (existing + name).sorted())
+                tagAssignments = tagAssignments + (photo.photoId to (existing + name).sorted())
             }
         }
     }
@@ -238,9 +238,9 @@ class ReviewSession(
     /** Detaches a tag from the current photo. */
     fun untagCurrent(name: String): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        return tagRepository.unassign(photo.platformId, name).onSuccess {
+        return tagRepository.unassign(photo.photoId, name).onSuccess {
             tagAssignments = tagAssignments +
-                    (photo.platformId to tagAssignments[photo.platformId].orEmpty().filterNot { it == name })
+                    (photo.photoId to tagAssignments[photo.photoId].orEmpty().filterNot { it == name })
         }
     }
 
@@ -251,9 +251,9 @@ class ReviewSession(
     fun undoLastMove(): Result<Unit> {
         if (pendingMoves.isEmpty()) return Result.failure(IllegalStateException("Coda vuota"))
         val undone = pendingMoves.removeAt(pendingMoves.lastIndex)
-        return stateRepository.forget(undone.photo.platformId).onSuccess {
-            storedStates = storedStates - undone.photo.platformId
-            val position = photos.indexOfFirst { it.platformId == undone.photo.platformId }
+        return stateRepository.forget(undone.photo.photoId).onSuccess {
+            storedStates = storedStates - undone.photo.photoId
+            val position = photos.indexOfFirst { it.photoId == undone.photo.photoId }
             if (position >= 0) currentIndex = position
         }
     }
@@ -269,9 +269,9 @@ class ReviewSession(
      */
     fun discardQueue(): Result<Unit> {
         for (move in pendingMoves) {
-            val outcome = stateRepository.forget(move.photo.platformId)
+            val outcome = stateRepository.forget(move.photo.photoId)
             if (outcome.isFailure) return outcome
-            storedStates = storedStates - move.photo.platformId
+            storedStates = storedStates - move.photo.photoId
         }
         pendingMoves.clear()
         return Result.success(Unit)

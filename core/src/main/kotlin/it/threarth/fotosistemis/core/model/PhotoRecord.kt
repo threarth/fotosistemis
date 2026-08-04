@@ -9,6 +9,15 @@ package it.threarth.fotosistemis.core.model
 data class PhotoRecord(
 
     /**
+     * Our own identity for this photo, or zero before the inventory has
+     * assigned one.
+     *
+     * A platform source cannot fill this in: it is resolved by reconciling
+     * what the platform reports against what the inventory already holds.
+     */
+    val photoId: Long = 0,
+
+    /**
      * Identifier assigned by the platform: the MediaStore _ID on Android.
      *
      * Convenient but not an identity. The platform may reassign it when a

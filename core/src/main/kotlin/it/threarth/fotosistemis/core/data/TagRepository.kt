@@ -27,18 +27,18 @@ class TagRepository(private val database: Database) {
         ).mapNotNull { it.getString(Schema.COLUMN_NAME) }
     }
 
-    /** Tags assigned to every photo, keyed by platform id. */
+    /** Tags assigned to every photo, keyed by photo id. */
     fun loadAssignments(): Result<Map<Long, List<String>>> = runCatching {
         val assignments = HashMap<Long, MutableList<String>>()
         database.query(
-            "SELECT pt.${Schema.COLUMN_MEDIA_ID} AS media, t.${Schema.COLUMN_NAME} AS name " +
+            "SELECT pt.${Schema.COLUMN_PHOTO_ID} AS photo, t.${Schema.COLUMN_NAME} AS name " +
                     "FROM ${Schema.TABLE_PHOTO_TAGS} pt " +
                     "JOIN ${Schema.TABLE_TAGS} t ON t.${Schema.COLUMN_ID} = pt.${Schema.COLUMN_TAG_ID} " +
                     "ORDER BY t.${Schema.COLUMN_NAME} ASC"
         ).forEach { row ->
-            val mediaId = row.getLong("media") ?: return@forEach
+            val photoId = row.getLong("photo") ?: return@forEach
             val name = row.getString("name") ?: return@forEach
-            assignments.getOrPut(mediaId) { ArrayList() }.add(name)
+            assignments.getOrPut(photoId) { ArrayList() }.add(name)
         }
         assignments
     }
@@ -47,29 +47,29 @@ class TagRepository(private val database: Database) {
      * Attaches [rawName] to [mediaId], creating the tag if it is new.
      * Assigning the same tag twice is a no-op rather than an error.
      */
-    fun assign(mediaId: Long, rawName: String): Result<String> = runCatching {
+    fun assign(photoId: Long, rawName: String): Result<String> = runCatching {
         val name = normalise(rawName)
             ?: throw IllegalArgumentException("Tag non valido: $rawName")
         database.transaction {
             val tagId = findOrCreateTag(name)
             database.execute(
                 "INSERT OR IGNORE INTO ${Schema.TABLE_PHOTO_TAGS} " +
-                        "(${Schema.COLUMN_MEDIA_ID}, ${Schema.COLUMN_TAG_ID}) VALUES (?, ?)",
-                listOf(mediaId, tagId)
+                        "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_TAG_ID}) VALUES (?, ?)",
+                listOf(photoId, tagId)
             )
             name
         }
     }
 
     /** Detaches a tag from one photo. The tag itself survives. */
-    fun unassign(mediaId: Long, name: String): Result<Unit> = runCatching {
+    fun unassign(photoId: Long, name: String): Result<Unit> = runCatching {
         database.transaction {
             database.execute(
                 "DELETE FROM ${Schema.TABLE_PHOTO_TAGS} " +
-                        "WHERE ${Schema.COLUMN_MEDIA_ID} = ? AND ${Schema.COLUMN_TAG_ID} = " +
+                        "WHERE ${Schema.COLUMN_PHOTO_ID} = ? AND ${Schema.COLUMN_TAG_ID} = " +
                         "(SELECT ${Schema.COLUMN_ID} FROM ${Schema.TABLE_TAGS} " +
                         "WHERE ${Schema.COLUMN_NAME} = ?)",
-                listOf(mediaId, name)
+                listOf(photoId, name)
             )
             Unit
         }
