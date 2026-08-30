@@ -42,6 +42,11 @@
             android:name=".DestinationsActivity"
             android:exported="false"
             android:label="@string/destinations_title" />
+
+        <activity
+            android:name=".ReorganizeActivity"
+            android:exported="false"
+            android:label="@string/reorganize_title" />
     </application>
 
 </manifest>

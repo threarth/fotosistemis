@@ -4,6 +4,7 @@ import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.reorg.Reorganizer
 import it.threarth.fotosistemis.core.port.Database
 
 /**
@@ -101,6 +102,68 @@ class PhotoInventory(private val database: Database) {
                 photoId,
                 row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty()
             )
+        }
+    }
+
+    /**
+     * Every filed photo, as the reorganiser needs it.
+     *
+     * Only photos that carry a destination: the reorganisation arranges
+     * categories, and a photo with no category has no shape to be given.
+     */
+    fun loadForReorganization(): Result<List<Reorganizer.Entry>> = runCatching {
+        database.query(
+            "SELECT p.${Schema.COLUMN_ID} AS photo_id, " +
+                    "s.${Schema.COLUMN_DESTINATION_ID} AS destination_id, " +
+                    "p.${Schema.COLUMN_VOLUME_NAME} AS volume, " +
+                    "p.${Schema.COLUMN_RELATIVE_PATH} AS path, " +
+                    "p.${Schema.COLUMN_DISPLAY_NAME} AS name, " +
+                    "p.${Schema.COLUMN_DATE_TAKEN} AS taken, " +
+                    "p.${Schema.COLUMN_DATE_SOURCE} AS source " +
+                    "FROM ${Schema.TABLE_PHOTOS} p " +
+                    "JOIN ${Schema.TABLE_PHOTO_STATE} s " +
+                    "ON s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
+                    "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "AND s.${Schema.COLUMN_STATUS} = ? " +
+                    "AND s.${Schema.COLUMN_DESTINATION_ID} IS NOT NULL",
+            listOf(ReviewStatus.CATEGORIZED.storedValue)
+        ).mapNotNull { row ->
+            val photoId = row.getLong("photo_id") ?: return@mapNotNull null
+            val destinationId = row.getLong("destination_id") ?: return@mapNotNull null
+
+            Reorganizer.Entry(
+                photoId = photoId,
+                destinationId = destinationId,
+                volumeName = row.getString("volume").orEmpty(),
+                relativePath = row.getString("path").orEmpty(),
+                displayName = row.getString("name").orEmpty(),
+                captureMillis = row.getLong("taken") ?: 0L,
+                source = CaptureDateResolver.Source.entries
+                    .firstOrNull { it.name == row.getString("source") }
+                    ?: CaptureDateResolver.Source.FILE_TIMESTAMP
+            )
+        }
+    }
+
+    /**
+     * Writes where a photo ended up, once the platform has actually moved it.
+     *
+     * Reconciliation would find this out on its own at the next start, but
+     * leaving the inventory stale until then would show the user the old
+     * folder for every photo they just watched move.
+     */
+    fun recordRelocation(
+        photoId: Long,
+        relativePath: String,
+        displayName: String
+    ): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_RELATIVE_PATH} = ?, " +
+                        "${Schema.COLUMN_DISPLAY_NAME} = ? WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(relativePath, displayName, photoId)
+            )
+            Unit
         }
     }
 

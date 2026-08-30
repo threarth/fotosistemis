@@ -19,6 +19,16 @@ class BatchMover(
     private val stateRepository: PhotoStateRepository
 ) {
 
+    private companion object {
+
+        /**
+         * Files per consent request. Chosen well below what the binder
+         * transaction can hold: asking twice costs the user a tap, while
+         * overflowing it fails the whole batch.
+         */
+        const val MAX_FILES_PER_CONSENT = 500
+    }
+
     /** Outcome of applying one batch. */
     data class BatchResult(
         val requested: Int,
@@ -27,6 +37,18 @@ class BatchMover(
         val totalMillis: Long,
         val firstError: String?
     )
+
+    /**
+     * Splits a queue into batches one consent request can carry.
+     *
+     * The URIs travel to the system in a single binder transaction, which is
+     * bounded: a reorganisation of a whole archive is far larger than a
+     * review session and would not fit in one. Reviewing keeps asking once
+     * because its queues are small enough to make a single batch.
+     */
+    fun consentBatches(
+        moves: List<ReviewSession.PendingMove>
+    ): List<List<ReviewSession.PendingMove>> = moves.chunked(MAX_FILES_PER_CONSENT)
 
     /** Consent covering every file in the queue. */
     fun buildConsent(moves: List<ReviewSession.PendingMove>): IntentSender =
@@ -47,7 +69,11 @@ class BatchMover(
 
         val startedAt = System.currentTimeMillis()
         for (move in moves) {
-            photoSource.move(move.photo, move.destinationRelativePath).fold(
+            photoSource.move(
+                move.photo,
+                move.destinationRelativePath,
+                move.newDisplayName
+            ).fold(
                 onSuccess = {
                     succeeded++
                     stateRepository.recordMovedPath(move.photo.platformId, move.destinationRelativePath)

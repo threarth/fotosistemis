@@ -72,6 +72,9 @@ class DestinationsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
         findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
+        findViewById<Button>(R.id.reorganizeButton).setOnClickListener {
+            startActivity(Intent(this, ReorganizeActivity::class.java))
+        }
         findViewById<Button>(R.id.exportButton).setOnClickListener { startExport() }
         findViewById<Button>(R.id.importButton).setOnClickListener { confirmImport() }
 

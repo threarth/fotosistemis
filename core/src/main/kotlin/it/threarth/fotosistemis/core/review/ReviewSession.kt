@@ -52,7 +52,10 @@ class ReviewSession(
         val photo: PhotoRecord,
         val destinationRelativePath: String,
         val status: ReviewStatus,
-        val destinationId: Long?
+        val destinationId: Long?,
+
+        /** The name to give the file, or null to keep the one it has. */
+        val newDisplayName: String? = null
     )
 
     private val photos = ArrayList<PhotoRecord>()

@@ -27,11 +27,20 @@ interface PhotoSource {
     fun countPhotosIn(relativePath: String): Result<Int>
 
     /**
-     * Files a photo into [destinationRelativePath] on its own volume.
+     * Files a photo into [destinationRelativePath] on its own volume, giving
+     * it [newDisplayName] when one is supplied.
+     *
+     * Folder and name change together in a single write. Doing them apart
+     * would leave a photo that has been moved but not yet named, and a run
+     * interrupted at that point could not be told from a finished one.
      *
      * On Android this is a metadata-only rename and costs about 35 ms;
      * crossing volumes is deliberately not offered, since it would mean
      * copying every byte and would give the photo a new platform id.
      */
-    fun move(photo: PhotoRecord, destinationRelativePath: String): Result<Unit>
+    fun move(
+        photo: PhotoRecord,
+        destinationRelativePath: String,
+        newDisplayName: String? = null
+    ): Result<Unit>
 }

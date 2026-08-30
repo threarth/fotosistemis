@@ -178,16 +178,27 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
     }
 
     /**
-     * Moves one photo to [destinationRelativePath], which must end with '/'.
-     * The destination folder is created by the media provider if missing.
+     * Moves one photo to [destinationRelativePath], which must end with '/',
+     * renaming it to [newDisplayName] when one is given. The destination
+     * folder is created by the media provider if missing.
+     *
+     * Both columns travel in one ContentValues, so the provider either
+     * applies the whole change or none of it.
      *
      * Requires write access to the photo, granted per batch beforehand
      * through a system consent request.
      */
-    override fun move(photo: PhotoRecord, destinationRelativePath: String): Result<Unit> =
+    override fun move(
+        photo: PhotoRecord,
+        destinationRelativePath: String,
+        newDisplayName: String?
+    ): Result<Unit> =
         runCatching {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, destinationRelativePath)
+                if (newDisplayName != null && newDisplayName != photo.displayName) {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, newDisplayName)
+                }
             }
             val updated = resolver.update(uriFor(photo), values, null, null)
             if (updated != EXPECTED_UPDATED_ROWS) {

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/reorganizeLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/destination_label_hint"
+        android:inputType="text" />
+
+    <EditText
+        android:id="@+id/reorganizePath"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/destination_path_hint"
+        android:inputType="text" />
+
+    <CheckBox
+        android:id="@+id/reorganizeYearSubfolder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/destination_year_subfolder" />
+
+    <CheckBox
+        android:id="@+id/reorganizeStampNames"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/reorganize_stamp_names" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/reorganize_stamp_explained"
+        android:textSize="12sp" />
+</LinearLayout>

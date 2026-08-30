@@ -47,6 +47,7 @@ object Reorganizer {
     /** One photo that has to be moved, renamed, or both. */
     data class PlannedMove(
         val photoId: Long,
+        val destinationId: Long,
         val categoryLabel: String,
         val fromRelativePath: String,
         val fromDisplayName: String,
@@ -193,6 +194,7 @@ object Reorganizer {
 
         return PlannedMove(
             photoId = entry.photoId,
+            destinationId = choice.destination.id,
             categoryLabel = choice.destination.label,
             fromRelativePath = entry.relativePath,
             fromDisplayName = entry.displayName,
