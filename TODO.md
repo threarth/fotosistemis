@@ -1,6 +1,6 @@
 # Lavoro in corso
 
-Stato al 6 agosto 2026.
+Stato al 30 agosto 2026.
 
 ## Da verificare sul dispositivo — prima di ogni altra cosa
 
@@ -25,6 +25,16 @@ Ordine consigliato:
    destinazioni migrate da versioni precedenti usano `{anno}`: per cambiarlo
    vanno aperte a mano.
 
+Due misure in più, da prendere nella stessa sessione. Sono cinque minuti, e
+la riorganizzazione del filesystem dipende interamente da come vanno:
+
+6. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
+   valore prima e dopo. Se cambia, la deriva delle date descritta più sotto
+   è reale, e l'ordine delle operazioni non è negoziabile.
+7. **Rinominare funziona in scoped storage?** Un `update` di `DISPLAY_NAME` su
+   due foto, sul telefono vero. Se qui c'è un intoppo il prefisso nei nomi va
+   ripensato da capo, e con esso metà del piano.
+
 ## Fase 3 — funzionalità richieste, non ancora scritte
 
 - [ ] **Anteprima con checkbox prima di Applica.** Una sezione per le foto
@@ -33,11 +43,11 @@ Ordine consigliato:
       quella foto e la riporta a *mantenuta*.
       Metà del lavoro è fatta: `PhotoPreviewActivity` esiste ed è stata
       scritta per essere riusata qui.
-- [ ] **Rinomina delle cartelle** con riallineamento del database. Deve
-      aggiornare i percorsi nelle righe, rinominare sul disco, e mostrare
-      un'anteprima prima di agire. MediaStore non ha una rinomina di
-      cartella: significa spostare ogni foto contenuta, veloce e con un solo
-      consenso, ma la cartella vuota può restare.
+- [ ] **Rinomina delle cartelle** con riallineamento del database.
+      Assorbita dalla riorganizzazione del filesystem, sezione qui sotto:
+      è lo stesso motore, perché per MediaStore rinominare una cartella
+      significa riscrivere il percorso di ogni foto che contiene, e la
+      cartella vuota può restare.
 - [ ] **Controlla integrità del database.** Verifica che le foto stiano dove
       l'ultimo percorso registrato dice, e ripara: le righe il cui `media_id`
       non risolve più vanno riagganciate tramite il riconoscimento a cascata.
@@ -51,6 +61,63 @@ Ordine consigliato:
 - [ ] **Ricerca duplicati.** Lo schema è già pronto: `size_bytes`,
       `date_taken`, `width`, `height` bastano per una query. `content_hash`
       esiste ed è vuoto, da riempire solo sulle candidate incerte.
+
+## Riorganizzazione del filesystem — piano approvato, non ancora scritto
+
+Il layout su disco è una proiezione del database, non uno stato da custodire:
+avendo foto, percorsi, nomi e date in `photos`, la disposizione si ricalcola
+quando serve. Da qui una voce di menu **Riorganizza sul filesystem**, che
+mostra la situazione e permette, per ogni categoria, di rinominarla, di
+scegliere fra file piatti e sottocartelle per anno, e di riscrivere i nomi
+con un prefisso di data.
+
+Il bisogno è concreto: la galleria di Android genera un album per cartella, e
+le sottocartelle per anno moltiplicano gli album fino a rendere l'archivio
+ingestibile. Appiattendo però si perde l'ordine, perché il nome originale
+ordina per dispositivo e non per tempo — `PXL_2024…` finisce prima di
+`Screenshot_2018…`. Il prefisso restituisce l'ordine che la cartella dava.
+
+### Prerequisiti
+
+L'adozione delle foto già ordinate deve essere girata sul telefono: se il
+database non rispecchia il disco, la riorganizzazione lavora su una mappa
+sbagliata. Servono anche le due misure ai punti 6 e 7 in cima a questo file.
+
+### File toccati
+
+| file | modifica |
+| --- | --- |
+| `core/model/CaptureDateResolver.kt` | nuovo `Source.ESTIMATED`; `readOwnPrefix()` che legge il marcatore e distingue la tilde; ordine di qualità delle sorgenti |
+| `core/data/Schema.kt` | **v6**: `original_display_name` su `photos`, con `ALTER TABLE ADD COLUMN` sotto `hasColumn()` come le migrazioni esistenti |
+| `core/data/PhotoInventory.kt` | in `update()`, mai sostituire una data con una di qualità inferiore; scrivere `original_display_name` una volta sola, prima della prima rinomina |
+| `core/reorg/FileNamer.kt` *(nuovo)* | `strip()` e `apply()` del marcatore, contatore per i pari-secondo, troncamento del gambo oltre 255 byte |
+| `core/reorg/Reorganizer.kt` *(nuovo)* | stato attuale più scelte per categoria, in uscita la lista degli spostamenti con percorso **e** nome. Nessun I/O |
+| `app/MediaStorePhotoSource.kt` | `DISPLAY_NAME` accanto a `RELATIVE_PATH`, nella stessa `update` |
+| `app/BatchMover.kt` | `createWriteRequest` a blocchi: il binder non regge migliaia di URI in una chiamata sola |
+| `app/ReorganizeActivity.kt` *(nuovo)* | schermata, layout e stringhe |
+| test | `FileNamerTest`, `ReorganizerTest`, più casi in `CaptureDateResolverTest` per marcatore, tilde e non regressione |
+
+L'enum è salvato per `.name` e riletto con `firstOrNull { it.name == ... }`:
+aggiungere un valore non invalida le righe esistenti.
+
+### La schermata
+
+Una riga per categoria — nome, numero di foto, disposizione attuale, percorso
+d'esempio — e per ciascuna rinomina, piatto o per anno, prefisso sì o no.
+
+Prima di applicare, un riepilogo: quante foto si spostano, quante si
+rinominano, la ripartizione per `date_source` riusando `describeSources`,
+quante prendono la tilde, e i grappoli. Un grappolo è un gruppo di foto che
+condividono lo stesso giorno in `FILE_TIMESTAMP`: quattrocento foto con la
+stessa data non sono una giornata di scatti, sono un'importazione, e vanno
+riconosciute come tale prima di scriverne la data nel nome. Poi *Guarda le
+foto*, poi *Applica*.
+
+### Quello che il piano non fa
+
+Non indovina le date sbagliate: le congela e le segnala. Correggerle — a mano,
+o deducendole dall'anno della cartella, che è pur sempre un'affermazione umana
+— è lavoro successivo.
 
 ## Fase 4 — desktop
 
@@ -117,6 +184,50 @@ riconoscimento è a cascata — `media_id`, poi dimensione con data e nome, poi
 dimensione con data se la candidata è una sola — e con più candidate rinuncia
 invece di indovinare, perché indovinare sposterebbe i tag di una foto su
 un'altra.
+
+**Il nome del file porta la data, su tutte le foto.** Appiattendo dieci anni
+in una cartella sola l'ordine alfabetico segue il prefisso del dispositivo —
+`DSC_`, `IMG_`, `PXL_`, `Screenshot_` — e raggruppa per marca di telefono
+invece che per tempo. Un prefisso uniforme `_yyyymmdd-hhmmss_` restituisce
+l'ordine cronologico. Uniforme e non solo dove manca: una regola con
+eccezioni non è verificabile a colpo d'occhio, e la ridondanza su un nome che
+la data già ce l'aveva costa meno del dubbio su quali file siano stati
+toccati. L'anno va davanti perché l'ordinamento confronta da sinistra: in
+`ggmmyyyy` comanda il giorno del mese, che non significa niente.
+
+**Il marcatore è nostro e si riconosce.** `^_(\d{8})-(\d{6})(?:-(\d+))?_` —
+nessuna convenzione di fotocamera produce otto cifre subito dopo un underscore
+iniziale. Ogni riorganizzazione toglie il marcatore e lo riscrive, quindi
+eseguirla due volte non impila prefissi, interromperla a metà non fa danno, e
+correggere una data la aggiorna invece di aggiungerne una seconda. Il
+contatore per i pari-secondo sta dentro il marcatore, così l'ordinamento
+regge e la regex resta una sola.
+
+**La tilde marca una data che è un ripiego.** `_~yyyymmdd-hhmmss_` significa
+che la data viene da `FILE_TIMESTAMP`, cioè dalla data di modifica del file, e
+non da uno scatto: descrive quando il file è stato scritto su questo telefono,
+non quando la fotografia è stata presa. Ci finiscono le immagini arrivate da
+chat, social, download e scansioni, che hanno perso l'EXIF e hanno un nome che
+non dice niente. La tilde le tiene visibili per una revisione futura, e dice
+al risolutore che quella data è già stata giudicata e non va ricalcolata.
+
+**Scrivere la data nel nome la mette al sicuro.** Il prefisso viene
+riconosciuto da `parseFileName`, quindi una foto prefissata risale da
+`FILE_TIMESTAMP` a una sorgente stabile: la data smette di dipendere dal
+filesystem e sopravvive a copie, backup e cambi di telefono.
+
+**Una data non si sostituisce mai con una di qualità inferiore.** La
+riconciliazione riscrive `date_taken` e `date_source` a ogni giro, e non sono
+congelati al primo avvistamento. Se spostare un file aggiorna `DATE_MODIFIED`,
+una foto in `FILE_TIMESTAMP` si ridata al giorno dello spostamento, e alla
+riorganizzazione successiva finisce nell'anno sbagliato — il cui spostamento
+la ridata di nuovo. Uno strumento che mette ordine non deve spostare le foto
+per effetto dei propri spostamenti.
+
+**Prima il nome, poi la cartella, nella stessa `update`.** Scritta la data nel
+nome la foto è immune alla deriva; spostarla prima la lascerebbe esposta per
+tutta la durata del lotto. Un'unica scrittura per foto significa che non
+esiste un istante in cui è già stata spostata ma non ancora battezzata.
 
 ## Come si compila
 
