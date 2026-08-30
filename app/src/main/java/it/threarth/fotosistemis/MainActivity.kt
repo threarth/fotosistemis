@@ -1170,6 +1170,7 @@ class MainActivity : AppCompatActivity() {
     private fun describeDateSource(source: CaptureDateResolver.Source): String = when (source) {
         CaptureDateResolver.Source.EXIF -> getString(R.string.date_source_exif)
         CaptureDateResolver.Source.FILENAME -> getString(R.string.date_source_filename)
+        CaptureDateResolver.Source.ESTIMATED -> getString(R.string.date_source_estimated)
         CaptureDateResolver.Source.FILE_TIMESTAMP -> getString(R.string.date_source_file)
     }
 

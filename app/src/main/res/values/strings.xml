@@ -104,6 +104,7 @@
     <string name="date_source_exif">EXIF</string>
     <string name="date_source_filename">da nome file</string>
     <string name="date_source_file">⚠ data del file</string>
+    <string name="date_source_estimated">⚠ data stimata</string>
     <string name="photo_state_unseen">mai vista</string>
     <string name="photo_state_kept">mantenuta</string>
     <string name="photo_state_categorized">archiviata in %1$s</string>

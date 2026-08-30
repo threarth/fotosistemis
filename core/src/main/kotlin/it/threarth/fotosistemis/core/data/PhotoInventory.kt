@@ -37,11 +37,14 @@ class PhotoInventory(private val database: Database) {
         recordsAreComplete: Boolean = false
     ): Result<Pair<List<PhotoRecord>, Report>> = runCatching {
         val plan = PhotoMatcher.match(loadStored(), records, recordsAreComplete)
+        val storedDates = loadStoredDates()
         val now = System.currentTimeMillis()
 
         database.transaction {
             val identified = plan.matches.map { match ->
-                val photoId = match.photoId?.also { update(it, match.record, match, now) }
+                val photoId = match.photoId?.also {
+                    update(it, match.record, storedDates[it], now)
+                }
                     ?: insert(match.record, now)
                 match.record.copy(photoId = photoId)
             }
@@ -240,8 +243,21 @@ class PhotoInventory(private val database: Database) {
         )
     )
 
+    /** A capture date as the inventory already holds it. */
+    private data class StoredDate(
+        val millis: Long,
+        val source: CaptureDateResolver.Source
+    )
+
     /**
      * Refreshes what is known about a photo already in the inventory.
+     *
+     * The capture date is the exception: it is replaced only by one from a
+     * source at least as trustworthy. DATE_MODIFIED changes whenever the file
+     * is written and moving a photo is a write, so without this rule a photo
+     * dated from the file timestamp would take the date of its own last move,
+     * be filed under the wrong year, and be dated again by that move. The
+     * tool would end up sorting photos by the effect of its own sorting.
      *
      * Also clears missing_since: a photo that turns up again is present,
      * whatever happened while it was out of sight.
@@ -249,9 +265,13 @@ class PhotoInventory(private val database: Database) {
     private fun update(
         photoId: Long,
         record: PhotoRecord,
-        match: PhotoMatcher.Match,
+        stored: StoredDate?,
         now: Long
     ) {
+        val keepStored = stored != null && stored.source.outranks(record.dateSource)
+        val dateMillis = if (keepStored) stored!!.millis else record.dateTakenMillis
+        val dateSource = if (keepStored) stored!!.source else record.dateSource
+
         database.execute(
             "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_MEDIA_ID} = ?, " +
                     "${Schema.COLUMN_VOLUME_NAME} = ?, ${Schema.COLUMN_DISPLAY_NAME} = ?, " +
@@ -261,9 +281,53 @@ class PhotoInventory(private val database: Database) {
                     "WHERE ${Schema.COLUMN_ID} = ?",
             listOf(
                 record.platformId, record.volumeName, record.displayName, record.relativePath,
-                record.sizeBytes, record.dateTakenMillis, record.dateSource.name, now, photoId
+                record.sizeBytes, dateMillis, dateSource.name, now, photoId
             )
         )
+    }
+
+    /**
+     * Capture dates already recorded, keyed by photo.
+     *
+     * Read separately rather than through PhotoMatcher.Stored: matching
+     * decides which photo a file is, and has no business knowing how much
+     * its date is worth.
+     */
+    private fun loadStoredDates(): Map<Long, StoredDate> = database.query(
+        "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_DATE_TAKEN}, " +
+                "${Schema.COLUMN_DATE_SOURCE} FROM ${Schema.TABLE_PHOTOS}"
+    ).mapNotNull { row ->
+        val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
+        val source = CaptureDateResolver.Source.entries
+            .firstOrNull { it.name == row.getString(Schema.COLUMN_DATE_SOURCE) }
+            ?: return@mapNotNull null
+
+        photoId to StoredDate(row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L, source)
+    }.toMap()
+
+    /**
+     * Records the current name as the original, for photos that have none.
+     *
+     * Must run before the first rename: MediaStore has no undo, and this row
+     * is the only thing that could put a name back. Photos that already have
+     * one are left alone, so a second reorganisation cannot overwrite the
+     * name the photo really arrived with.
+     */
+    fun rememberOriginalNames(photoIds: List<Long>): Result<Int> = runCatching {
+        var remembered = 0
+        database.transaction {
+            for (photoId in photoIds) {
+                remembered += database.execute(
+                    "UPDATE ${Schema.TABLE_PHOTOS} " +
+                            "SET ${Schema.COLUMN_ORIGINAL_DISPLAY_NAME} = " +
+                            "${Schema.COLUMN_DISPLAY_NAME} " +
+                            "WHERE ${Schema.COLUMN_ID} = ? AND " +
+                            "${Schema.COLUMN_ORIGINAL_DISPLAY_NAME} IS NULL",
+                    listOf(photoId)
+                )
+            }
+            remembered
+        }
     }
 
     private fun markMissing(photoId: Long, now: Long) {

@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis.core.model
 
 import java.util.Calendar
+import java.util.Locale
 
 /**
  * Works out when a photo was actually taken.
@@ -16,7 +17,13 @@ import java.util.Calendar
  */
 object CaptureDateResolver {
 
-    /** Where a capture time came from, worst case last. */
+    /**
+     * Where a capture time came from, worst case last.
+     *
+     * Declaration order is the order of trust and [outranks] depends on it:
+     * a date already known must never be replaced by one from a weaker
+     * source.
+     */
     enum class Source {
 
         /** EXIF, through MediaStore DATE_TAKEN. Trustworthy. */
@@ -25,8 +32,20 @@ object CaptureDateResolver {
         /** Parsed out of the file name. Usually right. */
         FILENAME,
 
+        /**
+         * Our own stamp, written with the mark that says it is a guess.
+         *
+         * The value is no better than the [FILE_TIMESTAMP] it came from, but
+         * it has stopped drifting: it was judged once and written into the
+         * name, so it must be shown for review rather than recomputed.
+         */
+        ESTIMATED,
+
         /** File modification time. Describes the file, not the photo. */
-        FILE_TIMESTAMP
+        FILE_TIMESTAMP;
+
+        /** True when this source deserves more trust than [other]. */
+        fun outranks(other: Source): Boolean = ordinal < other.ordinal
     }
 
     data class Resolved(val millis: Long, val source: Source)
@@ -39,6 +58,33 @@ object CaptureDateResolver {
     private const val MIN_PLAUSIBLE_MILLIS = 631_152_000_000L
 
     private const val MILLIS_PER_SECOND = 1000L
+
+    /** Opens and closes our own stamp. */
+    private const val STAMP_DELIMITER = "_"
+
+    /** Marks a stamp whose date is a fallback rather than a capture time. */
+    private const val UNCERTAIN_MARK = "~"
+
+    /** Separates the stamp from its collision counter. */
+    private const val COUNTER_SEPARATOR = "-"
+
+    /** Year, month, day, then time: the order that sorts chronologically. */
+    private const val STAMP_FORMAT = "%04d%02d%02d-%02d%02d%02d"
+
+    /**
+     * Our own stamp at the front of a name: underscore, an optional mark,
+     * date, time, an optional counter, underscore.
+     *
+     * The digits are what make it ours. No camera convention writes eight of
+     * them immediately after a leading underscore; Canon's _MG_1234.jpg comes
+     * closest and does not match.
+     */
+    private val STAMP_PATTERN = Regex(
+        """^_(~?)(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d+))?_"""
+    )
+
+    /** Our own stamp, read back out of a file name. */
+    data class Stamp(val millis: Long, val source: Source, val counter: Int?)
 
     /**
      * Date and time together, e.g. IMG_20260728_153045.jpg,
@@ -63,9 +109,67 @@ object CaptureDateResolver {
     fun resolve(displayName: String, exifMillis: Long?, fileMillis: Long): Resolved {
         val exif = normaliseExif(exifMillis)
         if (exif != null) return Resolved(exif, Source.EXIF)
+
+        // Our own stamp is read before any other pattern in the name: it is
+        // the only one that also says how much the date is worth, and the
+        // generic patterns would match it while losing that.
+        val stamp = readStamp(displayName)
+        if (stamp != null) return Resolved(stamp.millis, stamp.source)
+
         val fromName = parseFileName(displayName)
         if (fromName != null) return Resolved(fromName, Source.FILENAME)
         return Resolved(fileMillis, Source.FILE_TIMESTAMP)
+    }
+
+    /**
+     * Reads our own stamp from [displayName], or null when there is none.
+     *
+     * Digits that are not a real date mean the stamp is not ours after all,
+     * so it is left alone and the name is read like any other.
+     */
+    fun readStamp(displayName: String): Stamp? {
+        val match = STAMP_PATTERN.find(displayName) ?: return null
+        val (mark, year, month, day, hour, minute, second, counter) = match.destructured
+        val millis = buildTimestamp(
+            year.toInt(), month.toInt(), day.toInt(),
+            hour.toInt(), minute.toInt(), second.toInt()
+        ) ?: return null
+
+        return Stamp(
+            millis = millis,
+            source = if (mark == UNCERTAIN_MARK) Source.ESTIMATED else Source.FILENAME,
+            counter = counter.toIntOrNull()
+        )
+    }
+
+    /** [displayName] without our stamp, unchanged when it carries none. */
+    fun stripStamp(displayName: String): String =
+        if (readStamp(displayName) == null) displayName
+        else STAMP_PATTERN.replaceFirst(displayName, "")
+
+    /**
+     * Builds the stamp for [millis].
+     *
+     * [uncertain] writes the mark that keeps a fallback date visible.
+     * [counter] separates photos that share a second, which bursts and file
+     * timestamps produce in quantity.
+     */
+    fun formatStamp(millis: Long, uncertain: Boolean, counter: Int?): String {
+        val calendar = Calendar.getInstance().apply { timeInMillis = millis }
+        val stamp = String.format(
+            Locale.ROOT,
+            STAMP_FORMAT,
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.DAY_OF_MONTH),
+            calendar.get(Calendar.HOUR_OF_DAY),
+            calendar.get(Calendar.MINUTE),
+            calendar.get(Calendar.SECOND)
+        )
+        val mark = if (uncertain) UNCERTAIN_MARK else ""
+        val tail = if (counter == null) "" else COUNTER_SEPARATOR + counter
+
+        return STAMP_DELIMITER + mark + stamp + tail + STAMP_DELIMITER
     }
 
     /**

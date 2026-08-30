@@ -22,8 +22,9 @@ object Schema {
      * v3 made the year folder name configurable per destination.
      * v4 moved that name to a single application-wide setting.
      * v5 gave photos an identity of their own, independent of the platform.
+     * v6 remembers the name a photo had before the app renamed it.
      */
-    const val VERSION = 5
+    const val VERSION = 6
 
     const val TABLE_PHOTOS = "photos"
     const val TABLE_DESTINATIONS = "destinations"
@@ -54,6 +55,14 @@ object Schema {
 
     const val COLUMN_VOLUME_NAME = "volume_name"
     const val COLUMN_DISPLAY_NAME = "display_name"
+
+    /**
+     * The name the photo carried when the app first saw it.
+     *
+     * Written once, before the first rename, and never again: MediaStore has
+     * no undo, so without this row a renamed photo could not be put back.
+     */
+    const val COLUMN_ORIGINAL_DISPLAY_NAME = "original_display_name"
     const val COLUMN_SIZE_BYTES = "size_bytes"
     const val COLUMN_DATE_TAKEN = "date_taken"
     const val COLUMN_DATE_SOURCE = "date_source"
@@ -110,6 +119,7 @@ object Schema {
             $COLUMN_MEDIA_ID INTEGER,
             $COLUMN_VOLUME_NAME TEXT NOT NULL DEFAULT '',
             $COLUMN_DISPLAY_NAME TEXT NOT NULL DEFAULT '',
+            $COLUMN_ORIGINAL_DISPLAY_NAME TEXT,
             $COLUMN_RELATIVE_PATH TEXT NOT NULL DEFAULT '',
             $COLUMN_SIZE_BYTES INTEGER NOT NULL DEFAULT 0,
             $COLUMN_DATE_TAKEN INTEGER NOT NULL DEFAULT 0,
@@ -223,11 +233,26 @@ object Schema {
         createTables(database)
         if (oldVersion < 2) migrateToVersion2(database)
         if (oldVersion < 4) migrateToVersion4(database)
+        if (oldVersion < 6) migrateToVersion6(database)
     }
 
     private fun createTables(database: Database) {
         CREATE_TABLES.forEach { database.execute(it) }
         CREATE_INDEXES.forEach { database.execute(it) }
+    }
+
+    /**
+     * v5 and earlier kept only the current name of a photo.
+     *
+     * The column is left empty here rather than filled with the current
+     * name: empty means the app has never renamed this photo, and writing
+     * today's name would claim an original the app cannot vouch for.
+     */
+    private fun migrateToVersion6(database: Database) {
+        if (hasColumn(database, TABLE_PHOTOS, COLUMN_ORIGINAL_DISPLAY_NAME)) return
+        database.execute(
+            "ALTER TABLE $TABLE_PHOTOS ADD COLUMN $COLUMN_ORIGINAL_DISPLAY_NAME TEXT"
+        )
     }
 
     /** v1 kept a free-text tag on photo_state and knew no destinations. */
