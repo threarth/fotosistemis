@@ -59,28 +59,41 @@ object CaptureDateResolver {
 
     private const val MILLIS_PER_SECOND = 1000L
 
-    /** Opens and closes our own stamp. */
-    private const val STAMP_DELIMITER = "_"
+    /**
+     * Opens and closes our own stamp.
+     *
+     * Doubled, because a single underscore is what the cameras themselves
+     * use: a name like 20200805_113940_01_saved.jpg would otherwise read as
+     * one of ours, and removing the stamp we thought we had written would
+     * leave 01_saved.jpg. Nothing on a phone writes two in a row.
+     */
+    private const val STAMP_DELIMITER = "__"
 
-    /** Marks a stamp whose date is a fallback rather than a capture time. */
-    private const val UNCERTAIN_MARK = "~"
+    /**
+     * Marks a stamp whose date is a fallback rather than a capture time.
+     *
+     * Sorts before the digits, so the photos whose date nobody can vouch for
+     * gather at the top of the folder where they can be dealt with.
+     */
+    private const val UNCERTAIN_MARK = "+"
 
     /** Separates the stamp from its collision counter. */
     private const val COUNTER_SEPARATOR = "-"
 
-    /** Year, month, day, then time: the order that sorts chronologically. */
-    private const val STAMP_FORMAT = "%04d%02d%02d-%02d%02d%02d"
-
     /**
-     * Our own stamp at the front of a name: underscore, an optional mark,
-     * date, time, an optional counter, underscore.
+     * Year, month, day, then time, joined the way the cameras join them.
      *
-     * The digits are what make it ours. No camera convention writes eight of
-     * them immediately after a leading underscore; Canon's _MG_1234.jpg comes
-     * closest and does not match.
+     * The order sorts chronologically because comparison runs from the left.
+     * The separator matches the native one on purpose: with a different one
+     * our names and theirs would part company at that character, and every
+     * stamped photo of a day would sort before every unstamped one instead
+     * of taking its place among them.
      */
+    private const val STAMP_FORMAT = "%04d%02d%02d_%02d%02d%02d"
+
+    /** Our own stamp: delimiter, optional mark, date, time, counter, delimiter. */
     private val STAMP_PATTERN = Regex(
-        """^_(~?)(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d+))?_"""
+        """^__(\+?)(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(?:-(\d+))?__"""
     )
 
     /** Our own stamp, read back out of a file name. */

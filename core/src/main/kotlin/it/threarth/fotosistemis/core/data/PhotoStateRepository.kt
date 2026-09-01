@@ -16,6 +16,15 @@ class PhotoStateRepository(private val database: Database) {
         val destinationId: Long?
     )
 
+    /**
+     * Somewhere a photo has been, folder and file name together.
+     *
+     * The name is nullable because rows written before v6 recorded only the
+     * folder: null means the name at that moment is not known, not that the
+     * photo had none.
+     */
+    data class Location(val relativePath: String, val displayName: String?)
+
     /** Why a path was recorded. */
     enum class PathKind(val storedValue: String) {
 
@@ -48,18 +57,22 @@ class PhotoStateRepository(private val database: Database) {
      * The folder each photo was in when the app first saw it, keyed by
      * photo id. This is what restoring puts a photo back into.
      */
-    fun loadOriginalPaths(): Result<Map<Long, String>> = runCatching {
-        val paths = HashMap<Long, String>()
+    fun loadOriginalPaths(): Result<Map<Long, Location>> = runCatching {
+        val paths = HashMap<Long, Location>()
         database.query(
-            "SELECT ${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_PATH} " +
-                    "FROM ${Schema.TABLE_PHOTO_PATHS} WHERE ${Schema.COLUMN_KIND} = ? " +
+            "SELECT ${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_PATH}, " +
+                    "${Schema.COLUMN_DISPLAY_NAME} FROM ${Schema.TABLE_PHOTO_PATHS} " +
+                    "WHERE ${Schema.COLUMN_KIND} = ? " +
                     "ORDER BY ${Schema.COLUMN_RECORDED_AT} ASC",
             listOf(PathKind.ORIGINAL.storedValue)
         ).forEach { row ->
             val photoId = row.getLong(Schema.COLUMN_PHOTO_ID) ?: return@forEach
             val path = row.getString(Schema.COLUMN_PATH) ?: return@forEach
             // Oldest wins: the first location recorded is the original one.
-            paths.putIfAbsent(photoId, path)
+            paths.putIfAbsent(
+                photoId,
+                Location(path, row.getString(Schema.COLUMN_DISPLAY_NAME))
+            )
         }
         paths
     }
@@ -84,31 +97,39 @@ class PhotoStateRepository(private val database: Database) {
                     System.currentTimeMillis()
                 )
             )
-            rememberPathIfNew(photo.photoId, photo.relativePath)
+            rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
             Unit
         }
     }
 
-    /** Appends the location a photo was moved to. */
-    fun recordMovedPath(photoId: Long, path: String): Result<Unit> = runCatching {
-        database.transaction {
-            insertPath(photoId, path, PathKind.MOVED)
-            Unit
+    /**
+     * Appends the location a photo was moved to, name included.
+     *
+     * Every move and every rename adds a row, so the history is what makes
+     * going back possible: MediaStore itself offers no undo.
+     */
+    fun recordMovedPath(photoId: Long, path: String, displayName: String): Result<Unit> =
+        runCatching {
+            database.transaction {
+                insertPath(photoId, path, displayName, PathKind.MOVED)
+                Unit
+            }
         }
-    }
 
     /** Every location the photo has occupied, oldest first. */
-    fun loadPathHistory(photoId: Long): Result<List<Pair<String, PathKind>>> = runCatching {
+    fun loadPathHistory(photoId: Long): Result<List<Pair<Location, PathKind>>> = runCatching {
         database.query(
-            "SELECT ${Schema.COLUMN_PATH}, ${Schema.COLUMN_KIND} FROM ${Schema.TABLE_PHOTO_PATHS} " +
+            "SELECT ${Schema.COLUMN_PATH}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                    "${Schema.COLUMN_KIND} FROM ${Schema.TABLE_PHOTO_PATHS} " +
                     "WHERE ${Schema.COLUMN_PHOTO_ID} = ? ORDER BY ${Schema.COLUMN_RECORDED_AT} ASC",
             listOf(photoId)
         ).mapNotNull { row ->
             val path = row.getString(Schema.COLUMN_PATH) ?: return@mapNotNull null
+            val name = row.getString(Schema.COLUMN_DISPLAY_NAME)
             val kind = PathKind.entries
                 .firstOrNull { it.storedValue == row.getString(Schema.COLUMN_KIND) }
                 ?: return@mapNotNull null
-            path to kind
+            Location(path, name) to kind
         }
     }
 
@@ -124,21 +145,27 @@ class PhotoStateRepository(private val database: Database) {
     }
 
     /** Writes the original location once, on the first decision about a photo. */
-    private fun rememberPathIfNew(photoId: Long, path: String) {
+    private fun rememberPathIfNew(photoId: Long, path: String, displayName: String) {
         val known = database.query(
             "SELECT 1 AS present FROM ${Schema.TABLE_PHOTO_PATHS} " +
                     "WHERE ${Schema.COLUMN_PHOTO_ID} = ? LIMIT 1",
             listOf(photoId)
         ).isNotEmpty()
-        if (!known) insertPath(photoId, path, PathKind.ORIGINAL)
+        if (!known) insertPath(photoId, path, displayName, PathKind.ORIGINAL)
     }
 
-    private fun insertPath(photoId: Long, path: String, kind: PathKind) {
+    private fun insertPath(
+        photoId: Long,
+        path: String,
+        displayName: String,
+        kind: PathKind
+    ) {
         database.insert(
             "INSERT INTO ${Schema.TABLE_PHOTO_PATHS} (${Schema.COLUMN_PHOTO_ID}, " +
-                    "${Schema.COLUMN_PATH}, ${Schema.COLUMN_KIND}, ${Schema.COLUMN_RECORDED_AT}) " +
-                    "VALUES (?, ?, ?, ?)",
-            listOf(photoId, path, kind.storedValue, System.currentTimeMillis())
+                    "${Schema.COLUMN_PATH}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                    "${Schema.COLUMN_KIND}, ${Schema.COLUMN_RECORDED_AT}) " +
+                    "VALUES (?, ?, ?, ?, ?)",
+            listOf(photoId, path, displayName, kind.storedValue, System.currentTimeMillis())
         )
     }
 }

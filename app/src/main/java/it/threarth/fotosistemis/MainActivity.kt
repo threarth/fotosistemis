@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tagRepository: TagRepository
     private lateinit var destinationRepository: DestinationRepository
     private lateinit var mover: BatchMover
+    private lateinit var settings: AppSettings
     private lateinit var session: ReviewSession
 
     private lateinit var preview: ImageView
@@ -231,7 +232,7 @@ class MainActivity : AppCompatActivity() {
         applySystemBarInsets()
 
         val database = AndroidDatabase(this)
-        val settings = AppSettings(this)
+        settings = AppSettings(this)
         photoSource = MediaStorePhotoSource(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
@@ -606,6 +607,33 @@ class MainActivity : AppCompatActivity() {
             .onFailure { error -> runOnUiThread { showError(error) } }
     }
 
+    /**
+     * Keeps only what sits under a source root.
+     *
+     * A phone holds photos in dozens of folders and most are nobody's
+     * archive: naming the roots is what keeps the work bounded. The staging
+     * folder is always in, whatever the roots say, or the photos waiting to
+     * be deleted would become unreachable.
+     */
+    private fun <T> withinSourceRoots(items: List<T>, path: (T) -> String): List<T> {
+        val roots = settings.effectiveSourceRoots()
+        if (roots.isEmpty()) return items
+
+        return items.filter { item ->
+            val relative = path(item).trim('/')
+            relative.startsWith(ReviewSession.DELETION_STAGING_PATH.trim('/')) ||
+                    roots.any { relative.startsWith(it, ignoreCase = true) }
+        }
+    }
+
+    @JvmName("foldersWithinSourceRoots")
+    private fun withinSourceRoots(folders: List<FolderSummary>): List<FolderSummary> =
+        withinSourceRoots(folders) { it.relativePath }
+
+    @JvmName("photosWithinSourceRoots")
+    private fun withinSourceRoots(photos: List<PhotoRecord>): List<PhotoRecord> =
+        withinSourceRoots(photos) { it.relativePath }
+
     private fun onFoldersLoaded(result: Result<List<FolderSummary>>) {
         setBusy(false)
         val folders = result.getOrElse {
@@ -618,11 +646,18 @@ class MainActivity : AppCompatActivity() {
             .sumOf { it.photoCount }
         stagingButton.text = getString(R.string.action_staging, stagingCount)
 
+        val offered = withinSourceRoots(folders)
+        // Roots that match nothing look exactly like an empty phone, and the
+        // difference is the one thing the user can act on.
+        if (offered.isEmpty() && folders.isNotEmpty()) {
+            toast(getString(R.string.folder_outside_roots))
+        }
+
         offeredFolders.clear()
         val labels = ArrayList<String>()
         offeredFolders.add(null)
         labels.add(getString(R.string.folder_all))
-        for (folder in folders) {
+        for (folder in offered) {
             offeredFolders.add(folder)
             // Photos on a memory card are marked: they stay on their own
             // volume when filed, because MediaStore cannot move a file
@@ -900,10 +935,10 @@ class MainActivity : AppCompatActivity() {
         photos: Result<List<PhotoRecord>>,
         states: Result<Map<Long, PhotoStateRepository.StoredState>>,
         tags: Result<Map<Long, List<String>>>,
-        origins: Result<Map<Long, String>>
+        origins: Result<Map<Long, PhotoStateRepository.Location>>
     ) {
         setBusy(false)
-        val loadedPhotos = photos.getOrElse { return showError(it) }
+        val loadedPhotos = withinSourceRoots(photos.getOrElse { return showError(it) })
         val loadedStates = states.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }

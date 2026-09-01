@@ -22,7 +22,7 @@ object Schema {
      * v3 made the year folder name configurable per destination.
      * v4 moved that name to a single application-wide setting.
      * v5 gave photos an identity of their own, independent of the platform.
-     * v6 remembers the name a photo had before the app renamed it.
+     * v6 records the file name beside every path, so a move can be undone.
      */
     const val VERSION = 6
 
@@ -55,14 +55,6 @@ object Schema {
 
     const val COLUMN_VOLUME_NAME = "volume_name"
     const val COLUMN_DISPLAY_NAME = "display_name"
-
-    /**
-     * The name the photo carried when the app first saw it.
-     *
-     * Written once, before the first rename, and never again: MediaStore has
-     * no undo, so without this row a renamed photo could not be put back.
-     */
-    const val COLUMN_ORIGINAL_DISPLAY_NAME = "original_display_name"
     const val COLUMN_SIZE_BYTES = "size_bytes"
     const val COLUMN_DATE_TAKEN = "date_taken"
     const val COLUMN_DATE_SOURCE = "date_source"
@@ -119,7 +111,6 @@ object Schema {
             $COLUMN_MEDIA_ID INTEGER,
             $COLUMN_VOLUME_NAME TEXT NOT NULL DEFAULT '',
             $COLUMN_DISPLAY_NAME TEXT NOT NULL DEFAULT '',
-            $COLUMN_ORIGINAL_DISPLAY_NAME TEXT,
             $COLUMN_RELATIVE_PATH TEXT NOT NULL DEFAULT '',
             $COLUMN_SIZE_BYTES INTEGER NOT NULL DEFAULT 0,
             $COLUMN_DATE_TAKEN INTEGER NOT NULL DEFAULT 0,
@@ -178,6 +169,7 @@ object Schema {
             $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
             $COLUMN_PHOTO_ID INTEGER NOT NULL,
             $COLUMN_PATH TEXT NOT NULL,
+            $COLUMN_DISPLAY_NAME TEXT,
             $COLUMN_KIND TEXT NOT NULL,
             $COLUMN_RECORDED_AT INTEGER NOT NULL
         )
@@ -242,16 +234,16 @@ object Schema {
     }
 
     /**
-     * v5 and earlier kept only the current name of a photo.
+     * v5 and earlier recorded only the folder a photo had been in.
      *
-     * The column is left empty here rather than filled with the current
-     * name: empty means the app has never renamed this photo, and writing
-     * today's name would claim an original the app cannot vouch for.
+     * Left empty on old rows rather than filled with today's name: empty
+     * means the name at that moment is unknown, and inventing one would
+     * claim an original the app never saw.
      */
     private fun migrateToVersion6(database: Database) {
-        if (hasColumn(database, TABLE_PHOTOS, COLUMN_ORIGINAL_DISPLAY_NAME)) return
+        if (hasColumn(database, TABLE_PHOTO_PATHS, COLUMN_DISPLAY_NAME)) return
         database.execute(
-            "ALTER TABLE $TABLE_PHOTOS ADD COLUMN $COLUMN_ORIGINAL_DISPLAY_NAME TEXT"
+            "ALTER TABLE $TABLE_PHOTO_PATHS ADD COLUMN $COLUMN_DISPLAY_NAME TEXT"
         )
     }
 

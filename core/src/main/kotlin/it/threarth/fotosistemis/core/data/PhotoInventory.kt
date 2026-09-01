@@ -94,13 +94,15 @@ class PhotoInventory(private val database: Database) {
     /** Every present photo, as the adopter needs it. */
     fun loadForAdoption(): Result<List<ClassificationAdopter.InventoryEntry>> = runCatching {
         database.query(
-            "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_RELATIVE_PATH} " +
-                    "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL"
+            "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_RELATIVE_PATH}, " +
+                    "${Schema.COLUMN_DISPLAY_NAME} FROM ${Schema.TABLE_PHOTOS} " +
+                    "WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL"
         ).mapNotNull { row ->
             val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
             ClassificationAdopter.InventoryEntry(
                 photoId,
-                row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty()
+                row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty(),
+                row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty()
             )
         }
     }
@@ -215,11 +217,13 @@ class PhotoInventory(private val database: Database) {
                 if (!known) {
                     database.insert(
                         "INSERT INTO ${Schema.TABLE_PHOTO_PATHS} (${Schema.COLUMN_PHOTO_ID}, " +
-                                "${Schema.COLUMN_PATH}, ${Schema.COLUMN_KIND}, " +
-                                "${Schema.COLUMN_RECORDED_AT}) VALUES (?, ?, ?, ?)",
+                                "${Schema.COLUMN_PATH}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                                "${Schema.COLUMN_KIND}, ${Schema.COLUMN_RECORDED_AT}) " +
+                                "VALUES (?, ?, ?, ?, ?)",
                         listOf(
                             candidate.photoId,
                             candidate.relativePath,
+                            candidate.displayName,
                             PhotoStateRepository.PathKind.ORIGINAL.storedValue,
                             now
                         )
@@ -367,31 +371,6 @@ class PhotoInventory(private val database: Database) {
 
         photoId to StoredDate(row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L, source)
     }.toMap()
-
-    /**
-     * Records the current name as the original, for photos that have none.
-     *
-     * Must run before the first rename: MediaStore has no undo, and this row
-     * is the only thing that could put a name back. Photos that already have
-     * one are left alone, so a second reorganisation cannot overwrite the
-     * name the photo really arrived with.
-     */
-    fun rememberOriginalNames(photoIds: List<Long>): Result<Int> = runCatching {
-        var remembered = 0
-        database.transaction {
-            for (photoId in photoIds) {
-                remembered += database.execute(
-                    "UPDATE ${Schema.TABLE_PHOTOS} " +
-                            "SET ${Schema.COLUMN_ORIGINAL_DISPLAY_NAME} = " +
-                            "${Schema.COLUMN_DISPLAY_NAME} " +
-                            "WHERE ${Schema.COLUMN_ID} = ? AND " +
-                            "${Schema.COLUMN_ORIGINAL_DISPLAY_NAME} IS NULL",
-                    listOf(photoId)
-                )
-            }
-            remembered
-        }
-    }
 
     private fun markMissing(photoId: Long, now: Long) {
         database.execute(

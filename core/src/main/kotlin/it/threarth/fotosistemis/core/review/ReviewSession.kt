@@ -62,7 +62,7 @@ class ReviewSession(
     private val pendingMoves = ArrayList<PendingMove>()
     private var storedStates: Map<Long, PhotoStateRepository.StoredState> = emptyMap()
     private var tagAssignments: Map<Long, List<String>> = emptyMap()
-    private var originalPaths: Map<Long, String> = emptyMap()
+    private var originalPaths: Map<Long, PhotoStateRepository.Location> = emptyMap()
 
 
     var currentIndex: Int = 0
@@ -77,7 +77,7 @@ class ReviewSession(
         loaded: List<PhotoRecord>,
         states: Map<Long, PhotoStateRepository.StoredState>,
         tags: Map<Long, List<String>>,
-        origins: Map<Long, String>
+        origins: Map<Long, PhotoStateRepository.Location>
     ) {
         photos.clear()
         photos.addAll(loaded)
@@ -177,13 +177,12 @@ class ReviewSession(
      * saw it anywhere else. Also null when it is already there.
      */
     fun currentRestorePath(): String? {
-        val photo = current() ?: return null
-        val origin = originalPaths[photo.photoId] ?: return null
-        return if (origin == photo.relativePath) null else origin
+        val origin = originOf(current() ?: return null) ?: return null
+        return origin.relativePath + (origin.displayName ?: "")
     }
 
     /** How many loaded photos could be put back where they came from. */
-    fun restorableCount(): Int = photos.count { restorePathOf(it) != null }
+    fun restorableCount(): Int = photos.count { originOf(it) != null }
 
     /**
      * Builds the list of moves that would put photos back, without touching
@@ -197,8 +196,14 @@ class ReviewSession(
     fun buildRestorePlan(onlyCurrent: Boolean): List<PendingMove> {
         val candidates = if (onlyCurrent) listOfNotNull(current()) else photos
         return candidates.mapNotNull { photo ->
-            val origin = restorePathOf(photo) ?: return@mapNotNull null
-            PendingMove(photo, origin, ReviewStatus.KEPT, null)
+            val origin = originOf(photo) ?: return@mapNotNull null
+            PendingMove(
+                photo,
+                origin.relativePath,
+                ReviewStatus.KEPT,
+                null,
+                origin.displayName
+            )
         }
     }
 
@@ -216,10 +221,20 @@ class ReviewSession(
         return Result.success(Unit)
     }
 
-    /** Original folder of [photo], or null when there is nothing to undo. */
-    private fun restorePathOf(photo: PhotoRecord): String? {
+    /**
+     * Where [photo] came from, or null when there is nothing to undo.
+     *
+     * Both folder and name have to match for a photo to count as already
+     * home: a photo moved back but still carrying a stamped name has not
+     * been restored yet. A history row written before v6 has no name, and
+     * then only the folder can be compared.
+     */
+    private fun originOf(photo: PhotoRecord): PhotoStateRepository.Location? {
         val origin = originalPaths[photo.photoId] ?: return null
-        return if (origin == photo.relativePath) null else origin
+        val homeFolder = origin.relativePath == photo.relativePath
+        val homeName = origin.displayName == null || origin.displayName == photo.displayName
+
+        return if (homeFolder && homeName) null else origin
     }
 
     /** Removes any queued move for [mediaId]. */

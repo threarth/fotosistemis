@@ -59,7 +59,7 @@ class ReorganizerTest {
         assertEquals(2, plan.total)
         assertTrue(plan.moves.all { it.toRelativePath == "Pictures/Famiglia/" })
         assertEquals(
-            listOf("_20160714-120000_IMG001.jpg", "_20250714-120000_IMG002.jpg"),
+            listOf("__20160714_120000__IMG001.jpg", "__20250714_120000__IMG002.jpg"),
             plan.moves.map { it.toDisplayName }
         )
         assertTrue("Nothing ambiguous", !plan.isBlocked)
@@ -68,7 +68,7 @@ class ReorganizerTest {
     @Test
     fun `folding back into years is the same operation`() {
         val plan = Reorganizer.plan(
-            listOf(entry(1, "Pictures/Famiglia/", "_20160714-120000_IMG001.jpg", 2016)),
+            listOf(entry(1, "Pictures/Famiglia/", "__20160714_120000__IMG001.jpg", 2016)),
             listOf(Reorganizer.Choice(famiglia(yearSubfolder = true), stampNames = true)),
             YEAR_PATTERN
         )
@@ -99,7 +99,7 @@ class ReorganizerTest {
     @Test
     fun `turning the stamp off takes it back off the names`() {
         val plan = Reorganizer.plan(
-            listOf(entry(1, "Pictures/Famiglia/", "_20160714-120000_IMG001.jpg", 2016)),
+            listOf(entry(1, "Pictures/Famiglia/", "__20160714_120000__IMG001.jpg", 2016)),
             listOf(Reorganizer.Choice(famiglia(yearSubfolder = false), stampNames = false)),
             YEAR_PATTERN
         )

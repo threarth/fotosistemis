@@ -37,6 +37,9 @@ class DestinationsActivity : AppCompatActivity() {
     private companion object {
         const val BACKUP_MIME_TYPE = "application/json"
         const val BACKUP_STAMP_PATTERN = "yyyyMMdd-HHmm"
+
+        /** How faded a field looks while a checkbox has taken it out of use. */
+        const val DISABLED_ALPHA = 0.4f
     }
 
     private lateinit var repository: DestinationRepository
@@ -72,6 +75,10 @@ class DestinationsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
         findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
+        findViewById<Button>(R.id.sourceRootsButton).setOnClickListener { editSourceRoots() }
+        findViewById<Button>(R.id.destinationRootButton).setOnClickListener {
+            editDestinationRoot()
+        }
         findViewById<Button>(R.id.reorganizeButton).setOnClickListener {
             startActivity(Intent(this, ReorganizeActivity::class.java))
         }
@@ -170,7 +177,8 @@ class DestinationsActivity : AppCompatActivity() {
         val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
         val destinations = repository.loadAll().getOrElse { return showError(it) }
 
-        val proposal = ClassificationAdopter.propose(entries, destinations, decided)
+        val roots = settings.effectiveSourceRoots().ifEmpty { ClassificationAdopter.DEFAULT_ROOTS }
+        val proposal = ClassificationAdopter.propose(entries, destinations, decided, roots)
         if (proposal.total == 0) return toast(getString(R.string.adopt_none))
 
         val breakdown = proposal.byCategory.entries
@@ -291,7 +299,12 @@ class DestinationsActivity : AppCompatActivity() {
             labelField.setText(it.label)
             pathField.setText(it.relativePath)
             yearCheck.isChecked = it.yearSubfolder
-        } ?: run { yearCheck.isChecked = true }
+        } ?: run {
+            // A new folder starts under the destination root: typing the
+            // same prefix for every category is work the app can do.
+            pathField.setText(settings.destinationRoot + "/")
+            yearCheck.isChecked = true
+        }
 
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.destination_new else R.string.destination_edit)
@@ -332,6 +345,114 @@ class DestinationsActivity : AppCompatActivity() {
                 repository.delete(destination.id)
                     .onFailure { showError(it) }
                     .onSuccess { refresh() }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Chooses where the app looks for photos to sort.
+     *
+     * Ticking the whole device greys the list out rather than clearing it,
+     * so unticking gives the roots back instead of losing them.
+     */
+    private fun editSourceRoots() {
+        val form = LayoutInflater.from(this).inflate(R.layout.dialog_roots, null)
+        val field = form.findViewById<EditText>(R.id.rootsField)
+        val wholeDevice = form.findViewById<CheckBox>(R.id.rootsWholeDevice)
+
+        field.setText(settings.sourceRoots.joinToString("\n"))
+        wholeDevice.isChecked = settings.wholeDeviceAsSource
+        applyWholeDevice(field, wholeDevice.isChecked)
+        wholeDevice.setOnCheckedChangeListener { _, checked ->
+            applyWholeDevice(field, checked)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.roots_title)
+            .setView(form)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                settings.sourceRoots = field.text.toString().split("\n")
+                settings.wholeDeviceAsSource = wholeDevice.isChecked
+                announceRoots()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** The roots stay visible while the whole device is chosen, but inert. */
+    private fun applyWholeDevice(field: EditText, wholeDevice: Boolean) {
+        field.isEnabled = !wholeDevice
+        field.alpha = if (wholeDevice) DISABLED_ALPHA else 1f
+    }
+
+    private fun announceRoots() {
+        toast(
+            if (settings.wholeDeviceAsSource) getString(R.string.roots_whole_device_saved)
+            else getString(R.string.roots_saved, settings.sourceRoots.joinToString(", "))
+        )
+    }
+
+    /**
+     * Chooses the single folder every category lives under.
+     *
+     * Changing it offers to bring the existing categories along. Nothing on
+     * disk moves here: that is the reorganisation's job, and it shows what it
+     * would do first.
+     */
+    private fun editDestinationRoot() {
+        val field = EditText(this).apply {
+            setText(settings.destinationRoot)
+            hint = getString(R.string.destination_path_hint)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.destination_root_title)
+            .setMessage(R.string.destination_root_explained)
+            .setView(field)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                settings.destinationRoot = field.text.toString()
+                offerRebase()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Asks before rewriting the path of categories that sit elsewhere. */
+    private fun offerRebase() {
+        val root = settings.destinationRoot
+        val strays = destinations.filterNot { it.relativePath.startsWith("$root/") }
+        if (strays.isEmpty()) return refresh()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.destination_root_rebase_title)
+            .setMessage(
+                getString(
+                    R.string.destination_root_rebase, strays.size, root,
+                    strays.joinToString("\n") { "  ${it.relativePath}" }
+                )
+            )
+            .setPositiveButton(R.string.action_save) { _, _ -> rebase(strays, root) }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> refresh() }
+            .show()
+    }
+
+    /** Moves the categories under [root] in the database, not on disk. */
+    private fun rebase(strays: List<Destination>, root: String) {
+        for (destination in strays) {
+            val outcome = repository.update(
+                destination.id,
+                destination.label,
+                "$root/${destination.relativePath.substringAfterLast('/')}",
+                destination.yearSubfolder
+            )
+            if (outcome.isFailure) return showError(outcome.exceptionOrNull()!!)
+        }
+        refresh()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.reorganize_title)
+            .setMessage(getString(R.string.destination_root_rebased, strays.size))
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                startActivity(Intent(this, ReorganizeActivity::class.java))
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()

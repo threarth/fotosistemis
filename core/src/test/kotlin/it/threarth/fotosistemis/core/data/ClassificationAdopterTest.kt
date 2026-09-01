@@ -15,8 +15,8 @@ class ClassificationAdopterTest {
     private fun destination(id: Long, label: String, path: String) =
         Destination(id, label, path, yearSubfolder = true, sortOrder = 0)
 
-    private fun entry(photoId: Long, path: String) =
-        ClassificationAdopter.InventoryEntry(photoId, path)
+    private fun entry(photoId: Long, path: String, name: String = "IMG001.jpg") =
+        ClassificationAdopter.InventoryEntry(photoId, path, name)
 
     private val famiglia = destination(1, "Famiglia", "Pictures/Famiglia")
 
@@ -130,5 +130,56 @@ class ClassificationAdopterTest {
             alreadyDecided = emptySet()
         )
         assertEquals(mapOf("Famiglia" to 2, "Lavoro" to 1), proposal.byCategory)
+    }
+
+    @Test
+    fun `finds an archive a phone transfer buried one level down`() {
+        // Phone Clone copies the old device's volumes into subfolders, which
+        // is where this user's whole sorted archive ended up.
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/storage-1/Famiglia/2026-famiglia/"),
+                entry(11, "Pictures/storage-1/Casa/2026-casa/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = listOf("Pictures/storage-1")
+        )
+
+        assertEquals(2, proposal.total)
+        assertEquals(setOf("Famiglia", "Casa"), proposal.byCategory.keys)
+        assertEquals(
+            "Pictures/storage-1/Famiglia",
+            proposal.proposedCategories.first { it.label == "Famiglia" }.relativePath
+        )
+    }
+
+    @Test
+    fun `the root still has to be the root`() {
+        // Two segments below it, no more: with the root at Pictures, the
+        // same archive is one level too deep and stays untouched.
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(10, "Pictures/storage-1/Famiglia/2026-famiglia/")),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = listOf("Pictures")
+        )
+
+        assertTrue(proposal.candidates.isEmpty())
+    }
+
+    @Test
+    fun `looks under every root it is given`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/storage-1/Famiglia/2026-famiglia/"),
+                entry(11, "DCIM/Lavoro/2025-lavoro/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = listOf("Pictures/storage-1", "DCIM")
+        )
+
+        assertEquals(2, proposal.total)
     }
 }

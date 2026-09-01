@@ -11,10 +11,11 @@ import it.threarth.fotosistemis.core.model.CaptureDateResolver
  * of every name restores the chronological order that the year folders used
  * to provide.
  *
- * The stamp is written on every photo, not only on the ones whose name lacks
- * a date. A rule with exceptions cannot be checked at a glance, and the
- * redundancy on a name that already carried its date costs less than being
- * unsure which files were touched.
+ * The stamp goes on every photo, including those whose name already opens
+ * with a date. Mixing stamped and unstamped names would split a folder into
+ * two runs that never interleave, since the delimiter sorts after the digits;
+ * one rule applied everywhere is also the only kind that can be checked at a
+ * glance.
  */
 object FileNamer {
 
@@ -37,7 +38,7 @@ object FileNamer {
         val source: CaptureDateResolver.Source
     )
 
-    /** The name a photo should carry, and whether that is a change. */
+    /** The name a photo should carry, and how much its date is worth. */
     data class Naming(
         val photoId: Long,
         val displayName: String,
@@ -54,26 +55,29 @@ object FileNamer {
      * called once per destination folder: two photos with the same name in
      * different folders are not a conflict.
      *
-     * Any stamp already present is removed before the new one is written,
-     * which is what makes the operation repeatable. Running it twice cannot
-     * stack prefixes, an interrupted run converges when repeated, and a date
-     * corrected later replaces the stamp instead of adding a second one.
+     * A stamp already written is left as it is. It is only rewritten when
+     * what the app knows now comes from a better source than what wrote it,
+     * which is how a date recovered from EXIF later replaces one guessed
+     * from a file name instead of piling up beside it.
      */
     fun nameAll(requests: List<Request>): List<Naming> {
-        val byCandidate = requests.groupBy { candidateName(it, counter = null) }
+        val dates = requests.associate { it.photoId to dateFor(it) }
+        val byCandidate = requests.groupBy {
+            candidateName(it, dates.getValue(it.photoId), counter = null)
+        }
         val named = ArrayList<Naming>(requests.size)
 
         for (group in byCandidate.values) {
             // Ordering by id rather than by position keeps the counters
             // stable: a photo discovered later cannot renumber the others.
-            val ordered = group.sortedBy { it.photoId }
-            for ((index, request) in ordered.withIndex()) {
+            for ((index, request) in group.sortedBy { it.photoId }.withIndex()) {
+                val dated = dates.getValue(request.photoId)
                 val counter = if (index == 0) null else index + FIRST_COUNTER - 1
                 named.add(
                     Naming(
                         photoId = request.photoId,
-                        displayName = candidateName(request, counter),
-                        uncertain = isUncertain(request.source)
+                        displayName = candidateName(request, dated, counter),
+                        uncertain = dated.uncertain
                     )
                 )
             }
@@ -92,15 +96,30 @@ object FileNamer {
         source == CaptureDateResolver.Source.FILE_TIMESTAMP ||
                 source == CaptureDateResolver.Source.ESTIMATED
 
+    /** The date a photo's stamp should carry, and whether it is a guess. */
+    private data class Dated(val millis: Long, val uncertain: Boolean)
+
+    /**
+     * Decides between the stamp already on the file and what is known now.
+     *
+     * Ranking the two sources rather than always preferring the newer reading
+     * is the same rule that keeps a capture date from drifting: a date is
+     * never replaced by one from a source with less to say.
+     */
+    private fun dateFor(request: Request): Dated {
+        val existing = CaptureDateResolver.readStamp(request.displayName)
+            ?: return Dated(request.captureMillis, isUncertain(request.source))
+
+        if (request.source.outranks(existing.source)) {
+            return Dated(request.captureMillis, isUncertain(request.source))
+        }
+        return Dated(existing.millis, isUncertain(existing.source))
+    }
+
     /** The full name a request would take with [counter]. */
-    private fun candidateName(request: Request, counter: Int?): String {
-        val stamp = CaptureDateResolver.formatStamp(
-            request.captureMillis,
-            isUncertain(request.source),
-            counter
-        )
-        val bare = CaptureDateResolver.stripStamp(request.displayName)
-        return fit(stamp, bare)
+    private fun candidateName(request: Request, dated: Dated, counter: Int?): String {
+        val stamp = CaptureDateResolver.formatStamp(dated.millis, dated.uncertain, counter)
+        return fit(stamp, CaptureDateResolver.stripStamp(request.displayName))
     }
 
     /**

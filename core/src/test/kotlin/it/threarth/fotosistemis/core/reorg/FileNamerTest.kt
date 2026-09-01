@@ -43,9 +43,9 @@ class FileNamerTest {
         )
         assertEquals(
             listOf(
-                "_20160530-120000_IMG-20160530-WA0002.jpg",
-                "_20180922-120000_Screenshot_20180922-071010.png",
-                "_20240103-120000_PXL_20240103_182233456.jpg"
+                "__20160530_120000__IMG-20160530-WA0002.jpg",
+                "__20180922_120000__Screenshot_20180922-071010.png",
+                "__20240103_120000__PXL_20240103_182233456.jpg"
             ),
             named.sorted()
         )
@@ -71,7 +71,7 @@ class FileNamerTest {
         )
 
         assertEquals(
-            listOf("_20260830-120000_IMG001.jpg", "_20260830-120000-2_IMG001.jpg"),
+            listOf("__20260830_120000__IMG001.jpg", "__20260830_120000-2__IMG001.jpg"),
             named
         )
         assertEquals("Two files, two names", 2, named.toSet().size)
@@ -85,7 +85,7 @@ class FileNamerTest {
             request(2, "IMG002.jpg", sameSecond)
         )
 
-        assertTrue("No collision, no counter", named.none { it.contains("-2_") })
+        assertTrue("No collision, no counter", named.none { it.contains("-2__") })
     }
 
     @Test
@@ -115,14 +115,14 @@ class FileNamerTest {
         ).single()
 
         assertTrue("The mark keeps it visible for review", named.uncertain)
-        assertEquals("_~20250314-120000_received_1234567890.jpeg", named.displayName)
+        assertEquals("__+20250314_120000__received_1234567890.jpeg", named.displayName)
     }
 
     @Test
     fun `a date already judged a guess stays a guess`() {
         val alreadyMarked = request(
             1,
-            "_~20250314-120000_received_1234567890.jpeg",
+            "__+20250314_120000__received_1234567890.jpeg",
             millisAt(2025, 3, 14, 0),
             CaptureDateResolver.Source.ESTIMATED
         )
@@ -155,7 +155,77 @@ class FileNamerTest {
         ).single().displayName
 
         assertTrue("Fits what the file system accepts", named.toByteArray().size <= 255)
-        assertTrue("The date survives", named.startsWith("_20200714-120000_"))
+        assertTrue("The date survives", named.startsWith("__20200714_120000__"))
         assertTrue("The file is still a jpeg", named.endsWith(".jpg"))
+    }
+
+    @Test
+    fun `a stamp already written is left alone`() {
+        val stamped = request(
+            1,
+            "__20180717_002424__IMG-20180717-WA0037.jpg",
+            millisAt(2018, 7, 17, 0),
+            CaptureDateResolver.Source.FILENAME
+        )
+
+        assertEquals(
+            "Nothing new to say, nothing to rewrite",
+            stamped.displayName,
+            FileNamer.nameAll(listOf(stamped)).single().displayName
+        )
+    }
+
+    @Test
+    fun `a date recovered from exif replaces one guessed from the name`() {
+        // What the WhatsApp photos need: the name gives the day, the file
+        // itself still holds the hour.
+        val recovered = FileNamer.Request(
+            photoId = 1,
+            displayName = "__20180717_000000__IMG-20180717-WA0037.jpg",
+            captureMillis = Calendar.getInstance().apply {
+                clear()
+                set(2018, Calendar.JULY, 17, 20, 24, 24)
+            }.timeInMillis,
+            source = CaptureDateResolver.Source.EXIF
+        )
+
+        assertEquals(
+            "__20180717_202424__IMG-20180717-WA0037.jpg",
+            FileNamer.nameAll(listOf(recovered)).single().displayName
+        )
+    }
+
+    @Test
+    fun `a weaker reading never overwrites the stamp`() {
+        val drifted = request(
+            1,
+            "__20180717_002424__IMG-20180717-WA0037.jpg",
+            millisAt(2026, 7, 31, 0),
+            CaptureDateResolver.Source.FILE_TIMESTAMP
+        )
+
+        assertEquals(
+            "The transfer date must not win",
+            drifted.displayName,
+            FileNamer.nameAll(listOf(drifted)).single().displayName
+        )
+    }
+
+    @Test
+    fun `stamped and native names interleave by time within a day`() {
+        // The reason the stamp joins date and time the way the cameras do.
+        val stamped = FileNamer.nameAll(
+            listOf(
+                request(
+                    1, "IMG-20250927-WA0009.jpg",
+                    Calendar.getInstance().apply {
+                        clear()
+                        set(2025, Calendar.SEPTEMBER, 27, 23, 0, 0)
+                    }.timeInMillis
+                )
+            )
+        ).single().displayName
+
+        assertTrue("08:00 comes before 23:00", "20250927_080000.jpg" < stamped)
     }
 }

@@ -106,6 +106,20 @@
     <string name="date_source_file">⚠ data del file</string>
     <string name="date_source_estimated">⚠ data stimata</string>
 
+    <string name="roots_title">Cartelle di origine</string>
+    <string name="action_source_roots">Cartelle di origine</string>
+    <string name="roots_explained">Le cartelle in cui cercare le foto da sistemare, una per riga. Possono essere profonde piu\' di un livello, per esempio Pictures/storage-1. Solo quello che sta qui dentro viene proposto per la revisione.</string>
+    <string name="roots_hint">Pictures\nDCIM</string>
+    <string name="roots_whole_device">Tutte le foto del dispositivo</string>
+    <string name="roots_saved">Origine: %1$s</string>
+    <string name="roots_whole_device_saved">Origine: tutto il dispositivo</string>
+    <string name="destination_root_title">Cartella di destinazione</string>
+    <string name="action_destination_root">Cartella di destinazione</string>
+    <string name="destination_root_explained">La cartella sotto cui vivono tutte le categorie. Precompila il percorso delle nuove destinazioni.</string>
+    <string name="destination_root_rebase_title">Riporto le categorie qui sotto?</string>
+    <string name="destination_root_rebase">%1$d categorie non stanno sotto %2$s:\n\n%3$s\nPosso aggiornarle. I file non si spostano adesso: lo fa la riorganizzazione, con la sua anteprima.</string>
+    <string name="destination_root_rebased">%1$d categorie aggiornate. Apro la riorganizzazione?</string>
+    <string name="folder_outside_roots">Nessuna foto nelle cartelle di origine. Cambiale, oppure spunta \"tutte le foto del dispositivo\".</string>
     <string name="reorganize_title">Riorganizza sul filesystem</string>
     <string name="reorganize_hint">Tocca una categoria per cambiarne nome, disposizione e nomi dei file. Nulla viene scritto finche\' non confermi.</string>
     <string name="action_reorganize">Riorganizza sul filesystem</string>

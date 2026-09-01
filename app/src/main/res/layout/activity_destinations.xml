@@ -47,6 +47,18 @@
     </LinearLayout>
 
     <Button
+        android:id="@+id/sourceRootsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/action_source_roots" />
+
+    <Button
+        android:id="@+id/destinationRootButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/action_destination_root" />
+
+    <Button
         android:id="@+id/reorganizeButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

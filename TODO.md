@@ -1,24 +1,26 @@
 # Lavoro in corso
 
-Stato al 30 agosto 2026.
+Stato al 31 agosto 2026.
 
 ## Da verificare sul dispositivo — prima di ogni altra cosa
 
-**Nove commit non sono mai stati eseguiti su un telefono.** Sono stati
-compilati e i test passano, ma l'estrazione in `core`, lo schema v5 e la sua
-migrazione toccano i dati e non li ha visti girare nessuno.
+**Niente di tutto questo è mai stato eseguito su un telefono.** Compila e i
+test passano, ma lo schema e la riorganizzazione toccano i dati e non li ha
+visti girare nessuno.
+
+Il telefono nuovo è un **Honor Magic8 Lite, Android 16 (API 36)**: `targetSdk`
+combacia, non c'è niente da cambiare nel progetto. Nessuna scheda SD, un solo
+volume. L'app **non è installata**, e non lo è mai stata: il database verrà
+creato da zero, nessuna migrazione girerà. Non c'è nulla da esportare prima.
 
 Ordine consigliato:
 
-1. **Esporta i dati** dalla versione installata, prima di aggiornare
-   (Cartelle → Esporta dati). Sarà un file di formato 1, quindi non
-   reimportabile dalla nuova versione, ma resta leggibile a mano.
-2. Installa, apri la schermata principale, **lascia finire la
+1. Installa, apri la schermata principale, **lascia finire la
    riconciliazione**: popola l'inventario, senza il quale il resto non trova
    nulla.
-3. Verifica che le foto già archiviate mostrino ancora il loro stato: è la
-   prova che la migrazione v4 → v5 ha riagganciato le righe ai nuovi id.
-4. **Cartelle → Riconosci foto già ordinate**, e controlla che i numeri per
+2. **Cartelle → Cartelle di origine**: metti `Pictures/storage-1`. È lì che
+   Phone Clone ha messo l'archivio già ordinato.
+3. **Cartelle → Riconosci foto già ordinate**, e controlla che i numeri per
    categoria corrispondano a quello che ti aspetti. Guarda le foto prima di
    confermare.
 5. Il modello globale `{anno}-{etichetta}` non è mai stato provato. Le
@@ -28,12 +30,13 @@ Ordine consigliato:
 Due misure in più, da prendere nella stessa sessione. Sono cinque minuti, e
 la riorganizzazione del filesystem dipende interamente da come vanno:
 
-6. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
-   valore prima e dopo. Se cambia, la deriva delle date descritta più sotto
-   è reale, e l'ordine delle operazioni non è negoziabile.
-7. **Rinominare funziona in scoped storage?** Un `update` di `DISPLAY_NAME` su
-   due foto, sul telefono vero. Se qui c'è un intoppo il prefisso nei nomi va
-   ripensato da capo, e con esso metà del piano.
+4. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
+   valore prima e dopo. Se cambia, la deriva delle date è reale e l'ordine
+   delle operazioni non è negoziabile.
+5. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
+   la riorganizzazione su una categoria piccola, attiva la data nel nome e
+   applica. Se `DISPLAY_NAME` non passa su MagicOS lo dice il messaggio
+   d'errore.
 
 ## Fase 3 — funzionalità richieste, non ancora scritte
 
@@ -51,6 +54,12 @@ la riorganizzazione del filesystem dipende interamente da come vanno:
 - [ ] **Controlla integrità del database.** Verifica che le foto stiano dove
       l'ultimo percorso registrato dice, e ripara: le righe il cui `media_id`
       non risolve più vanno riagganciate tramite il riconoscimento a cascata.
+- [ ] **Leggere l'EXIF direttamente**, con `ExifInterface`, invece di fidarsi
+      di `datetaken`. MediaStore restituisce `NULL` anche su file che l'EXIF
+      ce l'hanno: sulle WhatsApp fino a fine 2024 l'ora vera è dentro il file,
+      e recuperarla trasformerebbe qualche migliaio di `_000000__` nell'orario
+      giusto. Il timbro si aggiornerebbe da solo, perché l'EXIF batte il nome
+      file nell'ordine di fiducia.
 - [ ] **Backup automatico**, almeno settimanale.
 - [ ] **Cartella madre** che precompila il percorso di una nuova
       destinazione.
@@ -118,6 +127,40 @@ foto*, poi *Applica*.
 Non indovina le date sbagliate: le congela e le segnala. Correggerle — a mano,
 o deducendole dall'anno della cartella, che è pur sempre un'affermazione umana
 — è lavoro successivo.
+
+## Com'è fatto l'archivio, misurato il 31 agosto 2026
+
+Letto dal telefono con `adb`, in sola lettura. Serve perché quasi ogni scelta
+sui nomi e sulle date dipende da questi numeri, e a memoria non si ricostruiscono.
+
+**24.166 immagini indicizzate da MediaStore**, di cui **16.091 (67%) senza
+`datetaken`**. Non è un difetto del telefono: sono quasi esattamente le foto di
+WhatsApp.
+
+| albero | file | data+ora nel nome | solo data | niente |
+| --- | --- | --- | --- | --- |
+| `Pictures` | 2.016 | 92% | 8% | 5 file |
+| `DCIM` | 6.334 | 98% | 1% | 12 file |
+| `Download` | 99 | 96% | — | 4 file |
+| **WhatsApp Images** | **15.609** | **0%** | **100%** | — |
+
+`DCIM/Camera` da solo ne tiene 5.032, mai riviste: è lì che sta il lavoro.
+
+**Phone Clone ha diviso l'archivio in `Pictures/storage-0` e
+`Pictures/storage-1`**, che erano i due volumi del telefono vecchio.
+`storage-1` è l'archivio ordinato — 649 foto, 10 categorie, tutte nella forma
+`categoria/anno-categoria`. `storage-0` sono 1.350 foto in cartelle a evento
+senza livello anno: non sono adottabili, vanno riviste una a una.
+
+**Le foto WhatsApp hanno perso l'EXIF verso fine 2024**, ma quelle precedenti
+ce l'hanno ancora, con l'ora esatta. Verificato su dieci foto sparse su otto
+anni. **MediaStore però restituisce `datetaken=NULL` anche per quelle**, quindi
+l'app cade sul nome file e ottiene il giorno giusto con ora `00:00:00`.
+
+**Tutte le WhatsApp hanno `date_modified` del 31 luglio 2026**, dentro una
+finestra di dieci ore: è il trasferimento. Se il nome file si perdesse, quelle
+15.609 foto diventerebbero tutte di quel pomeriggio. Il timbro esiste per
+rendere esplicita quella dipendenza invece che accidentale.
 
 ## Fase 4 — desktop
 
@@ -195,21 +238,23 @@ la data già ce l'aveva costa meno del dubbio su quali file siano stati
 toccati. L'anno va davanti perché l'ordinamento confronta da sinistra: in
 `ggmmyyyy` comanda il giorno del mese, che non significa niente.
 
-**Il marcatore è nostro e si riconosce.** `^_(\d{8})-(\d{6})(?:-(\d+))?_` —
-nessuna convenzione di fotocamera produce otto cifre subito dopo un underscore
-iniziale. Ogni riorganizzazione toglie il marcatore e lo riscrive, quindi
-eseguirla due volte non impila prefissi, interromperla a metà non fa danno, e
-correggere una data la aggiorna invece di aggiungerne una seconda. Il
-contatore per i pari-secondo sta dentro il marcatore, così l'ordinamento
-regge e la regex resta una sola.
+**Il marcatore è `__yyyyMMdd_HHmmss[-N]__`, e i due underscore sono il punto.**
+Con uno solo il marcatore sarebbe indistinguibile dai nomi che le fotocamere
+producono davvero: `20200805_113940_01_saved.jpg` verrebbe letto come nostro, e
+toglierlo lascerebbe `01_saved.jpg`. Sul telefono ce ne sono 154 così, e zero
+che contengano `__`. Il separatore fra data e ora è invece lo stesso che usano
+loro, `_`, perché con uno diverso i nomi si separerebbero a quel carattere e
+ogni foto timbrata di una giornata finirebbe prima di ogni foto nativa della
+stessa giornata invece di prendere il suo posto. Il contatore `-N` sta dentro
+i delimitatori e serve solo quando due foto nella stessa cartella avrebbero
+data, ora e nome identici.
 
-**La tilde marca una data che è un ripiego.** `_~yyyymmdd-hhmmss_` significa
-che la data viene da `FILE_TIMESTAMP`, cioè dalla data di modifica del file, e
-non da uno scatto: descrive quando il file è stato scritto su questo telefono,
-non quando la fotografia è stata presa. Ci finiscono le immagini arrivate da
-chat, social, download e scansioni, che hanno perso l'EXIF e hanno un nome che
-non dice niente. La tilde le tiene visibili per una revisione futura, e dice
-al risolutore che quella data è già stata giudicata e non va ricalcolata.
+**Il `+` marca una data che è un ripiego.** `__+yyyyMMdd_HHmmss__` significa
+che la data viene da `FILE_TIMESTAMP`, cioè dalla data di modifica del file:
+descrive quando il file è stato scritto su questo telefono, non quando la
+fotografia è stata presa. Il `+` vale 43 e le cifre partono da 48, quindi
+quelle foto si radunano in cima alla cartella, dove si trovano. Sul telefono
+sono una ventina su 24.000: quasi tutto ha o l'EXIF o la data nel nome.
 
 **Scrivere la data nel nome la mette al sicuro.** Il prefisso viene
 riconosciuto da `parseFileName`, quindi una foto prefissata risale da
@@ -228,6 +273,26 @@ per effetto dei propri spostamenti.
 nome la foto è immune alla deriva; spostarla prima la lascerebbe esposta per
 tutta la durata del lotto. Un'unica scrittura per foto significa che non
 esiste un istante in cui è già stata spostata ma non ancora battezzata.
+
+**Un timbro già scritto non si tocca, salvo una sorgente migliore.** Una
+riorganizzazione normale non porta informazione nuova, quindi non ha motivo di
+riscrivere niente. Quando invece arriva una data da una sorgente che ne sa di
+più — l'EXIF al posto del nome file — il timbro viene aggiornato. È la stessa
+regola che impedisce alla data di andare alla deriva, applicata al nome
+anziché al database.
+
+**Le radici sono due cose diverse.** Quelle di **origine** sono molte e
+limitano davvero cosa si revisiona: un telefono tiene foto in decine di
+cartelle e quasi nessuna è un archivio. Quella di **destinazione** è una sola,
+perché le foto arrivano da dove capita ma si mettono via in un posto solo.
+Cambiarla propone di portarci sotto le categorie esistenti; i file però non si
+muovono lì, li muove la riorganizzazione con la sua anteprima.
+
+**La storia dei percorsi tiene anche il nome.** `photo_paths` registra ogni
+spostamento e ogni rinomina come cartella più nome: MediaStore non ha un undo,
+e quelle righe sono l'unica strada per tornare indietro. Prima il ripristino
+rimetteva la foto nella cartella giusta lasciandole il nome nuovo, cioè
+tornava indietro a metà.
 
 ## Come si compila
 

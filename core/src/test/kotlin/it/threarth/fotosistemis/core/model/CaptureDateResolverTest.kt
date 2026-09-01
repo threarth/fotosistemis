@@ -32,7 +32,7 @@ class CaptureDateResolverTest {
     fun `writes the year first so names sort chronologically`() {
         val stamp = CaptureDateResolver.formatStamp(summer2026, uncertain = false, counter = null)
 
-        assertEquals("_20260830-120000_", stamp)
+        assertEquals("__20260830_120000__", stamp)
     }
 
     @Test
@@ -49,7 +49,7 @@ class CaptureDateResolverTest {
     fun `the mark says the date is only a fallback`() {
         val stamp = CaptureDateResolver.formatStamp(summer2026, uncertain = true, counter = null)
 
-        assertEquals("_~20260830-120000_", stamp)
+        assertEquals("__+20260830_120000__", stamp)
         assertEquals(
             CaptureDateResolver.Source.ESTIMATED,
             CaptureDateResolver.readStamp(stamp + "foto.jpg")?.source
@@ -60,7 +60,7 @@ class CaptureDateResolverTest {
     fun `the counter travels inside the stamp`() {
         val stamp = CaptureDateResolver.formatStamp(summer2026, uncertain = false, counter = 2)
 
-        assertEquals("_20260830-120000-2_", stamp)
+        assertEquals("__20260830_120000-2__", stamp)
         assertEquals(2, CaptureDateResolver.readStamp(stamp + "IMG001.jpg")?.counter)
     }
 
@@ -76,7 +76,15 @@ class CaptureDateResolverTest {
 
     @Test
     fun `leaves a name that is not ours alone`() {
-        val foreign = listOf("IMG_20260728_153045.jpg", "_MG_1234.jpg", "vacanza mare.jpg")
+        // The third is real and there are 154 like it on the phone: a single
+        // underscore would make it look like ours, and stripping the stamp we
+        // never wrote would leave 01_saved.jpg.
+        val foreign = listOf(
+            "IMG_20260728_153045.jpg",
+            "_MG_1234.jpg",
+            "20200805_113940_01_saved.jpg",
+            "vacanza mare.jpg"
+        )
 
         for (name in foreign) {
             assertNull("Not our stamp: $name", CaptureDateResolver.readStamp(name))
@@ -87,7 +95,7 @@ class CaptureDateResolverTest {
     @Test
     fun `digits that are not a date are not our stamp`() {
         // The 30th of February: the shape matches, the date does not exist.
-        val name = "_20260230-120000_IMG001.jpg"
+        val name = "__20260230_120000__IMG001.jpg"
 
         assertNull(CaptureDateResolver.readStamp(name))
         assertEquals(

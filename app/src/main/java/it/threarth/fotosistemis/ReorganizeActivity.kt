@@ -286,9 +286,6 @@ class ReorganizeActivity : AppCompatActivity() {
         }
         val moves = buildMoves(plan) ?: return
 
-        inventory.rememberOriginalNames(moves.map { it.photo.photoId })
-            .onFailure { return showError(it) }
-
         batches = mover.consentBatches(moves)
         batchIndex = 0
         succeeded = 0

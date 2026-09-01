@@ -76,7 +76,11 @@ class BatchMover(
             ).fold(
                 onSuccess = {
                     succeeded++
-                    stateRepository.recordMovedPath(move.photo.platformId, move.destinationRelativePath)
+                    stateRepository.recordMovedPath(
+                        move.photo.photoId,
+                        move.destinationRelativePath,
+                        move.newDisplayName ?: move.photo.displayName
+                    )
                 },
                 onFailure = { error ->
                     failed.add(move)
