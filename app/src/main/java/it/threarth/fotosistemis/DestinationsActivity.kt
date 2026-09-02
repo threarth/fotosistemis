@@ -75,6 +75,7 @@ class DestinationsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
         findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
+        findViewById<Button>(R.id.cloudBackupButton).setOnClickListener { editCloudBackup() }
         findViewById<Button>(R.id.sourceRootsButton).setOnClickListener { editSourceRoots() }
         findViewById<Button>(R.id.destinationRootButton).setOnClickListener {
             editDestinationRoot()
@@ -345,6 +346,35 @@ class DestinationsActivity : AppCompatActivity() {
                 repository.delete(destination.id)
                     .onFailure { showError(it) }
                     .onSuccess { refresh() }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Chooses whether Android may take this app's data.
+     *
+     * Stated in full rather than summarised: a backup that leaves the device
+     * is the one thing here the user cannot inspect afterwards, so what it
+     * contains has to be readable before deciding, not after.
+     */
+    private fun editCloudBackup() {
+        val check = CheckBox(this).apply {
+            setText(R.string.cloud_backup_enabled)
+            isChecked = settings.backupToCloud
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.cloud_backup_title)
+            .setMessage(R.string.cloud_backup_explained)
+            .setView(check)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                settings.backupToCloud = check.isChecked
+                toast(
+                    getString(
+                        if (check.isChecked) R.string.cloud_backup_on
+                        else R.string.cloud_backup_off
+                    )
+                )
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()

@@ -294,6 +294,24 @@ e quelle righe sono l'unica strada per tornare indietro. Prima il ripristino
 rimetteva la foto nella cartella giusta lasciandole il nome nuovo, cioè
 tornava indietro a metà.
 
+**Prima di scrivere si verifica che la foto sia ancora quella.** Un `update`
+raggiunge la foto tramite il suo id MediaStore, che e' una scorciatoia
+riscrivibile: fra il momento in cui si costruisce un piano e quello in cui lo
+si applica possono passare minuti, e una riscansione puo' avere dato quel
+numero a un'altra foto. Nome e dimensione vengono riletti e confrontati; se non
+combaciano la foto viene saltata e riportata fra le fallite, invece di
+spostarne una sbagliata in silenzio. La data non entra nel confronto: l'app la
+ricava dal nome file quando manca l'EXIF, quindi quella che ha in mano spesso
+non e' quella che MediaStore restituirebbe.
+
+**Il backup verso Google e' una scelta dell'utente, presa a ogni backup.**
+`android:allowBackup` sta nel manifest e non si puo' cambiare a runtime, quindi
+resta acceso e decide `FotosistemisBackupAgent`, che legge l'impostazione nel
+momento in cui Android chiede i dati. Acceso di default: perdere il registro di
+cosa e' gia' stato rivisto significa perdere il lavoro, perche' le foto sul
+disco dicono dove sono ma non cosa si e' deciso su di loro. Nel backup entrano
+database e preferenze; nessuna immagine, che non e' un file di questa app.
+
 ## Come si compila
 
 Il progetto sta sul filesystem Windows perché Gradle non attraversi WSL.

@@ -106,6 +106,12 @@
     <string name="date_source_file">⚠ data del file</string>
     <string name="date_source_estimated">⚠ data stimata</string>
 
+    <string name="action_cloud_backup">Backup su account Google</string>
+    <string name="cloud_backup_title">Backup su account Google</string>
+    <string name="cloud_backup_explained">Android puo\' copiare i dati di questa app nel backup del tuo account Google, cifrato con il PIN del dispositivo, e solo se il backup e\' attivo nelle impostazioni di Android.\n\nCosa viene copiato:\n  • il database: nomi dei file, percorsi, date, dimensioni, tag, e cosa hai gia\' deciso su ogni foto\n  • le impostazioni: modello delle cartelle-anno, cartelle di origine e destinazione\n\nCosa NON viene copiato:\n  • le fotografie. Nessuna immagine entra nel backup dell\'app.\n\nSenza questi dati, dopo un ripristino le foto resterebbero dove sono ma il lavoro di revisione andrebbe rifatto da capo.</string>
+    <string name="cloud_backup_enabled">Includi i dati di questa app nel backup</string>
+    <string name="cloud_backup_on">Backup attivo: il database viene incluso.</string>
+    <string name="cloud_backup_off">Backup escluso: Android non ricevera\' nulla da questa app.</string>
     <string name="roots_title">Cartelle di origine</string>
     <string name="action_source_roots">Cartelle di origine</string>
     <string name="roots_explained">Le cartelle in cui cercare le foto da sistemare, una per riga. Possono essere profonde piu\' di un livello, per esempio Pictures/storage-1. Solo quello che sta qui dentro viene proposto per la revisione.</string>

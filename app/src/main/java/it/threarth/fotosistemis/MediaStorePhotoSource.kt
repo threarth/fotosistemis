@@ -52,6 +52,12 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
         const val MILLIS_PER_SECOND = 1000L
 
         const val EXPECTED_UPDATED_ROWS = 1
+
+        /** Enough of a photo to tell it from whichever one took its id. */
+        val IDENTITY_PROJECTION = arrayOf(
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.SIZE
+        )
     }
 
     /**
@@ -61,6 +67,38 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
     fun uriFor(photo: PhotoRecord): Uri = ContentUris.withAppendedId(
         MediaStore.Images.Media.getContentUri(photo.volumeName), photo.platformId
     )
+
+    /**
+     * Throws unless the row still holds the photo the caller planned for.
+     *
+     * A write addresses a photo by its MediaStore id, and that id is a
+     * rewritable shortcut rather than an identity: a rescan or a remount can
+     * hand it to a different photo. Between reading an archive and applying a
+     * batch there can be minutes, and without this the app would quietly move
+     * or rename whichever photo inherited the number.
+     *
+     * Name and size are compared because they are stored exactly as
+     * MediaStore reported them. The capture date is not: the app resolves it
+     * from the file name when EXIF is missing, so what it holds is often not
+     * what MediaStore would return.
+     */
+    private fun confirmIdentity(photo: PhotoRecord) {
+        val row = resolver.query(uriFor(photo), IDENTITY_PROJECTION, null, null, null)
+            ?.use { cursor ->
+                if (!cursor.moveToFirst()) null
+                else cursor.getString(0).orEmpty() to cursor.getLong(1)
+            }
+            ?: throw IllegalStateException(
+                "${photo.displayName}: non e' piu' nell'indice di sistema"
+            )
+
+        if (row.first != photo.displayName || row.second != photo.sizeBytes) {
+            throw IllegalStateException(
+                "${photo.displayName}: l'indice di sistema e' cambiato, " +
+                        "quel numero ora e' di ${row.first}"
+            )
+        }
+    }
 
     /**
      * Loads a downscaled bitmap for display.
@@ -200,6 +238,7 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, newDisplayName)
                 }
             }
+            confirmIdentity(photo)
             val updated = resolver.update(uriFor(photo), values, null, null)
             if (updated != EXPECTED_UPDATED_ROWS) {
                 throw IllegalStateException(

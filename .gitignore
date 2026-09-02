@@ -4,7 +4,8 @@
 # IDE state is not source: ignore the whole folder rather than single files.
 /.idea/
 .DS_Store
-/build
+# Anchored at the root this would miss core/build and app/build.
+build/
 /captures
 .externalNativeBuild
 .cxx

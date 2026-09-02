@@ -21,6 +21,7 @@ class AppSettings(context: Context) {
         private const val KEY_SOURCE_ROOTS = "source_roots"
         private const val KEY_WHOLE_DEVICE = "whole_device_as_source"
         private const val KEY_DESTINATION_ROOT = "destination_root"
+        private const val KEY_BACKUP_TO_CLOUD = "backup_to_cloud"
 
         /** One root per line, which is also how the user edits them. */
         private const val ROOT_SEPARATOR = "\n"
@@ -100,6 +101,18 @@ class AppSettings(context: Context) {
             val cleaned = value.trim().trim('/').ifEmpty { DEFAULT_DESTINATION_ROOT }
             preferences.edit().putString(KEY_DESTINATION_ROOT, cleaned).apply()
         }
+
+    /**
+     * Whether Android may include this app's data in the account backup.
+     *
+     * On by default: losing the record of what has already been reviewed is
+     * losing the work itself, since the photos on disk say only where they
+     * are and not what was decided about them. Read by
+     * [FotosistemisBackupAgent] every time a backup is attempted.
+     */
+    var backupToCloud: Boolean
+        get() = preferences.getBoolean(KEY_BACKUP_TO_CLOUD, true)
+        set(value) = preferences.edit().putBoolean(KEY_BACKUP_TO_CLOUD, value).apply()
 
     /** The roots to search, honouring the whole-device choice. */
     fun effectiveSourceRoots(): List<String> =
