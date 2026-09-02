@@ -39,12 +39,36 @@ la riorganizzazione del filesystem dipende interamente da come vanno:
 5. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
    valore prima e dopo. Se cambia, la deriva delle date è reale e l'ordine
    delle operazioni non è negoziabile.
-6. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
+6. **`DATE_TAKEN` si puo' scrivere, e resiste a una riscansione?** E' la
+   verifica che decide se la voce "riempire DATE_TAKEN" in Fase 3 vale la
+   pena. In due tempi:
+
+   a. Prendi una foto WhatsApp con `datetaken` vuoto e scrivici una data
+      riconoscibile:
+      `adb shell content update --uri content://media/external/images/media/<id> --bind datetaken:l:1531785864000`
+      poi rileggi con `content query`. Se il comando viene rifiutato, la
+      scrittura va provata dall'app, che ha il consenso; il rifiuto da shell
+      non dimostra nulla.
+   b. Fai in modo che MediaProvider rilegga quel file — basta cambiargli
+      l'ora di modifica con `touch` — e forza una riscansione. Il comando
+      esatto su Android 16 con MagicOS **non lo so**: si prova
+      `content call --uri content://media --method scan_volume`, e se non
+      funziona il riavvio del telefono lo garantisce. Poi rileggi.
+
+   Se il valore sopravvive, la funzione e' una sistemazione definitiva. Se
+   viene azzerato, resta utile ma diventa manutenzione da rilanciare, e va
+   scritta di conseguenza.
+7. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
    la riorganizzazione su una categoria piccola, attiva la data nel nome e
    applica. Se `DISPLAY_NAME` non passa su MagicOS lo dice il messaggio
    d'errore.
 
 ## Fase 3 — funzionalità richieste, non ancora scritte
+
+**Niente di questa fase si scrive prima di aver fatto il giro di controllo sul
+dispositivo, in cima a questo file.** Le verifiche che contiene decidono come
+vanno scritte piu' di una di queste voci, e scriverle prima significa doverle
+rifare.
 
 - [ ] **Anteprima con checkbox prima di Applica.** Una sezione per le foto
       che vanno in eliminazione, una per quelle che si spostano, ogni voce
@@ -60,6 +84,27 @@ la riorganizzazione del filesystem dipende interamente da come vanno:
 - [ ] **Controlla integrità del database.** Verifica che le foto stiano dove
       l'ultimo percorso registrato dice, e ripara: le righe il cui `media_id`
       non risolve più vanno riagganciate tramite il riconoscimento a cascata.
+- [ ] **Riempire `DATE_TAKEN` dove e' vuoto.** Sul telefono e' vuoto per
+      16.091 foto su 24.166, e per quelle la galleria ripiega su
+      `DATE_MODIFIED`: le 15.609 WhatsApp appaiono quindi tutte al 31 luglio
+      2026, il giorno del trasferimento. Riempirlo le rimette al loro posto in
+      **ogni** app che legge l'indice, non solo nella nostra. Non tocca un
+      byte della fotografia, e si puo' disfare rimettendo `NULL` — al
+      contrario dell'EXIF, che sarebbe inciso nel file per sempre.
+
+      Quattro regole:
+      1. **Solo dove e' vuoto, mai sovrascrivere.** Un campo vuoto non ha
+         sorgente, quindi qualunque cosa lo batte; uno pieno ce l'ha gia'.
+      2. **Prima l'EXIF vero, poi il nome file.** Per le 8.869 WhatsApp
+         anteriori a ottobre 2024 l'ora esatta e' dentro il file: si legge e
+         si scrive quella, senza inventare niente.
+      3. **Mai da `FILE_TIMESTAMP`.** Sarebbe promuovere una data sbagliata a
+         dato autorevole: le foto senza altra data restano vuote e segnalate.
+      4. **Anteprima e consenso** come ogni altra scrittura.
+
+      Da fare **solo dopo** la verifica al punto 6: se il valore non
+      sopravvive a una riscansione la funzione cambia natura, e va scritta
+      diversamente.
 - [ ] **Leggere l'EXIF direttamente**, con `ExifInterface`, invece di fidarsi
       di `datetaken`. MediaStore restituisce `NULL` anche su file che l'EXIF
       ce l'hanno: sulle WhatsApp fino a fine 2024 l'ora vera è dentro il file,
@@ -299,6 +344,29 @@ spostamento e ogni rinomina come cartella più nome: MediaStore non ha un undo,
 e quelle righe sono l'unica strada per tornare indietro. Prima il ripristino
 rimetteva la foto nella cartella giusta lasciandole il nome nuovo, cioè
 tornava indietro a metà.
+
+**L'app non scrive mai l'EXIF, lo legge soltanto.** Scrivere un tag su un JPEG
+che non ha gia' un blocco EXIF significa riscrivere l'intero file: cambia la
+dimensione, che e' uno dei segnali con cui una foto viene riconosciuta e con
+cui si verifica di non toccarne una sbagliata; azzera `DATE_MODIFIED`; fa
+ricaricare il file a Google Foto e a ogni servizio di backup; e
+un'interruzione a meta' puo' rovinare la fotografia. Sarebbe l'unica
+operazione dell'app capace di distruggerne una: oggi non sa nemmeno
+cancellarle.
+
+Sull'archivio vero non servirebbe comunque. Delle 15.609 foto WhatsApp, 8.869
+sono anteriori a ottobre 2024 e l'EXIF **ce l'hanno gia', con l'ora vera**: e'
+MediaStore a non indicizzarlo, quindi li' il lavoro e' leggere, non scrivere.
+Le 6.739 successive non hanno EXIF e il nome da' solo il giorno: scriverlo
+significherebbe mettere un `00:00:00` inventato nel campo che ogni altra app
+tratta come verita'. Nel nome del file quello stesso `000000` e' tollerabile,
+perche' un nome e' dichiaratamente un'etichetta; nell'EXIF sarebbe
+un'affermazione falsa che sopravvive all'app.
+
+Resta un caso in cui scriverlo avrebbe senso: quando la data la afferma
+l'utente. Se un giorno esistera' "correggi la data di queste foto", scrivere
+l'EXIF registrerebbe una decisione umana invece di inventare un dato — la
+riscrittura del file resterebbe da valutare, ma il contenuto sarebbe onesto.
 
 **Prima di scrivere si verifica che la foto sia ancora quella.** Un `update`
 raggiunge la foto tramite il suo id MediaStore, che e' una scorciatoia
