@@ -30,10 +30,16 @@ Ordine consigliato:
 Due misure in più, da prendere nella stessa sessione. Sono cinque minuti, e
 la riorganizzazione del filesystem dipende interamente da come vanno:
 
-4. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
+4. **Il `BackupAgent` legge davvero l'impostazione?** Gira in un momento
+   particolare del ciclo di vita, in un processo dove l'`Application` non e'
+   quella solita, e che da li' le SharedPreferences si leggano va confermato
+   sul dispositivo: `adb shell bmgr backupnow it.threarth.fotosistemis` con
+   l'interruttore acceso e poi spento, guardando `adb logcat -s BackupManager`.
+   Se non le leggesse, la scelta dell'utente verrebbe ignorata in silenzio.
+5. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
    valore prima e dopo. Se cambia, la deriva delle date è reale e l'ordine
    delle operazioni non è negoziabile.
-5. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
+6. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
    la riorganizzazione su una categoria piccola, attiva la data nel nome e
    applica. Se `DISPLAY_NAME` non passa su MagicOS lo dice il messaggio
    d'errore.

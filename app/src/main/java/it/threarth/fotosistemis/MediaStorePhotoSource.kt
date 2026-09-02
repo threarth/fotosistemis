@@ -56,7 +56,8 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
         /** Enough of a photo to tell it from whichever one took its id. */
         val IDENTITY_PROJECTION = arrayOf(
             MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.SIZE
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.DATE_TAKEN
         )
     }
 
@@ -77,28 +78,49 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
      * batch there can be minutes, and without this the app would quietly move
      * or rename whichever photo inherited the number.
      *
-     * Name and size are compared because they are stored exactly as
-     * MediaStore reported them. The capture date is not: the app resolves it
-     * from the file name when EXIF is missing, so what it holds is often not
-     * what MediaStore would return.
+     * Name and size are always compared, because the app stores them exactly
+     * as MediaStore reported them. The capture date joins them only when it
+     * came from MediaStore as well: two thirds of the photos on a phone have
+     * no DATE_TAKEN, and for those the app holds a date read out of the file
+     * name, which would never match and would reject every photo.
      */
     private fun confirmIdentity(photo: PhotoRecord) {
-        val row = resolver.query(uriFor(photo), IDENTITY_PROJECTION, null, null, null)
-            ?.use { cursor ->
-                if (!cursor.moveToFirst()) null
-                else cursor.getString(0).orEmpty() to cursor.getLong(1)
-            }
+        val current = readIdentity(photo)
             ?: throw IllegalStateException(
                 "${photo.displayName}: non e' piu' nell'indice di sistema"
             )
 
-        if (row.first != photo.displayName || row.second != photo.sizeBytes) {
+        val changed = current.displayName != photo.displayName ||
+                current.sizeBytes != photo.sizeBytes ||
+                (photo.dateSource == CaptureDateResolver.Source.EXIF &&
+                        current.exifMillis != photo.dateTakenMillis)
+
+        if (changed) {
             throw IllegalStateException(
                 "${photo.displayName}: l'indice di sistema e' cambiato, " +
-                        "quel numero ora e' di ${row.first}"
+                        "quel numero ora e' di ${current.displayName}"
             )
         }
     }
+
+    /** What a photo's row says about it right now. */
+    private data class Identity(
+        val displayName: String,
+        val sizeBytes: Long,
+        val exifMillis: Long?
+    )
+
+    /** Reads the row back, or null when it has gone. */
+    private fun readIdentity(photo: PhotoRecord): Identity? =
+        resolver.query(uriFor(photo), IDENTITY_PROJECTION, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+
+            Identity(
+                displayName = cursor.getString(0).orEmpty(),
+                sizeBytes = cursor.getLong(1),
+                exifMillis = CaptureDateResolver.normaliseExif(cursor.getLong(2))
+            )
+        }
 
     /**
      * Loads a downscaled bitmap for display.

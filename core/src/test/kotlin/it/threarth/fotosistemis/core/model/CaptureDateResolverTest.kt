@@ -161,4 +161,23 @@ class CaptureDateResolverTest {
             }
         }
     }
+
+    @Test
+    fun `a date stored in seconds is read as the same instant`() {
+        // Some devices fill DATE_TAKEN with seconds. Read as milliseconds the
+        // value lands in 1970, so it is corrected — and reading the column
+        // back has to go through the same correction, or a photo would never
+        // look like itself.
+        val seconds = summer2026 / 1000
+
+        assertEquals(summer2026, CaptureDateResolver.normaliseExif(seconds))
+        assertEquals(summer2026, CaptureDateResolver.normaliseExif(summer2026))
+    }
+
+    @Test
+    fun `nothing usable comes back as no date at all`() {
+        for (value in listOf(null, 0L, -1L, 42L)) {
+            assertNull("$value is not a capture time", CaptureDateResolver.normaliseExif(value))
+        }
+    }
 }

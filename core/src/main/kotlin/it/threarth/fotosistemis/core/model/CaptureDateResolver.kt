@@ -188,13 +188,17 @@ object CaptureDateResolver {
     /**
      * Accepts DATE_TAKEN only when it can be a real capture time.
      *
+     * Public because reading the column back has to go through the same
+     * correction: a device that stores seconds would otherwise report a value
+     * that never equals the one already recorded.
+     *
      * The column is documented as milliseconds, but some devices fill it
      * with seconds. Read as milliseconds such a value lands in 1970, which
      * silently pushes every photo outside any period filter instead of
      * failing visibly. A value too small to be a plausible date in
      * milliseconds, but plausible once multiplied, is treated as seconds.
      */
-    private fun normaliseExif(exifMillis: Long?): Long? {
+    fun normaliseExif(exifMillis: Long?): Long? {
         if (exifMillis == null || exifMillis <= 0L) return null
         if (exifMillis >= MIN_PLAUSIBLE_MILLIS) return exifMillis
         val asMillis = exifMillis * MILLIS_PER_SECOND
