@@ -30,7 +30,10 @@ object FolderTree {
         val photoCount: Int,
 
         /** Photos sitting directly in it, ignoring what is below. */
-        val ownPhotoCount: Int
+        val ownPhotoCount: Int,
+
+        /** True when other offered folders hang from this one. */
+        val hasChildren: Boolean
     )
 
     /**
@@ -58,17 +61,35 @@ object FolderTree {
             }
         }
 
-        return below.keys
-            .filter { worthOffering(it, own, children) }
-            .sorted()
-            .map { path ->
-                Node(
-                    relativePath = path,
-                    depth = path.count { it == '/' },
-                    photoCount = below[path] ?: 0,
-                    ownPhotoCount = own[path] ?: 0
-                )
-            }
+        val offerti = below.keys.filter { worthOffering(it, own, children) }.sorted()
+        val genitori = offerti.mapNotNull(::parentOf).toHashSet()
+
+        return offerti.map { path ->
+            Node(
+                relativePath = path,
+                depth = path.count { it == '/' },
+                photoCount = below[path] ?: 0,
+                ownPhotoCount = own[path] ?: 0,
+                hasChildren = path in genitori
+            )
+        }
+    }
+
+    /**
+     * The offered folders visible when [expanded] are the open ones.
+     *
+     * A folder shows when every offered ancestor of it is open, so the list
+     * starts as the top level alone and grows only where the user looks.
+     */
+    fun visible(nodes: List<Node>, expanded: Set<String>): List<Node> {
+        val offerti = nodes.map { it.relativePath }.toHashSet()
+
+        return nodes.filter { node ->
+            ancestorsOf(node.relativePath)
+                .dropLast(1)
+                .filter { it in offerti }
+                .all { it in expanded }
+        }
     }
 
     /** True when [path] is inside [root], or is [root] itself. */

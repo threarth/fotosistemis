@@ -9,9 +9,12 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ListView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
+import androidx.core.widget.addTextChangedListener
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
@@ -68,19 +71,14 @@ class DestinationsActivity : AppCompatActivity() {
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
         listView = findViewById(R.id.destinationList)
-        listView.setOnItemClickListener { _, _, position, _ -> editDestination(destinations[position]) }
+        listView.setOnItemClickListener { _, _, position, _ ->
+            editDestination(destinations[position])
+        }
         findViewById<Button>(R.id.addDestinationButton).setOnClickListener { addDestination() }
-        findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
-        findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
-        findViewById<Button>(R.id.cloudBackupButton).setOnClickListener { editCloudBackup() }
         findViewById<Button>(R.id.destinationRootButton).setOnClickListener {
             editDestinationRoot()
         }
-        findViewById<Button>(R.id.reorganizeButton).setOnClickListener {
-            startActivity(Intent(this, ReorganizeActivity::class.java))
-        }
-        findViewById<Button>(R.id.exportButton).setOnClickListener { startExport() }
-        findViewById<Button>(R.id.importButton).setOnClickListener { confirmImport() }
+        findViewById<Button>(R.id.advancedButton).setOnClickListener { showAdvanced() }
 
         refresh()
     }
@@ -93,30 +91,71 @@ class DestinationsActivity : AppCompatActivity() {
         }
     }
 
-    /** Reloads the list and rebuilds its labels. */
+    /** Reloads the categories and says where they all live. */
     private fun refresh() {
         destinations = repository.loadAll().getOrElse {
             showError(it)
             emptyList()
         }
-        listView.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_list_item_1,
-            destinations.map(::describe)
+        findViewById<TextView>(R.id.destinationRootLine).text =
+            getString(R.string.destination_root_line, settings.destinationRoot)
+
+        val uses = inventory.countByDestination().getOrElse { emptyList() }
+            .associateBy { it.destinationId }
+
+        listView.adapter = DestinationAdapter(
+            context = this,
+            destinations = destinations,
+            uses = uses,
+            yearFolderPattern = settings.yearFolderPattern,
+            currentYear = Calendar.getInstance().get(Calendar.YEAR),
+            onYearToggled = ::setYearSubfolder
         )
     }
 
-    /** One line per destination: label, path, and whether years are added. */
-    private fun describe(destination: Destination): String {
-        if (!destination.yearSubfolder) {
-            return "${destination.label}\n${destination.relativePath}/ · " +
-                    getString(R.string.destination_without_year)
-        }
-        val example = destination.yearFolderName(
-            Calendar.getInstance().get(Calendar.YEAR),
-            settings.yearFolderPattern
+    /**
+     * Flips the year switch straight from the row.
+     *
+     * It decides only what new photos will do: folders already created keep
+     * the photos they hold, and moving those is the reorganisation's job.
+     */
+    private fun setYearSubfolder(destination: Destination, yearSubfolder: Boolean) {
+        repository.update(
+            destination.id,
+            destination.label,
+            destination.relativePath,
+            yearSubfolder
+        ).onFailure { showError(it) }.onSuccess { refresh() }
+    }
+
+    /**
+     * The operations that are not everyday work.
+     *
+     * Recognising, reorganising and the backups are each rare and weighty;
+     * beside "add a category" they read as equally ordinary, which they are
+     * not.
+     */
+    private fun showAdvanced() {
+        val voci = arrayOf<CharSequence>(
+            getString(R.string.action_adopt),
+            getString(R.string.action_reorganize),
+            getString(R.string.action_export),
+            getString(R.string.action_import),
+            getString(R.string.action_cloud_backup)
         )
-        return "${destination.label}\n${destination.relativePath}/$example/"
+        AlertDialog.Builder(this)
+            .setTitle(R.string.advanced_title)
+            .setItems(voci) { _, which ->
+                when (which) {
+                    0 -> previewAdoption()
+                    1 -> startActivity(Intent(this, ReorganizeActivity::class.java))
+                    2 -> startExport()
+                    3 -> confirmImport()
+                    else -> editCloudBackup()
+                }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /**
@@ -174,8 +213,12 @@ class DestinationsActivity : AppCompatActivity() {
         val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
         val destinations = repository.loadAll().getOrElse { return showError(it) }
 
-        val roots = settings.effectiveSourceRoots().ifEmpty { ClassificationAdopter.DEFAULT_ROOTS }
-        val proposal = ClassificationAdopter.propose(entries, destinations, decided, roots)
+        // Everywhere, not just the scope: recognising is meant to find the
+        // whole of what is already sorted in one pass, and the same category
+        // living under two roots is one category, not two.
+        val proposal = ClassificationAdopter.propose(
+            entries, destinations, decided, ClassificationAdopter.ANYWHERE
+        )
         if (proposal.total == 0) return toast(getString(R.string.adopt_none))
 
         val breakdown = proposal.byCategory.entries
@@ -240,29 +283,6 @@ class DestinationsActivity : AppCompatActivity() {
             .show()
     }
 
-    /**
-     * Edits the year folder name shared by every destination.
-     *
-     * Changing it does not touch folders already created: photos filed
-     * earlier stay where they are, and only new ones follow the new name.
-     */
-    private fun editPattern() {
-        val form = LayoutInflater.from(this).inflate(R.layout.dialog_tag, null)
-        val field = form.findViewById<EditText>(R.id.tagName)
-        field.setText(settings.yearFolderPattern)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.pattern_title)
-            .setMessage(getString(R.string.destination_pattern_help))
-            .setView(form)
-            .setPositiveButton(R.string.action_save) { _, _ ->
-                settings.yearFolderPattern = field.text.toString()
-                refresh()
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
     private fun addDestination() {
         showEditor(null) { label, path, yearSubfolder ->
             repository.insert(label, path, yearSubfolder)
@@ -291,6 +311,14 @@ class DestinationsActivity : AppCompatActivity() {
         val labelField = form.findViewById<EditText>(R.id.destinationLabel)
         val pathField = form.findViewById<EditText>(R.id.destinationPath)
         val yearCheck = form.findViewById<CheckBox>(R.id.destinationYearSubfolder)
+        val patternGroup = form.findViewById<View>(R.id.patternGroup)
+        val patternField = form.findViewById<EditText>(R.id.destinationPattern)
+        val patternExample = form.findViewById<TextView>(R.id.patternExample)
+
+        patternField.setText(settings.yearFolderPattern)
+        patternField.addTextChangedListener(
+            afterTextChanged = { showPatternExample(labelField, patternField, patternExample) }
+        )
 
         existing?.let {
             labelField.setText(it.label)
@@ -303,10 +331,19 @@ class DestinationsActivity : AppCompatActivity() {
             yearCheck.isChecked = true
         }
 
+        // The name of the year folders means nothing while there are none.
+        patternGroup.isVisible = yearCheck.isChecked
+        showPatternExample(labelField, patternField, patternExample)
+        yearCheck.setOnCheckedChangeListener { _, checked ->
+            patternGroup.isVisible = checked
+            showPatternExample(labelField, patternField, patternExample)
+        }
+
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.destination_new else R.string.destination_edit)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
+                settings.yearFolderPattern = patternField.text.toString()
                 confirmEditor(labelField, pathField, yearCheck, onConfirm)
             }
             .setNegativeButton(R.string.action_cancel, null)
@@ -315,6 +352,27 @@ class DestinationsActivity : AppCompatActivity() {
             builder.setNeutralButton(R.string.action_delete) { _, _ -> confirmDelete(existing) }
         }
         builder.show()
+    }
+
+    /**
+     * Shows what the pattern would produce, and that it is shared.
+     *
+     * The name is one setting for every category, so editing it here changes
+     * them all: saying so under the field is cheaper than a surprise.
+     */
+    private fun showPatternExample(
+        labelField: EditText,
+        patternField: EditText,
+        example: TextView
+    ) {
+        val label = labelField.text.toString().trim().ifEmpty {
+            getString(R.string.destination_label_hint)
+        }
+        val anno = Calendar.getInstance().get(Calendar.YEAR)
+        val cartella = Destination(0, label, label, yearSubfolder = true, sortOrder = 0)
+            .yearFolderName(anno, patternField.text.toString())
+
+        example.text = getString(R.string.pattern_example, label, cartella)
     }
 
     /** Validates the form before handing values back. */
@@ -333,18 +391,85 @@ class DestinationsActivity : AppCompatActivity() {
         onConfirm(label, path, yearCheck.isChecked)
     }
 
-    /** Deleting a shortcut is not deleting photos, and says so. */
+    /**
+     * Deleting a shortcut is not deleting photos, and says so.
+     *
+     * A category holding photos is offered a home for them first: deleting
+     * it outright would leave every one of them filed under something that
+     * no longer exists, which is worse than either keeping or merging.
+     */
     private fun confirmDelete(destination: Destination) {
+        val filed = stateRepository.countFor(destination.id).getOrElse {
+            return showError(it)
+        }
+        if (filed > 0) return offerMerge(destination, filed)
+
         AlertDialog.Builder(this)
             .setTitle(R.string.destination_delete_title)
             .setMessage(getString(R.string.destination_delete_message, destination.label))
-            .setPositiveButton(R.string.action_delete) { _, _ ->
-                repository.delete(destination.id)
-                    .onFailure { showError(it) }
-                    .onSuccess { refresh() }
+            .setPositiveButton(R.string.action_delete) { _, _ -> deleteDestination(destination) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Offers the other categories as a home for the photos of this one.
+     *
+     * The case this exists for: a phone transfer splitting one category in
+     * two, so the archive holds Famiglia twice and neither is wrong.
+     */
+    private fun offerMerge(destination: Destination, filed: Int) {
+        val altre = destinations.filter { it.id != destination.id }
+        if (altre.isEmpty()) {
+            return toast(getString(R.string.merge_nowhere, filed))
+        }
+        val voci = altre.map { "${it.label}  —  ${it.relativePath}/" }
+            .toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.merge_title, destination.label))
+            .setMessage(getString(R.string.merge_message, filed, destination.label))
+            .setItems(voci) { _, which -> merge(destination, altre[which], filed) }
+            .setNeutralButton(R.string.merge_delete_anyway) { _, _ ->
+                confirmDeleteAndForget(destination, filed)
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
+    }
+
+    /** Moves the photos, then removes the category they came from. */
+    private fun merge(from: Destination, into: Destination, filed: Int) {
+        stateRepository.reassign(from.id, into.id)
+            .onFailure { return showError(it) }
+
+        repository.delete(from.id)
+            .onFailure { showError(it) }
+            .onSuccess {
+                toast(getString(R.string.merge_done, filed, into.label))
+                refresh()
+            }
+    }
+
+    /** Deleting a category with photos in it is spelled out before it happens. */
+    private fun confirmDeleteAndForget(destination: Destination, filed: Int) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.destination_delete_title)
+            .setMessage(getString(R.string.destination_forget_message, filed, destination.label))
+            .setPositiveButton(R.string.action_delete) { _, _ ->
+                stateRepository.forgetDestination(destination.id)
+                    .onFailure { return@setPositiveButton showError(it) }
+
+                deleteDestination(destination)
+                toast(getString(R.string.destination_forget_done, filed))
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteDestination(destination: Destination) {
+        repository.delete(destination.id)
+            .onFailure { showError(it) }
+            .onSuccess { refresh() }
     }
 
     /**

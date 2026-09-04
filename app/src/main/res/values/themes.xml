@@ -1,8 +1,25 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+
+    <!--
+        Blue rather than the template's purple, on a pale blue ground.
+        Only the roles are set here: Material derives the rest, so a widget
+        added later inherits the scheme instead of drifting from it.
+    -->
     <style name="Base.Theme.Fotosistemis" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/brand_blue</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/brand_blue_light</item>
+        <item name="colorOnPrimaryContainer">@color/ink</item>
+        <item name="colorSecondary">@color/brand_blue_dark</item>
+        <item name="colorOnSecondary">@color/white</item>
+
+        <item name="android:colorBackground">@color/surface_tint</item>
+        <item name="colorSurface">@color/white</item>
+        <item name="colorOnBackground">@color/ink</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorOnSurfaceVariant">@color/ink_muted</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink_muted</item>
     </style>
 
     <style name="Theme.Fotosistemis" parent="Base.Theme.Fotosistemis" />

@@ -122,4 +122,41 @@ class FolderTreeTest {
 
         assertEquals(nodes.sorted(), nodes)
     }
+
+    @Test
+    fun `a node knows whether anything hangs from it`() {
+        val nodes = FolderTree.candidates(
+            listOf(
+                folder("Pictures/storage-0/Vetralla", 72),
+                folder("Pictures/storage-0/Marina", 3)
+            )
+        )
+
+        assertTrue(candidate(nodes, "Pictures")?.hasChildren == true)
+        assertTrue(candidate(nodes, "Pictures/storage-0")?.hasChildren == true)
+        assertTrue(candidate(nodes, "Pictures/storage-0/Vetralla")?.hasChildren == false)
+    }
+
+    @Test
+    fun `closed folders hide what is under them`() {
+        val nodes = FolderTree.candidates(
+            listOf(
+                folder("Pictures/storage-0/Vetralla", 72),
+                folder("Pictures/storage-0/Marina", 3),
+                folder("DCIM/Camera", 5032)
+            )
+        )
+
+        val chiuso = FolderTree.visible(nodes, emptySet()).map { it.relativePath }
+        assertEquals("Solo il primo livello", listOf("DCIM", "Pictures"), chiuso)
+
+        val aperto = FolderTree.visible(nodes, setOf("Pictures")).map { it.relativePath }
+        assertEquals(
+            listOf("DCIM", "Pictures", "Pictures/storage-0"),
+            aperto
+        )
+
+        val tutto = FolderTree.visible(nodes, setOf("Pictures", "Pictures/storage-0"))
+        assertEquals(5, tutto.size)
+    }
 }

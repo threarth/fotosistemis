@@ -4,16 +4,16 @@
     <!-- Every user-facing string lives here, never inline in code or layout. -->
 
     <!-- Filters -->
-    <string name="action_pick_range">Intervallo date</string>
-    <string name="action_reload">Ricarica</string>
-    <string name="folder_all">Tutte le cartelle</string>
+    <string name="action_pick_range">Date</string>
+    <string name="action_reload">Refresh</string>
+    <string name="folder_all">Folder</string>
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="folder_removable">SD: %1$s</string>
     <string name="pending_title">Modifiche non applicate</string>
     <string name="pending_message">%1$d spostamenti o eliminazioni non applicati.\n\nApplica: le foto si spostano davvero.\nScarta: quelle foto tornano non viste. Le foto mantenute restano tali in ogni caso.</string>
     <string name="pending_apply">Applica</string>
     <string name="pending_drop_all">Scarta</string>
-    <string name="period_any">Qualsiasi periodo (%1$d)</string>
+    <string name="period_any">Period: all (%1$d)</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>
     <string name="month_mark_done">\u2713</string>
     <string name="month_mark_partial">\u25D0</string>
@@ -23,9 +23,9 @@
     <string name="flash_trash">Da eliminare</string>
     <string name="period_any_plain">qualsiasi periodo</string>
     <string name="period_custom_range">Intervallo scelto</string>
-    <string name="scope_all">Tutte</string>
-    <string name="scope_unseen">Solo non viste</string>
-    <string name="scope_uncategorized">Non categorizzate</string>
+    <string name="scope_all">Filter: all</string>
+    <string name="scope_unseen">Not viewed</string>
+    <string name="scope_uncategorized">Not organised</string>
 
     <!-- Decisions -->
     <string name="action_undo">Annulla</string>
@@ -43,7 +43,7 @@
     <string name="restore_none">Nessuna foto ha un percorso originale noto.</string>
     <string name="restore_confirm">Ripristinare %1$d elementi nella cartella di origine?</string>
     <string name="restore_done">%1$d foto ripristinate.</string>
-    <string name="action_destinations">Cartelle…</string>
+    <string name="action_destinations">Output…</string>
 
     <!-- Generic -->
     <string name="action_save">Salva</string>
@@ -51,14 +51,16 @@
     <string name="action_delete">Elimina</string>
 
     <!-- Destinations -->
-    <string name="destinations_title">Cartelle di destinazione</string>
-    <string name="destinations_hint">Tocca una cartella per modificarla. Il percorso e\' libero: non deve stare sotto la cartella di origine.</string>
-    <string name="destination_new">Nuova cartella</string>
-    <string name="destination_edit">Modifica cartella</string>
+    <string name="destinations_title">Output</string>
+    <string name="destinations_hint">Le categorie definite. Tocca una riga per modificarla o eliminarla; eliminarla toglie solo la scorciatoia, le foto restano dove sono.</string>
+    <string name="destination_new">Nuova categoria</string>
+    <string name="destination_edit">Modifica categoria</string>
     <string name="destination_label_hint">Etichetta, es. Famiglia</string>
     <string name="destination_path_hint">Percorso, es. Pictures/Famiglia</string>
     <string name="destination_year_subfolder">Crea sottocartella per anno</string>
     <string name="pattern_title">Nome sottocartella anno</string>
+    <string name="pattern_example">Esempio: %1$s/%2$s/ — vale per tutte le categorie</string>
+    <string name="roots_hint_tree">Tocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
     <string name="action_adopt">Riconosci foto gia\' ordinate</string>
     <string name="adopt_title">Foto gia\' ordinate</string>
     <string name="adopt_review">Guarda le foto</string>
@@ -67,9 +69,9 @@
     <string name="preview_pause">Ferma</string>
     <string name="preview_counter">%1$d / %2$d · %3$s</string>
     <string name="preview_speed">Una foto ogni %1$d ms · tocca la foto per avanzare a mano</string>
-    <string name="adopt_message">Trovate %1$d foto in cartelle del tipo categoria/anno che non risultano ancora archiviate.\n\n%2$s\n%3$s\nNessun file viene spostato: le cartelle esistono gia\' sul disco, viene registrato nel database dove si trovano.</string>
+    <string name="adopt_message">Trovate %1$d foto in cartelle del tipo categoria/anno, cercate su tutto il dispositivo.\n\n%2$s\n%3$s\nNessun file viene spostato: le cartelle esistono gia\' sul disco, viene registrato nel database dove si trovano.\n\nUna stessa categoria trovata sotto piu\' cartelle resta una sola.</string>
     <string name="adopt_new_categories">\nVerranno create le categorie: %1$s\n</string>
-    <string name="adopt_none">Nessuna foto da riconoscere. Vengono considerate solo cartelle del tipo Pictures/Categoria/2026. Apri prima la schermata principale, cosi\' l\'inventario viene aggiornato.</string>
+    <string name="adopt_none">Nessuna foto da riconoscere. Vengono considerate solo le cartelle del tipo Categoria/2026, ovunque si trovino. Apri prima la schermata principale, cosi\' l\'inventario viene aggiornato.</string>
     <string name="adopt_done">%1$d foto segnate come gia\' archiviate.</string>
     <string name="adopt_confirm">Registra</string>
     <string name="action_export">Esporta dati</string>
@@ -113,13 +115,29 @@
     <string name="cloud_backup_on">Backup attivo: il database viene incluso.</string>
     <string name="cloud_backup_off">Backup escluso: Android non ricevera\' nulla da questa app.</string>
     <string name="roots_title">Cartelle di origine</string>
-    <string name="action_source">Origine</string>
-    <string name="roots_entry">%1$s%2$s  (%3$d)</string>
+    <string name="destination_year_short">anno</string>
+    <string name="folder_chosen">Folder: %1$s</string>
+    <string name="folder_title">Folder</string>
+    <string name="destination_empty">nessuna foto</string>
+    <string name="destination_count">%1$d foto</string>
+    <string name="destination_count_elsewhere">%1$d foto, di cui %2$d ancora in altre cartelle — da riorganizzare</string>
+    <string name="destination_forget_message">%1$d foto sono archiviate in %2$s.\n\nEliminando la categoria quelle foto tornano NON CLASSIFICATE e ricompariranno fra quelle da rivedere. I file non si spostano e non si cancellano: restano esattamente dove sono.</string>
+    <string name="destination_forget_done">%1$d foto tornate da classificare.</string>
+    <string name="merge_title">Unisci %1$s</string>
+    <string name="merge_message">%1$d foto sono archiviate in %2$s. Scegli dove spostarle: restano dove sono sul disco, cambia solo la categoria a cui risultano.\n\nEliminandola senza spostarle, quelle foto resterebbero archiviate in una categoria che non esiste piu\'.</string>
+    <string name="merge_delete_anyway">Elimina comunque</string>
+    <string name="merge_done">%1$d foto spostate in %2$s.</string>
+    <string name="merge_nowhere">%1$d foto sono archiviate qui e non c\'e\' un\'altra categoria in cui spostarle. Creane una prima.</string>
+    <string name="action_advanced">Avanzate…</string>
+    <string name="advanced_title">Avanzate</string>
+    <string name="destination_root_line">Ogni categoria vive dentro %1$s/. Le nuove nascono li\'.</string>
+    <string name="action_source">Source</string>
+    <string name="roots_entry">%1$s  (%2$d)</string>
     <string name="roots_none">Nessuna cartella con foto. Attendi la fine della riconciliazione.</string>
     <string name="folder_subtree">%1$s — tutte le sottocartelle (%2$d)</string>
     <string name="roots_whole_device">Tutte le foto del dispositivo</string>
     <string name="destination_root_title">Cartella di destinazione</string>
-    <string name="action_destination_root">Cartella di destinazione</string>
+    <string name="action_destination_root">Cartella madre</string>
     <string name="destination_root_explained">La cartella sotto cui vivono tutte le categorie. Precompila il percorso delle nuove destinazioni.</string>
     <string name="destination_root_rebase_title">Riporto le categorie qui sotto?</string>
     <string name="destination_root_rebase">%1$d categorie non stanno sotto %2$s:\n\n%3$s\nPosso aggiornarle. I file non si spostano adesso: lo fa la riorganizzazione, con la sua anteprima.</string>

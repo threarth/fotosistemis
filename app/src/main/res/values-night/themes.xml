@@ -1,7 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+
+    <!-- The same blue, on a deep ground: light text on dark needs a lighter
+         blue than dark text on light, or it closes up. -->
     <style name="Base.Theme.Fotosistemis" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
+        <item name="colorPrimary">@color/brand_blue_light</item>
+        <item name="colorOnPrimary">@color/ink</item>
+        <item name="colorPrimaryContainer">@color/brand_blue_dark</item>
+        <item name="colorOnPrimaryContainer">@color/white</item>
+
+        <item name="android:colorBackground">@color/surface_tint_dark</item>
+        <item name="colorOnBackground">@color/white</item>
+        <item name="colorOnSurface">@color/white</item>
     </style>
 </resources>

@@ -113,6 +113,41 @@ class PhotoInventory(private val database: Database) {
         }
     }
 
+    /** How a category is used, and how much of it sits somewhere else. */
+    data class DestinationUse(
+        val destinationId: Long,
+        val photoCount: Int,
+
+        /** Filed here, but living outside the folder this category names. */
+        val elsewhereCount: Int
+    )
+
+    /**
+     * Photos per category, and how many are not in its folder.
+     *
+     * Merging two categories is a decision about meaning, not about disk:
+     * the photos stay where they were until a reorganisation moves them.
+     * Counting what is out of place is what keeps that from being invisible,
+     * because a category can be whole in the database and scattered on disk.
+     */
+    fun countByDestination(): Result<List<DestinationUse>> = runCatching {
+        database.query(
+            "SELECT s.${Schema.COLUMN_DESTINATION_ID} AS did, COUNT(*) AS total, " +
+                    "SUM(CASE WHEN p.${Schema.COLUMN_RELATIVE_PATH} LIKE " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%' THEN 0 ELSE 1 END) AS elsewhere " +
+                    "FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_PHOTO_ID} " +
+                    "JOIN ${Schema.TABLE_DESTINATIONS} d ON d.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_DESTINATION_ID} " +
+                    "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "GROUP BY s.${Schema.COLUMN_DESTINATION_ID}"
+        ).mapNotNull { row ->
+            val id = row.getLong("did") ?: return@mapNotNull null
+            DestinationUse(id, row.getInt("total") ?: 0, row.getInt("elsewhere") ?: 0)
+        }
+    }
+
     /**
      * Every filed photo, as the reorganiser needs it.
      *

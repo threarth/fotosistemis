@@ -3,6 +3,17 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
+    <!-- Bootstrap's blue, on a pale tint of itself. Chosen for contrast:
+         white on the blue and near-black on the background both clear the
+         accessibility threshold comfortably. -->
+    <color name="brand_blue">#0D6EFD</color>
+    <color name="brand_blue_dark">#0A58CA</color>
+    <color name="brand_blue_light">#CFE2FF</color>
+    <color name="surface_tint">#EAF2FF</color>
+    <color name="surface_tint_dark">#0B1B33</color>
+    <color name="ink">#12233B</color>
+    <color name="ink_muted">#41556F</color>
+
     <!-- Review progress of a month. Always paired with a symbol in the label:
          colour must never be the only carrier of meaning. -->
     <color name="month_done">#2E9E4F</color>

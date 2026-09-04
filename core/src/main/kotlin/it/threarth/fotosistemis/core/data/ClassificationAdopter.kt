@@ -26,11 +26,16 @@ object ClassificationAdopter {
     private val YEAR_IN_NAME = Regex("""(?:^|[^0-9])((?:19|20)\d{2})(?:[^0-9]|$)""")
 
     /**
-     * Folders searched for that shape when the user has named none.
+     * Search everywhere: no anchor, just the shape.
      *
-     * A root may be several segments deep, such as Pictures/storage-1: what
-     * matters is that categories sit directly inside it.
+     * Recognising is meant to find the whole of what is already sorted, in
+     * one pass. Anchoring it somewhere would leave the rest of the archive
+     * unrecognised, and running it again per root would invent a category
+     * for every root instead of one per name.
      */
+    val ANYWHERE = emptyList<String>()
+
+    /** Folders searched for that shape when a root is asked for. */
     val DEFAULT_ROOTS = listOf("Pictures", "DCIM")
 
     /** One photo as the inventory holds it. */
@@ -81,6 +86,11 @@ object ClassificationAdopter {
      * the app knows nothing of them, so insisting on a destination that
      * already exists would find nothing.
      *
+     * A category found under two different roots is one category. A phone
+     * transfer can split an archive in two — Pictures/storage-0/Famiglia and
+     * Pictures/storage-1/Famiglia — and creating a second Famiglia would make
+     * the split permanent instead of undoing it.
+     *
      * A decision already recorded is never overwritten, whatever the folder
      * suggests.
      */
@@ -88,17 +98,22 @@ object ClassificationAdopter {
         inventory: List<InventoryEntry>,
         destinations: List<Destination>,
         alreadyDecided: Set<Long>,
-        roots: List<String> = DEFAULT_ROOTS
+        roots: List<String> = ANYWHERE
     ): Proposal {
         val knownByPath = destinations.associateBy { it.relativePath.trim('/').lowercase() }
+        val knownByLabel = destinations.associateBy { it.label.trim().lowercase() }
         val candidates = ArrayList<Candidate>()
+        // Keyed by label: the same category under two roots is one category.
         val discovered = LinkedHashMap<String, ProposedCategory>()
 
         for (entry in inventory) {
             if (entry.photoId in alreadyDecided) continue
             val category = categoryOf(entry.relativePath, roots) ?: continue
 
+            // The path is the surer match; the name catches the same
+            // category living somewhere else.
             val known = knownByPath[category.path.lowercase()]
+                ?: knownByLabel[category.label.lowercase()]
             candidates.add(
                 Candidate(
                     entry.photoId,
@@ -109,10 +124,13 @@ object ClassificationAdopter {
                 )
             )
             if (known == null) {
-                val existing = discovered[category.path]
-                discovered[category.path] = ProposedCategory(
+                val chiave = category.label.lowercase()
+                val existing = discovered[chiave]
+                discovered[chiave] = ProposedCategory(
                     category.label,
-                    category.path,
+                    // The first folder seen decides where the new category
+                    // lives; moving it afterwards is the reorganiser's job.
+                    existing?.relativePath ?: category.path,
                     (existing?.photoCount ?: 0) + 1
                 )
             }
@@ -135,6 +153,7 @@ object ClassificationAdopter {
      */
     private fun categoryOf(relativePath: String, roots: List<String>): Category? {
         val path = relativePath.trim('/')
+        if (roots.isEmpty()) return categoryAnywhere(path)
 
         for (root in roots) {
             val anchor = root.trim('/')
@@ -152,6 +171,28 @@ object ClassificationAdopter {
             return Category(label = category, path = "$anchor/$category")
         }
         return null
+    }
+
+    /**
+     * Reads the last two segments as category and year, wherever they sit.
+     *
+     * The shape carries the whole guarantee here: a folder holding year
+     * folders, whose own name is not a year. Without the year requirement
+     * every pair of nested folders would read as a category; with it, a
+     * Screenshots or a Download folder cannot pass.
+     */
+    private fun categoryAnywhere(path: String): Category? {
+        val segments = path.split('/').filter { it.isNotEmpty() }
+        if (segments.size < 2) return null
+
+        val category = segments[segments.size - 2]
+        if (!YEAR_IN_NAME.containsMatchIn(segments.last())) return null
+        if (YEAR_IN_NAME.containsMatchIn(category)) return null
+
+        return Category(
+            label = category,
+            path = segments.dropLast(1).joinToString("/")
+        )
     }
 
     /** What is left of [path] under [root], or null when it is not under it. */

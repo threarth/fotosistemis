@@ -27,4 +27,33 @@
         android:layout_height="wrap_content"
         android:text="@string/destination_year_subfolder" />
 
+    <!-- Only meaningful while the year folders exist, so it appears with
+         them. Shared by every category, which the label has to say. -->
+    <LinearLayout
+        android:id="@+id/patternGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="32dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/destination_pattern_help"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/destinationPattern"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/pattern_title"
+            android:inputType="text" />
+
+        <TextView
+            android:id="@+id/patternExample"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp" />
+    </LinearLayout>
+
 </LinearLayout>

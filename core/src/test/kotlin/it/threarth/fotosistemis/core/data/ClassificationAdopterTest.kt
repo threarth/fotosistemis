@@ -182,4 +182,84 @@ class ClassificationAdopterTest {
 
         assertEquals(2, proposal.total)
     }
+
+    @Test
+    fun `the same category under two roots is one category`() {
+        // Phone Clone splits an archive across storage-0 and storage-1:
+        // creating two Famiglia would make the split permanent.
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/storage-0/Famiglia/2020-famiglia/"),
+                entry(11, "Pictures/storage-1/Famiglia/2026-famiglia/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = listOf("Pictures/storage-0", "Pictures/storage-1")
+        )
+
+        assertEquals(2, proposal.total)
+        assertEquals(1, proposal.proposedCategories.size)
+        assertEquals("Famiglia", proposal.proposedCategories.single().label)
+        assertEquals(2, proposal.proposedCategories.single().photoCount)
+    }
+
+    @Test
+    fun `a category already known by name is reused, wherever it lives`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(10, "Pictures/storage-1/Famiglia/2026-famiglia/")),
+            listOf(famiglia),
+            alreadyDecided = emptySet(),
+            roots = listOf("Pictures/storage-1")
+        )
+
+        assertEquals(
+            "Riagganciata alla Famiglia che esiste gia'",
+            1L,
+            proposal.candidates.single().destinationId
+        )
+        assertTrue("Niente da creare", proposal.proposedCategories.isEmpty())
+    }
+
+    @Test
+    fun `searching everywhere finds the whole of what is sorted`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/storage-0/Famiglia/2020-famiglia/"),
+                entry(11, "Pictures/storage-1/Famiglia/2026-famiglia/"),
+                entry(12, "Pictures/Casa/2026-casa/"),
+                entry(13, "DCIM/Lavoro/2025-lavoro/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = ClassificationAdopter.ANYWHERE
+        )
+
+        assertEquals(4, proposal.total)
+        assertEquals(
+            "Una Famiglia sola, per quanti rami la contengano",
+            setOf("Famiglia", "Casa", "Lavoro"),
+            proposal.proposedCategories.map { it.label }.toSet()
+        )
+        assertEquals(2, proposal.byCategory["Famiglia"])
+    }
+
+    @Test
+    fun `searching everywhere still needs the year folder`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/Screenshots/"),
+                entry(11, "Download/Foto classe elementari/"),
+                entry(12, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/"),
+                entry(13, "Pictures/storage-0/Festa Tommy 2021/Da Andrea/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = ClassificationAdopter.ANYWHERE
+        )
+
+        assertTrue(
+            "Nessuna di queste ha la forma categoria/anno",
+            proposal.candidates.isEmpty()
+        )
+    }
 }

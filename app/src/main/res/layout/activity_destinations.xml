@@ -6,17 +6,31 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <TextView
+    <!-- The parent folder first: every category is created inside it, so it
+         is the thing to settle before adding any. -->
+    <Button
+        android:id="@+id/destinationRootButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/destinations_title"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        android:text="@string/action_destination_root" />
+
+    <TextView
+        android:id="@+id/destinationRootLine"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/addDestinationButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/destination_new" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
+        android:layout_marginTop="8dp"
         android:text="@string/destinations_hint"
         android:textSize="12sp" />
 
@@ -26,59 +40,9 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/exportButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_export" />
-
-        <Button
-            android:id="@+id/importButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_import" />
-    </LinearLayout>
-
     <Button
-        android:id="@+id/cloudBackupButton"
+        android:id="@+id/advancedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/action_cloud_backup" />
-
-    <Button
-        android:id="@+id/destinationRootButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/action_destination_root" />
-
-    <Button
-        android:id="@+id/reorganizeButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/action_reorganize" />
-
-    <Button
-        android:id="@+id/adoptButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/action_adopt" />
-
-    <Button
-        android:id="@+id/patternButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/pattern_title" />
-
-    <Button
-        android:id="@+id/addDestinationButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/destination_new" />
+        android:text="@string/action_advanced" />
 </LinearLayout>

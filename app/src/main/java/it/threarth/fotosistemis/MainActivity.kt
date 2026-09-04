@@ -18,6 +18,8 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.ListView
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -115,7 +117,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var photoInfo: TextView
     private lateinit var photoTags: TextView
     private lateinit var destinationActions: LinearLayout
-    private lateinit var folderSpinner: Spinner
+    private lateinit var folderButton: Button
     private lateinit var periodSpinner: Spinner
     private lateinit var scopeSpinner: Spinner
     private lateinit var mediaStage: View
@@ -131,29 +133,36 @@ class MainActivity : AppCompatActivity() {
     private val offeredPeriods = ArrayList<PhotoFilter.Period>()
 
     /** Folders offered by the spinner; null at index 0 means "every folder". */
-    private val offeredFolders = ArrayList<FolderSummary?>()
+    /**
+     * The branch being worked on, or null for everything in scope.
+     *
+     * One field where there used to be two: choosing a folder from a tree
+     * always means that folder and what hangs from it, so "just this one"
+     * and "this one and below" stopped being different questions.
+     */
+    private var preferredSubtree: String? = null
 
     /**
-     * For each spinner entry, the branch it stands for, or null.
+     * True once the scope has been put to the user in this session.
      *
-     * A branch entry means "this folder and everything under it", which the
-     * platform cannot answer directly: its folders are the leaves that hold
-     * photos, never the trunk they hang from.
+     * Asked before anything is loaded: what is in scope decides what the
+     * screen means, and loading first would show a set the user never chose.
      */
-    private val offeredSubtrees = ArrayList<String?>()
+    private var sourceAsked = false
 
-    /** The branch currently chosen, when the choice was a branch. */
-    private var preferredSubtree: String? = null
+    /**
+     * The scope dialog while it is up.
+     *
+     * Folders arrive twice — once from our own inventory, once after the
+     * platform has been reconciled — and the second arrival must not start
+     * loading photos behind a dialog whose whole purpose is to decide which
+     * photos those are.
+     */
+    private var sourcePicker: AlertDialog? = null
 
     /** Every folder the platform reported, before any narrowing. */
     private var allFolders: List<FolderSummary> = emptyList()
 
-    /**
-     * Folder the user last chose. Kept separately from the spinner so that
-     * rebuilding the list after a batch does not silently change what is
-     * being reviewed.
-     */
-    private var preferredFolder: FolderSummary? = null
     private var destinations: List<Destination> = emptyList()
     /**
      * Period the user last chose. Kept apart from the spinner because the
@@ -300,7 +309,7 @@ class MainActivity : AppCompatActivity() {
 
         // Emptied while we were looking at it: what is on screen no longer
         // exists, so the list has to be rebuilt.
-        if (preferredFolder?.relativePath == ReviewSession.DELETION_STAGING_PATH) refreshFolders()
+        if (preferredSubtree == stagingPath()) refreshFolders()
     }
 
     private fun bindViews() {
@@ -309,7 +318,8 @@ class MainActivity : AppCompatActivity() {
         photoInfo = findViewById(R.id.photoInfo)
         photoTags = findViewById(R.id.photoTags)
         destinationActions = findViewById(R.id.destinationActions)
-        folderSpinner = findViewById(R.id.folderSpinner)
+        folderButton = findViewById(R.id.folderButton)
+        folderButton.setOnClickListener { editWorkingFolder() }
         findViewById<Button>(R.id.sourceButton).setOnClickListener { editSourceRoots() }
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
@@ -575,7 +585,7 @@ class MainActivity : AppCompatActivity() {
      * for deletion, which is a contradiction.
      */
     private fun canDecide(): Boolean = !busy && session.current() != null &&
-            preferredFolder?.relativePath != ReviewSession.DELETION_STAGING_PATH
+            preferredSubtree != stagingPath()
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
     private fun ensureReadPermission() {
@@ -658,44 +668,51 @@ class MainActivity : AppCompatActivity() {
      * the platform reports only leaves, and an archive is chosen by its
      * trunk. Ticking one takes it and everything underneath.
      */
-    private fun editSourceRoots() {
+    private fun editSourceRoots(atStartup: Boolean = false) {
         val candidates = FolderTree.candidates(allFolders)
-        if (candidates.isEmpty()) return toast(getString(R.string.roots_none))
-
-        val chosen = settings.sourceRoots
-        val checked = BooleanArray(candidates.size + 1)
-        checked[0] = settings.wholeDeviceAsSource
-        candidates.forEachIndexed { index, node ->
-            checked[index + 1] = chosen.any { it.equals(node.relativePath, ignoreCase = true) }
+        if (candidates.isEmpty()) {
+            toast(getString(R.string.roots_none))
+            if (atStartup) reload()
+            return
         }
-        val labels = (listOf(getString(R.string.roots_whole_device)) +
-                candidates.map(::describeCandidate)).toTypedArray<CharSequence>()
 
-        AlertDialog.Builder(this)
+        val form = LayoutInflater.from(this).inflate(R.layout.dialog_folder_tree, null)
+        val wholeDevice = form.findViewById<CheckBox>(R.id.wholeDeviceCheck)
+        val list = form.findViewById<ListView>(R.id.folderTree)
+
+        val chosen = settings.sourceRoots.toMutableSet()
+        wholeDevice.isChecked = settings.wholeDeviceAsSource
+        val adapter = FolderTreeAdapter(this, candidates, chosen)
+        list.adapter = adapter
+        adapter.revealSelection()
+
+        var salvato = false
+        val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.roots_title)
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
-            .setPositiveButton(R.string.action_save) { _, _ -> saveSourceRoots(candidates, checked) }
+            .setView(form)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                salvato = true
+                saveSourceRoots(chosen, wholeDevice.isChecked)
+            }
             .setNegativeButton(R.string.action_cancel, null)
-            .show()
+            .create()
+
+        // Backing out keeps the scope from last time rather than leaving an
+        // empty screen; saving reloads through the folders it refreshes.
+        dialog.setOnDismissListener {
+            sourcePicker = null
+            if (!salvato && atStartup) reload()
+        }
+        sourcePicker = dialog
+        dialog.show()
     }
 
-    /** Indented by depth, so the shape of the tree is visible in a flat list. */
-    private fun describeCandidate(node: FolderTree.Node): String {
-        val indent = "    ".repeat(node.depth)
-        val name = node.relativePath.substringAfterLast('/')
-
-        return getString(R.string.roots_entry, indent, name, node.photoCount)
-    }
-
-    /** Stores the ticked folders and reloads what is now in scope. */
-    private fun saveSourceRoots(candidates: List<FolderTree.Node>, checked: BooleanArray) {
-        settings.wholeDeviceAsSource = checked[0]
-        settings.sourceRoots = candidates
-            .filterIndexed { index, _ -> checked[index + 1] }
-            .map { it.relativePath }
+    /** Stores the chosen folders and reloads what is now in scope. */
+    private fun saveSourceRoots(chosen: Set<String>, wholeDevice: Boolean) {
+        settings.wholeDeviceAsSource = wholeDevice
+        settings.sourceRoots = chosen.sorted()
 
         preferredSubtree = null
-        preferredFolder = null
         refreshFolders()
     }
 
@@ -719,62 +736,59 @@ class MainActivity : AppCompatActivity() {
             toast(getString(R.string.folder_outside_roots))
         }
 
-        offeredFolders.clear()
-        offeredSubtrees.clear()
-        val labels = ArrayList<String>()
-        offeredFolders.add(null)
-        offeredSubtrees.add(null)
-        labels.add(getString(R.string.folder_all))
+        showWorkingFolder()
 
-        // One entry per chosen root, so a whole archive can be taken at once
-        // instead of eighteen event folders one after another.
-        for (root in settings.effectiveSourceRoots()) {
-            val total = folders.filter { FolderTree.isWithin(it.relativePath, root) }
-                .sumOf { it.photoCount }
-            if (total == 0) continue
-            offeredFolders.add(null)
-            offeredSubtrees.add(root)
-            labels.add(getString(R.string.folder_subtree, root, total))
+        // First folders of the session: ask what is in scope, and load only
+        // once there is an answer.
+        if (!sourceAsked) {
+            sourceAsked = true
+            editSourceRoots(atStartup = true)
+            return
         }
+        if (sourcePicker != null) return
 
-        for (folder in offered) {
-            offeredFolders.add(folder)
-            offeredSubtrees.add(null)
-            // Photos on a memory card are marked: they stay on their own
-            // volume when filed, because MediaStore cannot move a file
-            // across volumes without copying every byte.
-            val name = if (folder.isRemovable) {
-                getString(R.string.folder_removable, folder.relativePath)
-            } else {
-                folder.relativePath
-            }
-            labels.add(getString(R.string.folder_entry, name, folder.photoCount))
-        }
-
-        if (preferredFolder == null) {
-            preferredFolder = folders.firstOrNull {
-                !it.isRemovable && it.relativePath == DEFAULT_SOURCE_FOLDER
-            }
-        }
-
-        folderSpinner.adapter = simpleAdapter(labels)
-        val restoredIndex = offeredFolders.indexOfFirst { it?.sameAs(preferredFolder) == true }
-        if (restoredIndex >= 0) folderSpinner.setSelection(restoredIndex)
-        folderSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                val chosen = offeredFolders.getOrNull(pos)
-                val branch = offeredSubtrees.getOrNull(pos)
-                if (branch == preferredSubtree && chosen?.sameAs(preferredFolder) == true) return
-                if (branch == preferredSubtree && chosen == null && preferredFolder == null) return
-                changeFilter {
-                    preferredFolder = chosen
-                    preferredSubtree = branch
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
         reload()
+    }
+
+    /** The button says what is being worked on, or that it is everything. */
+    private fun showWorkingFolder() {
+        val branch = preferredSubtree
+        folderButton.text = if (branch == null) getString(R.string.folder_all)
+        else getString(R.string.folder_chosen, branch.substringAfterLast('/'))
+    }
+
+    /**
+     * Chooses the branch to work on, from the same tree as the scope.
+     *
+     * Only what is in scope is offered: the source says where the archive
+     * is, and there is no reason to work outside it without saying so first.
+     */
+    private fun editWorkingFolder() {
+        val inScope = withinSourceRoots(allFolders)
+        val candidates = FolderTree.candidates(inScope)
+        if (candidates.isEmpty()) return toast(getString(R.string.roots_none))
+
+        val form = LayoutInflater.from(this).inflate(R.layout.dialog_folder_tree, null)
+        val everything = form.findViewById<CheckBox>(R.id.wholeDeviceCheck)
+        everything.setText(R.string.folder_all)
+        everything.isChecked = preferredSubtree == null
+
+        val chosen = LinkedHashSet<String>()
+        preferredSubtree?.let(chosen::add)
+        val adapter = FolderTreeAdapter(this, candidates, chosen, singleChoice = true)
+        form.findViewById<ListView>(R.id.folderTree).adapter = adapter
+        adapter.revealSelection()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.folder_title)
+            .setView(form)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                val scelta = if (everything.isChecked) null else chosen.firstOrNull()
+                if (scelta != preferredSubtree) changeFilter { preferredSubtree = scelta }
+                showWorkingFolder()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /**
@@ -928,12 +942,8 @@ class MainActivity : AppCompatActivity() {
         updateButtonState()
     }
 
-    /**
-     * Folder currently selected, or null for every folder. Matching is exact,
-     * so a folder never includes its own subfolders.
-     */
-    private fun currentFolder(): FolderSummary? =
-        offeredFolders.getOrNull(folderSpinner.selectedItemPosition)
+    /** The deletion folder, without its trailing separator. */
+    private fun stagingPath(): String = ReviewSession.DELETION_STAGING_PATH.trim('/')
 
     /** Builds the filter currently selected in the two spinners. */
     private fun currentFilter(): PhotoFilter {
@@ -998,11 +1008,12 @@ class MainActivity : AppCompatActivity() {
         setBusy(true)
         statusText.setText(R.string.status_loading)
         val filter = currentFilter()
-        val folder = currentFolder()
         val generation = ++loadGeneration
 
         thread {
-            val photos = photoSource.listPhotos(folder)
+            // Everything, then narrowed here: a branch is not something the
+            // platform can be asked for, since it only knows leaves.
+            val photos = photoSource.listPhotos(null)
                 .mapCatching { inventory.reconcile(it).getOrThrow().first }
             val states = stateRepository.loadAll()
             val tags = tagRepository.loadAssignments()
@@ -1206,15 +1217,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showStagingFolder() {
         if (stagingCount == 0) return toast(getString(R.string.staging_empty))
-        val index = offeredFolders.indexOfFirst {
-            it?.relativePath == ReviewSession.DELETION_STAGING_PATH
-        }
-        if (index < 0) return toast(getString(R.string.staging_empty))
 
-        // Selecting the folder is enough: the spinner listener reloads and
-        // asks about unapplied work. Setting preferredFolder here first
-        // would make that listener see no change and skip the reload.
-        folderSpinner.setSelection(index)
+        changeFilter { preferredSubtree = stagingPath() }
         toast(getString(R.string.staging_hint))
     }
 

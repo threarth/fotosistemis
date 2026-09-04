@@ -23,11 +23,12 @@
             android:layout_weight="1"
             android:text="@string/action_source" />
 
-        <Spinner
-            android:id="@+id/folderSpinner"
+        <Button
+            android:id="@+id/folderButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="2" />
+            android:layout_weight="2"
+            android:text="@string/folder_all" />
 
         <Button
             android:id="@+id/stagingButton"

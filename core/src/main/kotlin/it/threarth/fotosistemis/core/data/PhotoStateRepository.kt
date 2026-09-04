@@ -133,6 +133,53 @@ class PhotoStateRepository(private val database: Database) {
         }
     }
 
+    /** How many photos are filed under [destinationId]. */
+    fun countFor(destinationId: Long): Result<Int> = runCatching {
+        database.query(
+            "SELECT COUNT(*) AS total FROM ${Schema.TABLE_PHOTO_STATE} " +
+                    "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+            listOf(destinationId)
+        ).firstOrNull()?.getInt("total") ?: 0
+    }
+
+    /**
+     * Files everything from one category under another, and returns how many.
+     *
+     * Deleting a category leaves its photos marked as filed under a category
+     * that no longer exists: the decision survives its own destination and
+     * points at nothing. Moving them first is what keeps that from happening,
+     * and it is also what undoes a split — a phone transfer can produce two
+     * Famiglia, and they were always one.
+     */
+    fun reassign(fromDestinationId: Long, toDestinationId: Long): Result<Int> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_DESTINATION_ID} = ?, " +
+                        "${Schema.COLUMN_UPDATED_AT} = ? WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+                listOf(toDestinationId, System.currentTimeMillis(), fromDestinationId)
+            )
+        }
+    }
+
+    /**
+     * Forgets every decision that pointed at [destinationId], and says how
+     * many.
+     *
+     * Deleting a category used to leave its photos marked as filed under
+     * something that no longer existed: worse than unfiled, because they were
+     * not offered for review either. Those photos become unseen again, which
+     * is what they are once the category holding them is gone.
+     */
+    fun forgetDestination(destinationId: Long): Result<Int> = runCatching {
+        database.transaction {
+            database.execute(
+                "DELETE FROM ${Schema.TABLE_PHOTO_STATE} " +
+                        "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+                listOf(destinationId)
+            )
+        }
+    }
+
     /** Removes the decision for one photo, making it unseen again. */
     fun forget(photoId: Long): Result<Unit> = runCatching {
         database.transaction {
