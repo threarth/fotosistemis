@@ -37,11 +37,17 @@ class PhotoInventory(private val database: Database) {
         records: List<PhotoRecord>,
         recordsAreComplete: Boolean = false
     ): Result<Pair<List<PhotoRecord>, Report>> = runCatching {
-        val plan = PhotoMatcher.match(loadStored(), records, recordsAreComplete)
-        val storedDates = loadStoredDates()
         val now = System.currentTimeMillis()
 
         database.transaction {
+            // Read inside the transaction, not before it. Two scans can start
+            // together — the full one and a folder being opened — and reading
+            // first let both conclude the inventory was empty, so both
+            // inserted every photo and the next pass marked half of them
+            // missing. Reading here makes the two serialise.
+            val plan = PhotoMatcher.match(loadStored(), records, recordsAreComplete)
+            val storedDates = loadStoredDates()
+
             val identified = plan.matches.map { match ->
                 val photoId = match.photoId?.also {
                     update(it, match.record, storedDates[it], now)

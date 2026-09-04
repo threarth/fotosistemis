@@ -37,9 +37,6 @@ class DestinationsActivity : AppCompatActivity() {
     private companion object {
         const val BACKUP_MIME_TYPE = "application/json"
         const val BACKUP_STAMP_PATTERN = "yyyyMMdd-HHmm"
-
-        /** How faded a field looks while a checkbox has taken it out of use. */
-        const val DISABLED_ALPHA = 0.4f
     }
 
     private lateinit var repository: DestinationRepository
@@ -76,7 +73,6 @@ class DestinationsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.patternButton).setOnClickListener { editPattern() }
         findViewById<Button>(R.id.adoptButton).setOnClickListener { previewAdoption() }
         findViewById<Button>(R.id.cloudBackupButton).setOnClickListener { editCloudBackup() }
-        findViewById<Button>(R.id.sourceRootsButton).setOnClickListener { editSourceRoots() }
         findViewById<Button>(R.id.destinationRootButton).setOnClickListener {
             editDestinationRoot()
         }
@@ -378,49 +374,6 @@ class DestinationsActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
-    }
-
-    /**
-     * Chooses where the app looks for photos to sort.
-     *
-     * Ticking the whole device greys the list out rather than clearing it,
-     * so unticking gives the roots back instead of losing them.
-     */
-    private fun editSourceRoots() {
-        val form = LayoutInflater.from(this).inflate(R.layout.dialog_roots, null)
-        val field = form.findViewById<EditText>(R.id.rootsField)
-        val wholeDevice = form.findViewById<CheckBox>(R.id.rootsWholeDevice)
-
-        field.setText(settings.sourceRoots.joinToString("\n"))
-        wholeDevice.isChecked = settings.wholeDeviceAsSource
-        applyWholeDevice(field, wholeDevice.isChecked)
-        wholeDevice.setOnCheckedChangeListener { _, checked ->
-            applyWholeDevice(field, checked)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.roots_title)
-            .setView(form)
-            .setPositiveButton(R.string.action_save) { _, _ ->
-                settings.sourceRoots = field.text.toString().split("\n")
-                settings.wholeDeviceAsSource = wholeDevice.isChecked
-                announceRoots()
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    /** The roots stay visible while the whole device is chosen, but inert. */
-    private fun applyWholeDevice(field: EditText, wholeDevice: Boolean) {
-        field.isEnabled = !wholeDevice
-        field.alpha = if (wholeDevice) DISABLED_ALPHA else 1f
-    }
-
-    private fun announceRoots() {
-        toast(
-            if (settings.wholeDeviceAsSource) getString(R.string.roots_whole_device_saved)
-            else getString(R.string.roots_saved, settings.sourceRoots.joinToString(", "))
-        )
     }
 
     /**

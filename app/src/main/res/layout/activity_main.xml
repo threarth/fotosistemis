@@ -8,12 +8,20 @@
     android:padding="12dp"
     tools:context=".MainActivity">
 
-    <!-- Source folder. Scanning is never recursive: picking a folder
-         returns the files inside it, not those in its subfolders. -->
+    <!-- Scope on the left, the folder being worked on beside it. The two
+         answer different questions: where the archive lives, and where the
+         work is right now. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/sourceButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_source" />
 
         <Spinner
             android:id="@+id/folderSpinner"

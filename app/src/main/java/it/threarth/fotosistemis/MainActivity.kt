@@ -37,6 +37,7 @@ import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.review.PhotoFilter
 import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.content.ContextCompat
@@ -131,6 +132,21 @@ class MainActivity : AppCompatActivity() {
 
     /** Folders offered by the spinner; null at index 0 means "every folder". */
     private val offeredFolders = ArrayList<FolderSummary?>()
+
+    /**
+     * For each spinner entry, the branch it stands for, or null.
+     *
+     * A branch entry means "this folder and everything under it", which the
+     * platform cannot answer directly: its folders are the leaves that hold
+     * photos, never the trunk they hang from.
+     */
+    private val offeredSubtrees = ArrayList<String?>()
+
+    /** The branch currently chosen, when the choice was a branch. */
+    private var preferredSubtree: String? = null
+
+    /** Every folder the platform reported, before any narrowing. */
+    private var allFolders: List<FolderSummary> = emptyList()
 
     /**
      * Folder the user last chose. Kept separately from the spinner so that
@@ -294,6 +310,7 @@ class MainActivity : AppCompatActivity() {
         photoTags = findViewById(R.id.photoTags)
         destinationActions = findViewById(R.id.destinationActions)
         folderSpinner = findViewById(R.id.folderSpinner)
+        findViewById<Button>(R.id.sourceButton).setOnClickListener { editSourceRoots() }
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         mediaStage = findViewById(R.id.mediaStage)
@@ -634,6 +651,54 @@ class MainActivity : AppCompatActivity() {
     private fun withinSourceRoots(photos: List<PhotoRecord>): List<PhotoRecord> =
         withinSourceRoots(photos) { it.relativePath }
 
+    /**
+     * Chooses where the archive lives, by ticking folders rather than typing.
+     *
+     * The branches offered are rebuilt from the folders that hold photos:
+     * the platform reports only leaves, and an archive is chosen by its
+     * trunk. Ticking one takes it and everything underneath.
+     */
+    private fun editSourceRoots() {
+        val candidates = FolderTree.candidates(allFolders)
+        if (candidates.isEmpty()) return toast(getString(R.string.roots_none))
+
+        val chosen = settings.sourceRoots
+        val checked = BooleanArray(candidates.size + 1)
+        checked[0] = settings.wholeDeviceAsSource
+        candidates.forEachIndexed { index, node ->
+            checked[index + 1] = chosen.any { it.equals(node.relativePath, ignoreCase = true) }
+        }
+        val labels = (listOf(getString(R.string.roots_whole_device)) +
+                candidates.map(::describeCandidate)).toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.roots_title)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setPositiveButton(R.string.action_save) { _, _ -> saveSourceRoots(candidates, checked) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Indented by depth, so the shape of the tree is visible in a flat list. */
+    private fun describeCandidate(node: FolderTree.Node): String {
+        val indent = "    ".repeat(node.depth)
+        val name = node.relativePath.substringAfterLast('/')
+
+        return getString(R.string.roots_entry, indent, name, node.photoCount)
+    }
+
+    /** Stores the ticked folders and reloads what is now in scope. */
+    private fun saveSourceRoots(candidates: List<FolderTree.Node>, checked: BooleanArray) {
+        settings.wholeDeviceAsSource = checked[0]
+        settings.sourceRoots = candidates
+            .filterIndexed { index, _ -> checked[index + 1] }
+            .map { it.relativePath }
+
+        preferredSubtree = null
+        preferredFolder = null
+        refreshFolders()
+    }
+
     private fun onFoldersLoaded(result: Result<List<FolderSummary>>) {
         setBusy(false)
         val folders = result.getOrElse {
@@ -641,6 +706,7 @@ class MainActivity : AppCompatActivity() {
             emptyList()
         }
 
+        allFolders = folders
         stagingCount = folders
             .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
             .sumOf { it.photoCount }
@@ -654,11 +720,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         offeredFolders.clear()
+        offeredSubtrees.clear()
         val labels = ArrayList<String>()
         offeredFolders.add(null)
+        offeredSubtrees.add(null)
         labels.add(getString(R.string.folder_all))
+
+        // One entry per chosen root, so a whole archive can be taken at once
+        // instead of eighteen event folders one after another.
+        for (root in settings.effectiveSourceRoots()) {
+            val total = folders.filter { FolderTree.isWithin(it.relativePath, root) }
+                .sumOf { it.photoCount }
+            if (total == 0) continue
+            offeredFolders.add(null)
+            offeredSubtrees.add(root)
+            labels.add(getString(R.string.folder_subtree, root, total))
+        }
+
         for (folder in offered) {
             offeredFolders.add(folder)
+            offeredSubtrees.add(null)
             // Photos on a memory card are marked: they stay on their own
             // volume when filed, because MediaStore cannot move a file
             // across volumes without copying every byte.
@@ -682,9 +763,13 @@ class MainActivity : AppCompatActivity() {
         folderSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
                 val chosen = offeredFolders.getOrNull(pos)
-                if (chosen?.sameAs(preferredFolder) == true) return
-                if (chosen == null && preferredFolder == null) return
-                changeFilter { preferredFolder = chosen }
+                val branch = offeredSubtrees.getOrNull(pos)
+                if (branch == preferredSubtree && chosen?.sameAs(preferredFolder) == true) return
+                if (branch == preferredSubtree && chosen == null && preferredFolder == null) return
+                changeFilter {
+                    preferredFolder = chosen
+                    preferredSubtree = branch
+                }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -938,7 +1023,13 @@ class MainActivity : AppCompatActivity() {
         origins: Result<Map<Long, PhotoStateRepository.Location>>
     ) {
         setBusy(false)
-        val loadedPhotos = withinSourceRoots(photos.getOrElse { return showError(it) })
+        val loaded = photos.getOrElse { return showError(it) }
+        val branch = preferredSubtree
+        val loadedPhotos = if (branch != null) {
+            loaded.filter { FolderTree.isWithin(it.relativePath, branch) }
+        } else {
+            withinSourceRoots(loaded)
+        }
         val loadedStates = states.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }

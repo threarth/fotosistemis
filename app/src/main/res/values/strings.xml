@@ -113,12 +113,11 @@
     <string name="cloud_backup_on">Backup attivo: il database viene incluso.</string>
     <string name="cloud_backup_off">Backup escluso: Android non ricevera\' nulla da questa app.</string>
     <string name="roots_title">Cartelle di origine</string>
-    <string name="action_source_roots">Cartelle di origine</string>
-    <string name="roots_explained">Le cartelle in cui cercare le foto da sistemare, una per riga. Possono essere profonde piu\' di un livello, per esempio Pictures/storage-1. Solo quello che sta qui dentro viene proposto per la revisione.</string>
-    <string name="roots_hint">Pictures\nDCIM</string>
+    <string name="action_source">Origine</string>
+    <string name="roots_entry">%1$s%2$s  (%3$d)</string>
+    <string name="roots_none">Nessuna cartella con foto. Attendi la fine della riconciliazione.</string>
+    <string name="folder_subtree">%1$s — tutte le sottocartelle (%2$d)</string>
     <string name="roots_whole_device">Tutte le foto del dispositivo</string>
-    <string name="roots_saved">Origine: %1$s</string>
-    <string name="roots_whole_device_saved">Origine: tutto il dispositivo</string>
     <string name="destination_root_title">Cartella di destinazione</string>
     <string name="action_destination_root">Cartella di destinazione</string>
     <string name="destination_root_explained">La cartella sotto cui vivono tutte le categorie. Precompila il percorso delle nuove destinazioni.</string>
