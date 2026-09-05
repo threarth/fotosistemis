@@ -159,4 +159,20 @@ class FolderTreeTest {
         val tutto = FolderTree.visible(nodes, setOf("Pictures", "Pictures/storage-0"))
         assertEquals(5, tutto.size)
     }
+
+    @Test
+    fun `a collapsed run is named by everything it collapsed`() {
+        val nodes = FolderTree.candidates(
+            listOf(folder("Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images", 15719))
+        )
+        val foglia = candidate(nodes, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images")
+
+        assertEquals(
+            "Il salto si vede, invece di sparire",
+            "media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
+            foglia?.label
+        )
+        assertEquals("Un passo sotto Android, non cinque", 1, foglia?.depth)
+        assertEquals("Android", candidate(nodes, "Android")?.label)
+    }
 }

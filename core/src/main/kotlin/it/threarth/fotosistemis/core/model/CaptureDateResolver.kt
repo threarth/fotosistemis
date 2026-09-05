@@ -80,6 +80,9 @@ object CaptureDateResolver {
     /** Separates the stamp from its collision counter. */
     private const val COUNTER_SEPARATOR = "-"
 
+    /** Introduces where the photo came from, when that is worth recording. */
+    private const val ORIGIN_PREFIX = "_from_"
+
     /**
      * Year, month, day, then time, joined the way the cameras join them.
      *
@@ -93,11 +96,18 @@ object CaptureDateResolver {
 
     /** Our own stamp: delimiter, optional mark, date, time, counter, delimiter. */
     private val STAMP_PATTERN = Regex(
-        """^__(\+?)(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(?:-(\d+))?__"""
+        """^__(\+?)(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(?:-(\d+))?(?:_from_([a-z]+))?__"""
     )
 
     /** Our own stamp, read back out of a file name. */
-    data class Stamp(val millis: Long, val source: Source, val counter: Int?)
+    data class Stamp(
+        val millis: Long,
+        val source: Source,
+        val counter: Int?,
+
+        /** Where the photo came from, when the stamp says. */
+        val origin: String?
+    )
 
     /**
      * Date and time together, e.g. IMG_20260728_153045.jpg,
@@ -142,7 +152,9 @@ object CaptureDateResolver {
      */
     fun readStamp(displayName: String): Stamp? {
         val match = STAMP_PATTERN.find(displayName) ?: return null
-        val (mark, year, month, day, hour, minute, second, counter) = match.destructured
+        val values = match.groupValues
+        val (mark, year, month, day) = values.drop(1)
+        val (hour, minute, second, counter, origin) = values.drop(5)
         val millis = buildTimestamp(
             year.toInt(), month.toInt(), day.toInt(),
             hour.toInt(), minute.toInt(), second.toInt()
@@ -151,7 +163,8 @@ object CaptureDateResolver {
         return Stamp(
             millis = millis,
             source = if (mark == UNCERTAIN_MARK) Source.ESTIMATED else Source.FILENAME,
-            counter = counter.toIntOrNull()
+            counter = counter.toIntOrNull(),
+            origin = origin.ifEmpty { null }
         )
     }
 
@@ -167,7 +180,12 @@ object CaptureDateResolver {
      * [counter] separates photos that share a second, which bursts and file
      * timestamps produce in quantity.
      */
-    fun formatStamp(millis: Long, uncertain: Boolean, counter: Int?): String {
+    fun formatStamp(
+        millis: Long,
+        uncertain: Boolean,
+        counter: Int?,
+        origin: String? = null
+    ): String {
         val calendar = Calendar.getInstance().apply { timeInMillis = millis }
         val stamp = String.format(
             Locale.ROOT,
@@ -181,8 +199,9 @@ object CaptureDateResolver {
         )
         val mark = if (uncertain) UNCERTAIN_MARK else ""
         val tail = if (counter == null) "" else COUNTER_SEPARATOR + counter
+        val from = if (origin == null) "" else ORIGIN_PREFIX + origin
 
-        return STAMP_DELIMITER + mark + stamp + tail + STAMP_DELIMITER
+        return STAMP_DELIMITER + mark + stamp + tail + from + STAMP_DELIMITER
     }
 
     /**

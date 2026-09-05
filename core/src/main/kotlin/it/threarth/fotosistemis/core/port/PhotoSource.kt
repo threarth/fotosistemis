@@ -11,6 +11,23 @@ import it.threarth.fotosistemis.core.model.PhotoRecord
  */
 interface PhotoSource {
 
+    companion object {
+
+        /**
+         * Folder under which each app keeps its own media.
+         *
+         * Scoped storage lets an app modify a photo it does not own, but not
+         * take it out of another app's own directory: the consent covers the
+         * file, not the place. Photos here can be reviewed and filed in the
+         * database, and the move will be refused however it is asked for.
+         */
+        const val APP_MEDIA_ROOT = "Android/media/"
+
+        /** True when the platform will refuse to move [relativePath]. */
+        fun isImmovable(relativePath: String): Boolean =
+            relativePath.trim('/').startsWith(APP_MEDIA_ROOT.trim('/'), ignoreCase = true)
+    }
+
     /** Folders that directly hold photos, with their counts. */
     fun listFolders(): Result<List<FolderSummary>>
 

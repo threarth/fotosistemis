@@ -77,9 +77,21 @@ rifare.
 - [ ] **Pagina di aiuto.** Serve più di quanto sembri: cinque comportamenti
       non si deducono guardando l'app, in particolare che *Da eliminare* non
       elimina, e che senza svuotare da Google Foto la copia nel cloud resta.
-- [ ] **Ricerca duplicati.** Lo schema è già pronto: `size_bytes`,
-      `date_taken`, `width`, `height` bastano per una query. `content_hash`
-      esiste ed è vuoto, da riempire solo sulle candidate incerte.
+- [ ] **Ricerca duplicati, di due tipi diversi.**
+
+      *Copie identiche* — lo schema è già pronto: `size_bytes`, `date_taken`,
+      `width`, `height` bastano per una query, e `content_hash` esiste ed è
+      vuoto, da riempire solo sulle candidate incerte.
+
+      *Copie ricompresse* — la foto scattata col telefono e poi mandata su
+      WhatsApp: stessa immagine, byte diversi, dimensione diversa, hash
+      diverso. Nessun confronto esatto la prende. Il timbro nel nome porta
+      ora `_from_whatsapp`, quindi la ricerca può partire di lì: per ogni
+      categoria, prendere le foto marcate come venute da WhatsApp e cercare
+      le candidate **fra le altre della stessa categoria**, che è un insieme
+      piccolo. Il confronto vero richiede un'impronta percettiva (tipo pHash)
+      che riconosca la stessa immagine ridimensionata: fattibile senza
+      dipendenze, ma è un lavoro a sé.
 
 ## Riorganizzazione del filesystem — piano approvato, non ancora scritto
 

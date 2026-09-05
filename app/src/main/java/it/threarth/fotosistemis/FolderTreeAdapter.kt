@@ -107,7 +107,7 @@ class FolderTreeAdapter(
         check.isChecked = node.relativePath in selected
         label.text = view.context.getString(
             R.string.roots_entry,
-            node.relativePath.substringAfterLast('/'),
+            node.label,
             node.photoCount
         )
         val pick = View.OnClickListener {

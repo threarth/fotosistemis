@@ -23,8 +23,21 @@ object FolderTree {
         /** Path without a trailing separator, as the settings store it. */
         val relativePath: String,
 
-        /** How deep it sits, so a list can indent it. */
+        /**
+         * How deep it sits among the folders offered, so a list can indent
+         * it. Not the depth of the path: five segments collapsed into one
+         * step must indent by one, or the tree looks broken.
+         */
         val depth: Int,
+
+        /**
+         * What to call it: the part of the path below the folder above it.
+         *
+         * A collapsed run would otherwise vanish silently — Android showing
+         * a child called "WhatsApp Images" says nothing about the four
+         * levels in between, and the user cannot tell where it came from.
+         */
+        val label: String,
 
         /** Photos in this folder and in every folder below it. */
         val photoCount: Int,
@@ -62,17 +75,43 @@ object FolderTree {
         }
 
         val offerti = below.keys.filter { worthOffering(it, own, children) }.sorted()
-        val genitori = offerti.mapNotNull(::parentOf).toHashSet()
+        val insieme = offerti.toHashSet()
+        val genitori = offerti.mapNotNull { offertoSopra(it, insieme) }.toHashSet()
 
         return offerti.map { path ->
+            val sopra = offertoSopra(path, insieme)
             Node(
                 relativePath = path,
-                depth = path.count { it == '/' },
+                depth = if (sopra == null) 0 else path.removePrefix("$sopra/").let {
+                    depthOf(sopra, insieme) + 1
+                },
+                label = if (sopra == null) path else path.removePrefix("$sopra/"),
                 photoCount = below[path] ?: 0,
                 ownPhotoCount = own[path] ?: 0,
                 hasChildren = path in genitori
             )
         }
+    }
+
+    /** The nearest folder above [path] that is itself offered. */
+    private fun offertoSopra(path: String, offerti: Set<String>): String? {
+        var parent = parentOf(path)
+        while (parent != null) {
+            if (parent in offerti) return parent
+            parent = parentOf(parent)
+        }
+        return null
+    }
+
+    /** How many offered folders stand between [path] and the top. */
+    private fun depthOf(path: String, offerti: Set<String>): Int {
+        var depth = 0
+        var sopra = offertoSopra(path, offerti)
+        while (sopra != null) {
+            depth++
+            sopra = offertoSopra(sopra, offerti)
+        }
+        return depth
     }
 
     /**

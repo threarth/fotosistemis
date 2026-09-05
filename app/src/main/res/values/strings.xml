@@ -12,6 +12,12 @@
     <string name="pending_title">Modifiche non applicate</string>
     <string name="pending_message">%1$d spostamenti o eliminazioni non applicati.\n\nApplica: le foto si spostano davvero.\nScarta: quelle foto tornano non viste. Le foto mantenute restano tali in ogni caso.</string>
     <string name="pending_apply">Applica</string>
+    <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
+    <string name="immovable_title">Foto che non si possono spostare</string>
+    <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, per esempio WhatsApp. Android non consente di portarle fuori da li\', qualunque permesso si abbia: verranno catalogate ma NON spostate, e resteranno dove sono.\n\nPer spostarle davvero serve un intervento da PC, oppure portarle fuori una volta sola con un gestore file.</string>
+    <string name="discard_title">Scarta la coda</string>
+    <string name="discard_message">%1$d foto in coda tornano NON VISTE e non verranno spostate ne\' eliminate. Nessun file viene toccato: la coda non ha ancora scritto niente.\n\nLe foto che hai semplicemente mantenuto restano mantenute.</string>
+    <string name="discard_done">Coda svuotata: %1$d foto tornate da rivedere.</string>
     <string name="pending_drop_all">Scarta</string>
     <string name="period_any">Period: all (%1$d)</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>

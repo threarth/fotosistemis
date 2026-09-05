@@ -38,6 +38,7 @@ import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.FolderSummary
+import it.threarth.fotosistemis.core.port.PhotoSource as PhotoSourcePort
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.FolderTree
@@ -1556,10 +1557,56 @@ class MainActivity : AppCompatActivity() {
             )
         }.toTypedArray<CharSequence>()
 
+        // Some of them the system will refuse, and saying so afterwards
+        // reads as a fault of the app rather than a rule of the platform.
+        val bloccate = moves.count { PhotoSourcePort.isImmovable(it.photo.relativePath) }
+        val titolo = if (bloccate == 0) getString(R.string.reorganize_list_title, moves.size)
+        else getString(R.string.apply_title_blocked, moves.size, bloccate)
+
         AlertDialog.Builder(this)
-            .setTitle(getString(R.string.reorganize_list_title, moves.size))
+            .setTitle(titolo)
             .setItems(righe, null)
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> requestMoveConsent() }
+            // Discarding belonged only to the dialog that interrupts a
+            // filter change, which meant the queue could be emptied by
+            // accident but never on purpose.
+            .setNeutralButton(R.string.pending_drop_all) { _, _ -> confirmDiscardQueue() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+
+        if (bloccate > 0) explainImmovable(bloccate)
+    }
+
+    /** Says why some photos cannot move, before the attempt rather than after. */
+    private fun explainImmovable(count: Int) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.immovable_title)
+            .setMessage(getString(R.string.immovable_explained, count))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    /**
+     * Empties the queue after saying what that costs.
+     *
+     * Photos queued for a category or for deletion go back to unseen; those
+     * merely kept stay kept, because keeping is a decision already made and
+     * nothing was going to be written for it anyway.
+     */
+    private fun confirmDiscardQueue() {
+        val queued = session.pendingCount
+        AlertDialog.Builder(this)
+            .setTitle(R.string.discard_title)
+            .setMessage(getString(R.string.discard_message, queued))
+            .setPositiveButton(R.string.pending_drop_all) { _, _ ->
+                session.discardQueue().fold(
+                    onSuccess = {
+                        toast(getString(R.string.discard_done, queued))
+                        reload()
+                    },
+                    onFailure = { showError(it) }
+                )
+            }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
