@@ -1,67 +1,43 @@
 # Lavoro in corso
 
-Stato al 31 agosto 2026.
+Stato al 5 settembre 2026.
 
-## Da verificare sul dispositivo — prima di ogni altra cosa
+## Misurato sul dispositivo, il 4 e 5 settembre 2026
 
-**Niente di tutto questo è mai stato eseguito su un telefono.** Compila e i
-test passano, ma lo schema e la riorganizzazione toccano i dati e non li ha
-visti girare nessuno.
+Honor Magic8 Lite, Android 16 (API 36): `targetSdk` combacia, niente da
+cambiare nel progetto. Nessuna scheda SD. Collegato via **debug wireless**, che
+e' l'unica strada rimasta: le porte USB del PC si sono rotte.
 
-Il telefono nuovo è un **Honor Magic8 Lite, Android 16 (API 36)**: `targetSdk`
-combacia, non c'è niente da cambiare nel progetto. Nessuna scheda SD, un solo
-volume. L'app **non è installata**, e non lo è mai stata: il database verrà
-creato da zero, nessuna migrazione girerà. Non c'è nulla da esportare prima.
+**Spostare una foto non cambia `DATE_MODIFIED`.** La deriva delle date che
+temevamo non avviene su questo telefono. Le difese restano — non costano
+niente e valgono su altri dispositivi — ma vanno lette come assicurazione, non
+come rimedio a un guasto osservato.
 
-Ordine consigliato:
+**`DATE_TAKEN` non e' scrivibile**, ne' dove ha un valore ne' dove e' vuoto:
+MediaProvider ignora la scrittura in silenzio. Anche `date_modified` e
+`inferred_date` sono in sola lettura.
 
-1. Installa, apri la schermata principale, **lascia finire la
-   riconciliazione**: popola l'inventario, senza il quale il resto non trova
-   nulla.
-2. **Cartelle → Cartelle di origine**: metti `Pictures/storage-1`. È lì che
-   Phone Clone ha messo l'archivio già ordinato.
-3. **Cartelle → Riconosci foto già ordinate**, e controlla che i numeri per
-   categoria corrispondano a quello che ti aspetti. Guarda le foto prima di
-   confermare.
-5. Il modello globale `{anno}-{etichetta}` non è mai stato provato. Le
-   destinazioni migrate da versioni precedenti usano `{anno}`: per cambiarlo
-   vanno aperte a mano.
+**Ma la data si corregge lo stesso**, per un'altra strada: cambiando l'ora di
+modifica **del file** e riscansionando, Android ricalcola `inferred_date` e,
+quando quella data concorda con il nome del file, scrive pure `datetaken`. Il
+comando di riscansione e'
+`content call --uri content://media --method scan_file --arg <percorso>`, e su
+una cartella intera vale per tutto cio' che contiene.
 
-Due misure in più, da prendere nella stessa sessione. Sono cinque minuti, e
-la riorganizzazione del filesystem dipende interamente da come vanno:
+**Le due gallerie non leggono le stesse cose.** Quella di serie di MagicOS
+ricava la data dall'EXIF del file; Aves legge MediaStore. Percio' una
+correzione fatta nell'indice si vede in Aves e non nella galleria di serie, e
+viceversa. Per le verifiche vale Aves.
 
-4. **Il `BackupAgent` legge davvero l'impostazione?** Gira in un momento
-   particolare del ciclo di vita, in un processo dove l'`Application` non e'
-   quella solita, e che da li' le SharedPreferences si leggano va confermato
-   sul dispositivo: `adb shell bmgr backupnow it.threarth.fotosistemis` con
-   l'interruttore acceso e poi spento, guardando `adb logcat -s BackupManager`.
-   Se non le leggesse, la scelta dell'utente verrebbe ignorata in silenzio.
-5. **Spostare una foto cambia `DATE_MODIFIED`?** Spostane due e confronta il
-   valore prima e dopo. Se cambia, la deriva delle date è reale e l'ordine
-   delle operazioni non è negoziabile.
-6. **`DATE_TAKEN` si puo' scrivere, e resiste a una riscansione?** E' la
-   verifica che decide se la voce "riempire DATE_TAKEN" in Fase 3 vale la
-   pena. In due tempi:
+**Fatto:** le 15.653 foto WhatsApp hanno ora la loro data vera. Per le 8.374
+che l'EXIF ce l'hanno e' stata usata l'ora esatta dello scatto letta dal file;
+per le altre il giorno preso dal nome, a mezzogiorno — lontano dai confini di
+giornata, perche' il `touch` sbaglia di un'ora sulle date in ora legale e
+Android aggiunge qualche minuto di scarto suo.
 
-   a. Prendi una foto WhatsApp con `datetaken` vuoto e scrivici una data
-      riconoscibile:
-      `adb shell content update --uri content://media/external/images/media/<id> --bind datetaken:l:1531785864000`
-      poi rileggi con `content query`. Se il comando viene rifiutato, la
-      scrittura va provata dall'app, che ha il consenso; il rifiuto da shell
-      non dimostra nulla.
-   b. Fai in modo che MediaProvider rilegga quel file — basta cambiargli
-      l'ora di modifica con `touch` — e forza una riscansione. Il comando
-      esatto su Android 16 con MagicOS **non lo so**: si prova
-      `content call --uri content://media --method scan_volume`, e se non
-      funziona il riavvio del telefono lo garantisce. Poi rileggi.
-
-   Se il valore sopravvive, la funzione e' una sistemazione definitiva. Se
-   viene azzerato, resta utile ma diventa manutenzione da rilanciare, e va
-   scritta di conseguenza.
-7. **Rinominare funziona in scoped storage?** Non serve una prova a mano: apri
-   la riorganizzazione su una categoria piccola, attiva la data nel nome e
-   applica. Se `DISPLAY_NAME` non passa su MagicOS lo dice il messaggio
-   d'errore.
+**Da rifare quando arrivano foto nuove:** WhatsApp continua a riceverne, e le
+nuove nascono con `date_modified` corretta, quindi il problema non si ripresenta.
+Resterebbe solo dopo un altro trasferimento di telefono.
 
 ## Fase 3 — funzionalità richieste, non ancora scritte
 
@@ -84,27 +60,10 @@ rifare.
 - [ ] **Controlla integrità del database.** Verifica che le foto stiano dove
       l'ultimo percorso registrato dice, e ripara: le righe il cui `media_id`
       non risolve più vanno riagganciate tramite il riconoscimento a cascata.
-- [ ] **Riempire `DATE_TAKEN` dove e' vuoto.** Sul telefono e' vuoto per
-      16.091 foto su 24.166, e per quelle la galleria ripiega su
-      `DATE_MODIFIED`: le 15.609 WhatsApp appaiono quindi tutte al 31 luglio
-      2026, il giorno del trasferimento. Riempirlo le rimette al loro posto in
-      **ogni** app che legge l'indice, non solo nella nostra. Non tocca un
-      byte della fotografia, e si puo' disfare rimettendo `NULL` — al
-      contrario dell'EXIF, che sarebbe inciso nel file per sempre.
-
-      Quattro regole:
-      1. **Solo dove e' vuoto, mai sovrascrivere.** Un campo vuoto non ha
-         sorgente, quindi qualunque cosa lo batte; uno pieno ce l'ha gia'.
-      2. **Prima l'EXIF vero, poi il nome file.** Per le 8.869 WhatsApp
-         anteriori a ottobre 2024 l'ora esatta e' dentro il file: si legge e
-         si scrive quella, senza inventare niente.
-      3. **Mai da `FILE_TIMESTAMP`.** Sarebbe promuovere una data sbagliata a
-         dato autorevole: le foto senza altra data restano vuote e segnalate.
-      4. **Anteprima e consenso** come ogni altra scrittura.
-
-      Da fare **solo dopo** la verifica al punto 6: se il valore non
-      sopravvive a una riscansione la funzione cambia natura, e va scritta
-      diversamente.
+- [ ] **Avanzamento della riconciliazione.** Fatto a meta': la riga di stato
+      ora dice cosa sta facendo e un avviso riporta il risultato. Manca un
+      avanzamento vero — su 24.000 foto resta un'attesa lunga con un numero
+      solo all'inizio e uno alla fine.
 - [ ] **Leggere l'EXIF direttamente**, con `ExifInterface`, invece di fidarsi
       di `datetaken`. MediaStore restituisce `NULL` anche su file che l'EXIF
       ce l'hanno: sulle WhatsApp fino a fine 2024 l'ora vera è dentro il file,
@@ -314,11 +273,10 @@ filesystem e sopravvive a copie, backup e cambi di telefono.
 
 **Una data non si sostituisce mai con una di qualità inferiore.** La
 riconciliazione riscrive `date_taken` e `date_source` a ogni giro, e non sono
-congelati al primo avvistamento. Se spostare un file aggiorna `DATE_MODIFIED`,
-una foto in `FILE_TIMESTAMP` si ridata al giorno dello spostamento, e alla
-riorganizzazione successiva finisce nell'anno sbagliato — il cui spostamento
-la ridata di nuovo. Uno strumento che mette ordine non deve spostare le foto
-per effetto dei propri spostamenti.
+congelati al primo avvistamento. *Misurato il 4 settembre: su questo telefono
+spostare un file non cambia `DATE_MODIFIED`, quindi la deriva non avviene.* La
+regola resta come assicurazione — non costa niente, e su un altro dispositivo
+il presupposto potrebbe non valere.
 
 **Prima il nome, poi la cartella, nella stessa `update`.** Scritta la data nel
 nome la foto è immune alla deriva; spostarla prima la lascerebbe esposta per

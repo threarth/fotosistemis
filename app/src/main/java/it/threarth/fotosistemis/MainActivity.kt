@@ -625,13 +625,41 @@ class MainActivity : AppCompatActivity() {
      * reveals what has been deleted elsewhere, and having compared
      * everything there is nothing left for an incremental path to add.
      */
+    /**
+     * Brings the inventory in line with the platform, saying so as it goes.
+     *
+     * On a full archive this takes long enough that three dots are not an
+     * answer: without a count there is no telling a slow pass from a stuck
+     * one. The report at the end is the one moment the app can say what it
+     * found, and it used to be thrown away.
+     */
     private fun reconcileWithPlatform() {
+        runOnUiThread { statusText.setText(R.string.status_reading) }
         val records = photoSource.listPhotos(null).getOrElse { error ->
             runOnUiThread { showError(error) }
             return
         }
-        inventory.reconcile(records, recordsAreComplete = true)
-            .onFailure { error -> runOnUiThread { showError(error) } }
+
+        runOnUiThread {
+            statusText.text = getString(R.string.status_reconciling, records.size)
+        }
+        inventory.reconcile(records, recordsAreComplete = true).fold(
+            onSuccess = { (_, report) -> runOnUiThread { showReconcileReport(report) } },
+            onFailure = { error -> runOnUiThread { showError(error) } }
+        )
+    }
+
+    /** Says what the reconciliation actually changed, not just that it ran. */
+    private fun showReconcileReport(report: PhotoInventory.Report) {
+        val righe = listOfNotNull(
+            getString(R.string.report_seen, report.seen),
+            report.added.takeIf { it > 0 }?.let { getString(R.string.report_added, it) },
+            report.rekeyed.takeIf { it > 0 }?.let { getString(R.string.report_rekeyed, it) },
+            report.missing.takeIf { it > 0 }?.let { getString(R.string.report_missing, it) }
+        )
+        // A toast rather than the status line: the load that follows would
+        // overwrite the line before it could be read.
+        toast(righe.joinToString(" · "))
     }
 
     /**

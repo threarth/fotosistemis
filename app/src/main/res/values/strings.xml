@@ -101,6 +101,12 @@
     <!-- Status and messages -->
     <string name="preview_description">Foto in revisione</string>
     <string name="status_counter">%1$d / %2$d · coda %3$d</string>
+    <string name="status_reading">Lettura delle foto dal sistema…</string>
+    <string name="status_reconciling">Riconciliazione di %1$d foto…</string>
+    <string name="report_seen">%1$d foto</string>
+    <string name="report_added">%1$d nuove</string>
+    <string name="report_rekeyed">%1$d riagganciate</string>
+    <string name="report_missing">%1$d non piu\' trovate</string>
     <string name="status_loading">Caricamento…</string>
     <string name="status_empty">Nessuna foto per questo filtro.</string>
     <string name="status_empty_detail">0 foto.\nCartella: %1$d · periodo %2$s: %3$d\nDate presenti: %4$s\nOrigine date: %5$s</string>
