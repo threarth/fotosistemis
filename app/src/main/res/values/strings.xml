@@ -13,6 +13,13 @@
     <string name="pending_message">%1$d spostamenti o eliminazioni non applicati.\n\nApplica: le foto si spostano davvero.\nScarta: quelle foto tornano non viste. Le foto mantenute restano tali in ogni caso.</string>
     <string name="pending_apply">Applica</string>
     <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
+    <string name="message_applied_blocked">%1$d foto spostate. %2$d restano dove sono: stanno nella cartella di un\'altra app e Android non lascia portarle fuori. Sono comunque catalogate, ed escono dalla coda.</string>
+    <string name="cleanup_title">Originali rimasti</string>
+    <string name="cleanup_message">%1$d foto sono state COPIATE nella loro categoria, perche\' Android non lascia spostare i file dalla cartella di un\'altra app.\n\nGli originali sono ancora al loro posto: la stessa immagine e\' ora sul telefono due volte. Vuoi eliminarli? Te lo chiedera\' il sistema.</string>
+    <string name="cleanup_delete">Elimina gli originali</string>
+    <string name="cleanup_keep">Tienili</string>
+    <string name="cleanup_done">%1$d originali eliminati.</string>
+    <string name="cleanup_kept">%1$d originali lasciati dove sono: la foto risulta due volte.</string>
     <string name="immovable_title">Foto che non si possono spostare</string>
     <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, per esempio WhatsApp. Android non consente di portarle fuori da li\', qualunque permesso si abbia: verranno catalogate ma NON spostate, e resteranno dove sono.\n\nPer spostarle davvero serve un intervento da PC, oppure portarle fuori una volta sola con un gestore file.</string>
     <string name="discard_title">Scarta la coda</string>

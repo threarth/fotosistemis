@@ -230,25 +230,9 @@ class FileNamerTest {
     }
 
     @Test
-    fun `a photo that came from a chat app says so in its name`() {
-        val named = FileNamer.nameAll(
-            listOf(
-                FileNamer.Request(
-                    photoId = 1,
-                    displayName = "IMG-20250929-WA0012.jpg",
-                    captureMillis = millisAt(2025, 9, 29, 0),
-                    source = CaptureDateResolver.Source.FILENAME,
-                    origin = "whatsapp"
-                )
-            )
-        ).single().displayName
-
-        assertEquals("__20250929_120000_from_whatsapp__IMG-20250929-WA0012.jpg", named)
-    }
-
-    @Test
-    fun `the origin survives being read back and written again`() {
-        val timbrata = FileNamer.Request(
+    fun `a name already stamped with an origin is still understood`() {
+        // Written by an earlier version; reading must not choke on it.
+        val vecchia = FileNamer.Request(
             photoId = 1,
             displayName = "__20250929_120000_from_whatsapp__IMG-20250929-WA0012.jpg",
             captureMillis = millisAt(2025, 9, 29, 0),
@@ -256,13 +240,13 @@ class FileNamerTest {
         )
 
         assertEquals(
-            "Rileggerla non deve perdere da dove viene",
-            timbrata.displayName,
-            FileNamer.nameAll(listOf(timbrata)).single().displayName
+            "whatsapp",
+            CaptureDateResolver.readStamp(vecchia.displayName)?.origin
         )
         assertEquals(
-            "whatsapp",
-            CaptureDateResolver.readStamp(timbrata.displayName)?.origin
+            "Riscritta senza il marchio, che il nome gia' porta",
+            "__20250929_120000__IMG-20250929-WA0012.jpg",
+            FileNamer.nameAll(listOf(vecchia)).single().displayName
         )
     }
 }

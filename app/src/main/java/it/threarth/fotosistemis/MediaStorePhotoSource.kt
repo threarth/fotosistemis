@@ -70,6 +70,65 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
     )
 
     /**
+     * Writes a new photo with the same bytes, in a folder we may write to.
+     *
+     * The values are set on insert, which is the one moment they can be:
+     * MediaProvider refuses writes to DATE_TAKEN on a row owned by someone
+     * else, but this row is ours from the start, so the copy keeps the
+     * capture date instead of being born today.
+     *
+     * IS_PENDING hides the file until the bytes are there: a half-written
+     * photo appearing in every gallery on the device is worse than a slow
+     * one.
+     */
+    override fun copyInto(
+        photo: PhotoRecord,
+        destinationRelativePath: String,
+        newDisplayName: String
+    ): Result<Long> = runCatching {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, newDisplayName)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, destinationRelativePath)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeOf(newDisplayName))
+            put(MediaStore.Images.Media.DATE_TAKEN, photo.dateTakenMillis)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val collection = MediaStore.Images.Media.getContentUri(photo.volumeName)
+        val target = resolver.insert(collection, values)
+            ?: throw IllegalStateException("${photo.displayName}: copia non creata")
+
+        try {
+            resolver.openInputStream(uriFor(photo)).use { input ->
+                resolver.openOutputStream(target).use { output ->
+                    requireNotNull(input) { "sorgente illeggibile" }
+                        .copyTo(requireNotNull(output) { "destinazione non scrivibile" })
+                }
+            }
+        } catch (error: Exception) {
+            // A copy that never finished is worse than no copy: it would sit
+            // in the archive as a truncated photo nobody asked for.
+            resolver.delete(target, null, null)
+            throw error
+        }
+
+        resolver.update(
+            target,
+            ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+            null,
+            null
+        )
+        ContentUris.parseId(target)
+    }
+
+    /** JPEG unless the name says otherwise; nothing else is written here. */
+    private fun mimeTypeOf(displayName: String): String =
+        when (displayName.substringAfterLast('.', "").lowercase()) {
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            else -> "image/jpeg"
+        }
+
+    /**
      * Throws unless the row still holds the photo the caller planned for.
      *
      * A write addresses a photo by its MediaStore id, and that id is a

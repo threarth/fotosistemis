@@ -2,7 +2,6 @@ package it.threarth.fotosistemis.core.reorg
 
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
-import it.threarth.fotosistemis.core.model.PhotoOrigin
 import java.util.Calendar
 import java.util.Locale
 
@@ -173,10 +172,7 @@ object Reorganizer {
         } else {
             FileNamer.nameAll(
                 group.map {
-                    FileNamer.Request(
-                        it.photoId, it.displayName, it.captureMillis, it.source,
-                        PhotoOrigin.of(it.relativePath, it.displayName)
-                    )
+                    FileNamer.Request(it.photoId, it.displayName, it.captureMillis, it.source)
                 }
             ).associate { it.photoId to it.displayName }
         }

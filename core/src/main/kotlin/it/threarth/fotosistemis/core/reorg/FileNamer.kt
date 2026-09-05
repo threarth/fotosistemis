@@ -35,16 +35,7 @@ object FileNamer {
         val photoId: Long,
         val displayName: String,
         val captureMillis: Long,
-        val source: CaptureDateResolver.Source,
-
-        /**
-         * Where the photo came in from, recorded in the stamp when known.
-         *
-         * A photo that arrived through a chat app has been recompressed and
-         * may be a second copy of one already here; marking it is what lets
-         * those copies be found later, when a byte comparison cannot.
-         */
-        val origin: String? = null
+        val source: CaptureDateResolver.Source
     )
 
     /** The name a photo should carry, and how much its date is worth. */
@@ -106,7 +97,7 @@ object FileNamer {
                 source == CaptureDateResolver.Source.ESTIMATED
 
     /** The date a photo's stamp should carry, and whether it is a guess. */
-    private data class Dated(val millis: Long, val uncertain: Boolean, val origin: String?)
+    private data class Dated(val millis: Long, val uncertain: Boolean)
 
     /**
      * Decides between the stamp already on the file and what is known now.
@@ -116,23 +107,18 @@ object FileNamer {
      * never replaced by one from a source with less to say.
      */
     private fun dateFor(request: Request): Dated {
-        // The origin is a fact about the file, not a reading of it: what is
-        // known now wins over what an older stamp recorded.
-        val origin = request.origin ?: CaptureDateResolver.readStamp(request.displayName)?.origin
         val existing = CaptureDateResolver.readStamp(request.displayName)
-            ?: return Dated(request.captureMillis, isUncertain(request.source), origin)
+            ?: return Dated(request.captureMillis, isUncertain(request.source))
 
         if (request.source.outranks(existing.source)) {
-            return Dated(request.captureMillis, isUncertain(request.source), origin)
+            return Dated(request.captureMillis, isUncertain(request.source))
         }
-        return Dated(existing.millis, isUncertain(existing.source), origin)
+        return Dated(existing.millis, isUncertain(existing.source))
     }
 
     /** The full name a request would take with [counter]. */
     private fun candidateName(request: Request, dated: Dated, counter: Int?): String {
-        val stamp = CaptureDateResolver.formatStamp(
-            dated.millis, dated.uncertain, counter, dated.origin
-        )
+        val stamp = CaptureDateResolver.formatStamp(dated.millis, dated.uncertain, counter)
         return fit(stamp, CaptureDateResolver.stripStamp(request.displayName))
     }
 

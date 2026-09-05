@@ -60,4 +60,26 @@ interface PhotoSource {
         destinationRelativePath: String,
         newDisplayName: String? = null
     ): Result<Unit>
+
+    /**
+     * Copies a photo into [destinationRelativePath], returning the new
+     * photo's platform id.
+     *
+     * The way in where [move] is refused. A photo cannot be taken out of
+     * another app's folder, but it can be read, and a new file can be
+     * written wherever the app is allowed to write: the boundary is never
+     * crossed, it is simply not approached.
+     *
+     * Every byte is copied, which a move never does, so this costs real time
+     * and real space. It is for the photos the platform will not move, not
+     * for the ones it will.
+     *
+     * The original is left alone: deleting it is a separate act, and one the
+     * user has to agree to.
+     */
+    fun copyInto(
+        photo: PhotoRecord,
+        destinationRelativePath: String,
+        newDisplayName: String
+    ): Result<Long>
 }

@@ -189,6 +189,31 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
+     * Points a photo at the copy that now stands for it.
+     *
+     * The copy is a different file to the platform, with a new id, but the
+     * same photograph to us — and everything decided about it, filed under
+     * our own id, has to follow it rather than be orphaned when the original
+     * goes. This is what "the media id is not an identity" was for.
+     */
+    fun rekeyToCopy(
+        photoId: Long,
+        newMediaId: Long,
+        relativePath: String,
+        displayName: String
+    ): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_MEDIA_ID} = ?, " +
+                        "${Schema.COLUMN_RELATIVE_PATH} = ?, ${Schema.COLUMN_DISPLAY_NAME} = ? " +
+                        "WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(newMediaId, relativePath, displayName, photoId)
+            )
+            Unit
+        }
+    }
+
+    /**
      * Writes where a photo ended up, once the platform has actually moved it.
      *
      * Reconciliation would find this out on its own at the next start, but

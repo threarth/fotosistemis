@@ -9,6 +9,8 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
+import android.provider.MediaStore
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.GestureDetector
@@ -261,6 +263,21 @@ class MainActivity : AppCompatActivity() {
         }
 
     /** Restores bypass the queue, so they carry their own consent. */
+    /** Originals left behind by a copy, waiting for permission to go. */
+    private var pendingCleanup: List<Uri> = emptyList()
+
+    private val requestCleanupDelete =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            val count = pendingCleanup.size
+            pendingCleanup = emptyList()
+            if (result.resultCode == Activity.RESULT_OK) {
+                toast(getString(R.string.cleanup_done, count))
+                refreshFolders()
+            } else {
+                toast(getString(R.string.cleanup_kept, count))
+            }
+        }
+
     private val requestRestoreConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) applyRestore()
@@ -285,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         ratings = RatingRepository(database)
         tagRepository = TagRepository(database)
         destinationRepository = DestinationRepository(database)
-        mover = BatchMover(this, photoSource, stateRepository)
+        mover = BatchMover(this, photoSource, stateRepository, inventory)
         session = ReviewSession(stateRepository, tagRepository) { settings.yearFolderPattern }
 
         buildScopeSpinner()
@@ -1636,22 +1653,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Reports the batch and decides what is worth trying again.
+     *
+     * A photo inside another app's folder will be refused every time, and
+     * keeping it queued makes the queue grow without end: a hundred WhatsApp
+     * photos sat there being retried forever. Its decision is already
+     * recorded, so leaving the queue costs nothing.
+     */
     private fun onMovesApplied(result: BatchMover.BatchResult) {
         setBusy(false)
-        if (result.failed.isEmpty()) {
-            toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
-        } else {
-            toast(
+        val (bloccate, ritentabili) = result.failed.partition {
+            PhotoSourcePort.isImmovable(it.photo.relativePath)
+        }
+
+        when {
+            result.failed.isEmpty() ->
+                toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
+
+            ritentabili.isEmpty() -> toast(
+                getString(R.string.message_applied_blocked, result.succeeded, bloccate.size)
+            )
+
+            else -> toast(
                 getString(
                     R.string.message_partial,
                     result.succeeded,
-                    result.failed.size,
+                    ritentabili.size,
                     result.firstError ?: ""
                 )
             )
         }
-        session.retainFailedMoves(result.failed)
+
+        session.retainFailedMoves(ritentabili)
+        if (result.copiedOriginals.isNotEmpty()) offerOriginalCleanup(result.copiedOriginals)
         refreshFolders()
+    }
+
+    /**
+     * Offers to remove the originals of the photos that had to be copied.
+     *
+     * Copying leaves the picture on the device twice, and only a deletion
+     * ends that. It is asked separately because it is a deletion: the app
+     * has no way to perform one without the system asking first, and no
+     * wish to have one.
+     */
+    private fun offerOriginalCleanup(originals: List<Uri>) {
+        pendingCleanup = originals
+        AlertDialog.Builder(this)
+            .setTitle(R.string.cleanup_title)
+            .setMessage(getString(R.string.cleanup_message, originals.size))
+            .setPositiveButton(R.string.cleanup_delete) { _, _ -> requestCleanupConsent() }
+            .setNegativeButton(R.string.cleanup_keep) { _, _ -> pendingCleanup = emptyList() }
+            .show()
+    }
+
+    /** The system asks about the deletion; the app only proposes it. */
+    private fun requestCleanupConsent() {
+        val originals = pendingCleanup
+        if (originals.isEmpty()) return
+        try {
+            requestCleanupDelete.launch(
+                IntentSenderRequest.Builder(
+                    MediaStore.createDeleteRequest(contentResolver, originals).intentSender
+                ).build()
+            )
+        } catch (error: Exception) {
+            pendingCleanup = emptyList()
+            showError(error)
+        }
     }
 
     private fun refuseConsent() {

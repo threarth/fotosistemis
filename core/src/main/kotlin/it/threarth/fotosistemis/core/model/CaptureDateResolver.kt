@@ -80,7 +80,13 @@ object CaptureDateResolver {
     /** Separates the stamp from its collision counter. */
     private const val COUNTER_SEPARATOR = "-"
 
-    /** Introduces where the photo came from, when that is worth recording. */
+    /**
+     * Introduces where a photo came from.
+     *
+     * No longer written: WhatsApp already names what it saves
+     * IMG-20260904-WA0028, so repeating it in the stamp lengthens the name
+     * and says nothing new. Still read, so a name stamped with it parses.
+     */
     private const val ORIGIN_PREFIX = "_from_"
 
     /**
@@ -180,12 +186,7 @@ object CaptureDateResolver {
      * [counter] separates photos that share a second, which bursts and file
      * timestamps produce in quantity.
      */
-    fun formatStamp(
-        millis: Long,
-        uncertain: Boolean,
-        counter: Int?,
-        origin: String? = null
-    ): String {
+    fun formatStamp(millis: Long, uncertain: Boolean, counter: Int?): String {
         val calendar = Calendar.getInstance().apply { timeInMillis = millis }
         val stamp = String.format(
             Locale.ROOT,
@@ -199,9 +200,8 @@ object CaptureDateResolver {
         )
         val mark = if (uncertain) UNCERTAIN_MARK else ""
         val tail = if (counter == null) "" else COUNTER_SEPARATOR + counter
-        val from = if (origin == null) "" else ORIGIN_PREFIX + origin
 
-        return STAMP_DELIMITER + mark + stamp + tail + from + STAMP_DELIMITER
+        return STAMP_DELIMITER + mark + stamp + tail + STAMP_DELIMITER
     }
 
     /**

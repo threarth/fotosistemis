@@ -91,7 +91,7 @@ class ReorganizeActivity : AppCompatActivity() {
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
         photoSource = MediaStorePhotoSource(this)
-        mover = BatchMover(this, photoSource, stateRepository)
+        mover = BatchMover(this, photoSource, stateRepository, inventory)
         settings = AppSettings(this)
 
         listView = findViewById(R.id.reorganizeList)
