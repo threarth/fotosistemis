@@ -32,12 +32,28 @@ class FolderTreeAdapter(
 
         const val OPEN = "▾"
         const val CLOSED = "▸"
+
+        /** How faded the tree looks while the whole device is chosen. */
+        const val DISABLED_ALPHA = 0.35f
     }
 
     private val inflater = LayoutInflater.from(context)
     private val density = context.resources.displayMetrics.density
     private val open = HashSet<String>()
     private var shown: List<FolderTree.Node> = FolderTree.visible(nodes, open)
+    private var enabled = true
+
+    /**
+     * Greys the tree out without forgetting what was ticked.
+     *
+     * Choosing the whole device makes every folder below it irrelevant, and
+     * leaving them looking live suggests they are still part of the answer.
+     * Clearing them instead would lose a choice the user may want back.
+     */
+    fun setEnabled(value: Boolean) {
+        enabled = value
+        notifyDataSetChanged()
+    }
 
     /** Opens every folder leading to something already chosen. */
     fun revealSelection() {
@@ -63,6 +79,7 @@ class FolderTreeAdapter(
 
         bindToggle(view, node)
         bindLabel(view, node)
+        view.alpha = if (enabled) 1f else DISABLED_ALPHA
         return view
     }
 
@@ -76,7 +93,7 @@ class FolderTreeAdapter(
         }
         toggle.setPadding((node.depth * INDENT_DP * density).toInt(), 0, 0, 0)
         toggle.setOnClickListener {
-            if (!node.hasChildren) return@setOnClickListener
+            if (!enabled || !node.hasChildren) return@setOnClickListener
             if (!open.remove(node.relativePath)) open.add(node.relativePath)
             refresh()
         }
@@ -94,6 +111,7 @@ class FolderTreeAdapter(
             node.photoCount
         )
         val pick = View.OnClickListener {
+            if (!enabled) return@OnClickListener
             val era = selected.remove(node.relativePath)
             if (singleChoice) selected.clear()
             if (!era) selected.add(node.relativePath)

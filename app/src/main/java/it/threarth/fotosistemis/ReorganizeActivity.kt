@@ -20,6 +20,7 @@ import androidx.core.view.WindowInsetsCompat
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
@@ -52,8 +53,14 @@ class ReorganizeActivity : AppCompatActivity() {
     private var entries: List<Reorganizer.Entry> = emptyList()
     private var choices: List<Reorganizer.Choice> = emptyList()
 
+    /** Show the categories that are already tidy alongside the rest. */
+    private var showSettled = false
+
     /** Held while the user looks at the photos it would affect. */
     private var pendingPlan: Reorganizer.Plan? = null
+
+    /** The rows currently listed, which is not always every choice. */
+    private var visible: List<Reorganizer.Choice> = emptyList()
 
     /** Consent is asked one batch at a time; these track how far it got. */
     private var batches: List<List<ReviewSession.PendingMove>> = emptyList()
@@ -89,8 +96,15 @@ class ReorganizeActivity : AppCompatActivity() {
 
         listView = findViewById(R.id.reorganizeList)
         statusText = findViewById(R.id.reorganizeStatus)
-        listView.setOnItemClickListener { _, _, position, _ -> editChoice(position) }
-        findViewById<Button>(R.id.reorganizeApplyButton).setOnClickListener { preview() }
+        listView.setOnItemClickListener { _, _, position, _ ->
+            editChoice(choices.indexOf(visible[position]))
+        }
+        findViewById<Button>(R.id.reorganizeApplyButton).setOnClickListener { preview(choices) }
+        findViewById<Button>(R.id.reorganizeRebaseButton).setOnClickListener { rebaseAll() }
+        findViewById<Button>(R.id.reorganizeShowAllButton).setOnClickListener {
+            showSettled = !showSettled
+            redrawList()
+        }
 
         refresh()
     }
@@ -119,21 +133,58 @@ class ReorganizeActivity : AppCompatActivity() {
             emptyList()
         }
         val used = entries.map { it.destinationId }.toSet()
-        choices = destinations
-            .filter { it.id in used }
-            .map { Reorganizer.Choice(it, stampNames = false) }
+        choices = destinations.filter { it.id in used }.map { destination ->
+            Reorganizer.Choice(destination, stampNames = alreadyStamped(destination.id))
+        }
 
         if (choices.isEmpty()) statusText.setText(R.string.reorganize_empty)
+        findViewById<TextView>(R.id.reorganizeRootLine).text =
+            getString(R.string.reorganize_root_line, settings.destinationRoot)
         redrawList()
+    }
+
+    /**
+     * Lists the categories, hiding the ones with nothing left to move.
+     *
+     * A category whose photos are all where it says they are has no work in
+     * it, and leaving it on a screen called "reorganise" makes the list
+     * grow instead of shrink as the job gets done.
+     */
+    /**
+     * True when this category's photos already carry the date stamp.
+     *
+     * Opening with the switch off would read as "take the stamps away", and
+     * the screen would propose renaming every photo back on a category that
+     * is in fact finished. What the archive already is, is the only honest
+     * starting point.
+     */
+    private fun alreadyStamped(destinationId: Long): Boolean {
+        val suoi = entries.filter { it.destinationId == destinationId }
+        if (suoi.isEmpty()) return false
+
+        val timbrate = suoi.count { CaptureDateResolver.readStamp(it.displayName) != null }
+        return timbrate * 2 >= suoi.size
     }
 
     private fun redrawList() {
         val counts = entries.groupingBy { it.destinationId }.eachCount()
+        val conLavoro = Reorganizer.plan(entries, choices, settings.yearFolderPattern)
+            .categoriesWithWork
+
+        visible = choices.filter { showSettled || it.destination.label in conLavoro }
+        val sistemate = choices.size - choices.count { it.destination.label in conLavoro }
+
         listView.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_list_item_1,
-            choices.map { describe(it, counts[it.destination.id] ?: 0) }
+            visible.map { describe(it, counts[it.destination.id] ?: 0) }
         )
+        findViewById<Button>(R.id.reorganizeShowAllButton).text = getString(
+            if (showSettled) R.string.reorganize_hide_settled
+            else R.string.reorganize_show_settled,
+            sistemate
+        )
+        if (visible.isEmpty() && !showSettled) statusText.setText(R.string.reorganize_all_settled)
     }
 
     /** One line per category: name, photos, folder shape, and naming. */
@@ -180,6 +231,17 @@ class ReorganizeActivity : AppCompatActivity() {
                     replaceChoice(position, choice, label, path, yearCheck, stampCheck)
                 }
             }
+            // One category at a time: a whole archive in a single batch is
+            // hard to check, and easier to postpone than to verify.
+            .setNeutralButton(R.string.reorganize_preview_one) { _, _ ->
+                val label = labelField.text.toString().trim()
+                val path = pathField.text.toString().trim().trim('/')
+                if (label.isEmpty() || path.isEmpty()) {
+                    return@setNeutralButton toast(getString(R.string.destination_invalid))
+                }
+                replaceChoice(position, choice, label, path, yearCheck, stampCheck)
+                preview(listOf(choices[position]))
+            }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
@@ -203,10 +265,29 @@ class ReorganizeActivity : AppCompatActivity() {
         redrawList()
     }
 
-    /** Builds the plan and states it before anything is written. */
-    private fun preview() {
-        if (choices.isEmpty()) return toast(getString(R.string.reorganize_empty))
-        val plan = Reorganizer.plan(entries, choices, settings.yearFolderPattern)
+    /**
+     * Puts every category under the parent folder, in one gesture.
+     *
+     * Only the paths in this screen: nothing is written until the preview is
+     * accepted, so this is a proposal like any other choice made here.
+     */
+    private fun rebaseAll() {
+        val root = settings.destinationRoot
+        choices = choices.map { choice ->
+            choice.copy(
+                destination = choice.destination.copy(
+                    relativePath = "$root/${choice.destination.label}"
+                )
+            )
+        }
+        redrawList()
+        toast(getString(R.string.reorganize_rebased, root))
+    }
+
+    /** Builds the plan for [wanted] and states it before anything is written. */
+    private fun preview(wanted: List<Reorganizer.Choice>) {
+        if (wanted.isEmpty()) return toast(getString(R.string.reorganize_empty))
+        val plan = Reorganizer.plan(entries, wanted, settings.yearFolderPattern)
 
         if (plan.isBlocked) return showConflicts(plan)
         if (plan.total == 0) return toast(getString(R.string.reorganize_nothing))
@@ -216,7 +297,7 @@ class ReorganizeActivity : AppCompatActivity() {
             .setTitle(R.string.reorganize_summary_title)
             .setMessage(summaryOf(plan))
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> startApply() }
-            .setNeutralButton(R.string.reorganize_review) { _, _ -> reviewPlan(plan) }
+            .setNeutralButton(R.string.reorganize_list) { _, _ -> showMoveList(plan) }
             .setNegativeButton(R.string.action_cancel) { _, _ -> pendingPlan = null }
             .show()
     }
@@ -236,6 +317,31 @@ class ReorganizeActivity : AppCompatActivity() {
         )
 
         return getString(R.string.reorganize_summary, plan.total, breakdown, uncertain, imports)
+    }
+
+    /**
+     * Every file the plan would touch, from where to where.
+     *
+     * Counts say how much; only the list says what. A move that looks right
+     * in aggregate can still be wrong for a particular photo, and this is
+     * the only place that difference shows before it is written.
+     */
+    private fun showMoveList(plan: Reorganizer.Plan) {
+        val righe = plan.moves.map { move ->
+            getString(
+                R.string.reorganize_move_line,
+                move.fromRelativePath + move.fromDisplayName,
+                move.toRelativePath + move.toDisplayName
+            )
+        }.toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.reorganize_list_title, plan.total))
+            .setItems(righe, null)
+            .setPositiveButton(R.string.reorganize_apply) { _, _ -> startApply() }
+            .setNeutralButton(R.string.reorganize_review) { _, _ -> reviewPlan(plan) }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> pendingPlan = null }
+            .show()
     }
 
     /**

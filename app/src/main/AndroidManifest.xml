@@ -45,6 +45,11 @@
             android:label="@string/destinations_title" />
 
         <activity
+            android:name=".PlacementActivity"
+            android:exported="false"
+            android:label="@string/placement_title" />
+
+        <activity
             android:name=".ReorganizeActivity"
             android:exported="false"
             android:label="@string/reorganize_title" />

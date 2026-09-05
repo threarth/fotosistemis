@@ -23,8 +23,9 @@ object Schema {
      * v4 moved that name to a single application-wide setting.
      * v5 gave photos an identity of their own, independent of the platform.
      * v6 records the file name beside every path, so a move can be undone.
+     * v7 lets a photo be rated without deciding anything else about it.
      */
-    const val VERSION = 6
+    const val VERSION = 7
 
     const val TABLE_PHOTOS = "photos"
     const val TABLE_DESTINATIONS = "destinations"
@@ -33,6 +34,7 @@ object Schema {
     const val TABLE_PHOTO_TAGS = "photo_tags"
     const val TABLE_PHOTO_PATHS = "photo_paths"
     const val TABLE_SYNC_STATE = "sync_state"
+    const val TABLE_PHOTO_RATINGS = "photo_ratings"
 
     const val COLUMN_ID = "id"
     const val COLUMN_LABEL = "label"
@@ -65,6 +67,9 @@ object Schema {
 
     /** Reserved for telling apart photos the cheap columns cannot separate. */
     const val COLUMN_CONTENT_HASH = "content_hash"
+
+    /** Stars, one to five. Absent means never rated, which is not zero. */
+    const val COLUMN_STARS = "stars"
 
     const val COLUMN_FIRST_SEEN_AT = "first_seen_at"
     const val COLUMN_LAST_SEEN_AT = "last_seen_at"
@@ -188,9 +193,25 @@ object Schema {
         )
     """
 
+    /**
+     * Ratings live apart from decisions.
+     *
+     * A photo can be worth something without anything having been decided
+     * about where it goes, and holding both in one row would force a
+     * decision to exist before a rating could.
+     */
+    private const val CREATE_PHOTO_RATINGS = """
+        CREATE TABLE IF NOT EXISTS $TABLE_PHOTO_RATINGS (
+            $COLUMN_PHOTO_ID INTEGER PRIMARY KEY,
+            $COLUMN_STARS INTEGER NOT NULL,
+            $COLUMN_UPDATED_AT INTEGER NOT NULL
+        )
+    """
+
     private val CREATE_TABLES = listOf(
         CREATE_PHOTOS, CREATE_DESTINATIONS, CREATE_PHOTO_STATE, CREATE_TAGS,
-        CREATE_PHOTO_TAGS, CREATE_PHOTO_PATHS, CREATE_SYNC_STATE
+        CREATE_PHOTO_TAGS, CREATE_PHOTO_PATHS, CREATE_SYNC_STATE,
+        CREATE_PHOTO_RATINGS
     )
 
     private val CREATE_INDEXES = listOf(
@@ -226,6 +247,7 @@ object Schema {
         if (oldVersion < 2) migrateToVersion2(database)
         if (oldVersion < 4) migrateToVersion4(database)
         if (oldVersion < 6) migrateToVersion6(database)
+        // v7 added a table, and createTables above has already made it.
     }
 
     private fun createTables(database: Database) {

@@ -19,10 +19,10 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.EditText
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -33,6 +33,7 @@ import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.RatingRepository
 import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
@@ -65,6 +66,11 @@ import kotlin.math.sign
 class MainActivity : AppCompatActivity() {
 
     private companion object {
+
+        /** Big enough to tap, small enough that five fit beside a button. */
+        const val STAR_TEXT_SIZE = 22f
+        const val STAR_PADDING = 10
+
 
         /** Preselected source folder when it exists: the camera roll. */
         const val DEFAULT_SOURCE_FOLDER = "DCIM/Camera/"
@@ -124,6 +130,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewAdjacent: ImageView
     private lateinit var actionFlash: TextView
     private lateinit var tagButton: Button
+    private lateinit var printButton: Button
+    private lateinit var starBar: LinearLayout
+    private lateinit var ratings: RatingRepository
+
+    /** Stars per photo, read once and kept in step with what is written. */
+    private var ratingByPhoto: Map<Long, Int> = emptyMap()
     private lateinit var restoreButton: Button
     private lateinit var stagingButton: Button
     private lateinit var openExternalButton: Button
@@ -159,6 +171,14 @@ class MainActivity : AppCompatActivity() {
      * photos those are.
      */
     private var sourcePicker: AlertDialog? = null
+
+    /**
+     * What the last reconciliation found, for the scope dialog to show.
+     *
+     * A toast for it lands in the same instant that dialog opens, which is
+     * three seconds nobody reads. The dialog is where the user is looking.
+     */
+    private var lastReport: String? = null
 
     /** Every folder the platform reported, before any narrowing. */
     private var allFolders: List<FolderSummary> = emptyList()
@@ -261,6 +281,7 @@ class MainActivity : AppCompatActivity() {
         photoSource = MediaStorePhotoSource(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        ratings = RatingRepository(database)
         tagRepository = TagRepository(database)
         destinationRepository = DestinationRepository(database)
         mover = BatchMover(this, photoSource, stateRepository)
@@ -327,6 +348,9 @@ class MainActivity : AppCompatActivity() {
         previewAdjacent = findViewById(R.id.previewAdjacent)
         actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
+        printButton = findViewById(R.id.printButton)
+        starBar = findViewById(R.id.starBar)
+        buildStarBar()
         restoreButton = findViewById(R.id.restoreButton)
         stagingButton = findViewById(R.id.stagingButton)
         openExternalButton = findViewById(R.id.openExternalButton)
@@ -345,6 +369,10 @@ class MainActivity : AppCompatActivity() {
     private fun wireActions() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
+        printButton.setOnClickListener { togglePrintTag() }
+        findViewById<Button>(R.id.placementButton).setOnClickListener {
+            startActivity(Intent(this, PlacementActivity::class.java))
+        }
         restoreButton.setOnClickListener { showRestoreDialog() }
         stagingButton.setOnClickListener { showStagingFolder() }
         openExternalButton.setOnClickListener { openCurrentExternally() }
@@ -657,9 +685,10 @@ class MainActivity : AppCompatActivity() {
             report.rekeyed.takeIf { it > 0 }?.let { getString(R.string.report_rekeyed, it) },
             report.missing.takeIf { it > 0 }?.let { getString(R.string.report_missing, it) }
         )
-        // A toast rather than the status line: the load that follows would
-        // overwrite the line before it could be read.
-        toast(righe.joinToString(" · "))
+        lastReport = righe.joinToString(" · ")
+        // The status line is overwritten by the load that follows, so this
+        // only shows while nothing is about to open over it.
+        if (sourceAsked) toast(lastReport.orEmpty())
     }
 
     /**
@@ -705,6 +734,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_folder_tree, null)
+        lastReport?.let {
+            form.findViewById<TextView>(R.id.folderTreeHint).text =
+                getString(R.string.roots_hint_with_report, it)
+        }
         val wholeDevice = form.findViewById<CheckBox>(R.id.wholeDeviceCheck)
         val list = form.findViewById<ListView>(R.id.folderTree)
 
@@ -713,6 +746,9 @@ class MainActivity : AppCompatActivity() {
         val adapter = FolderTreeAdapter(this, candidates, chosen)
         list.adapter = adapter
         adapter.revealSelection()
+
+        adapter.setEnabled(!wholeDevice.isChecked)
+        wholeDevice.setOnCheckedChangeListener { _, checked -> adapter.setEnabled(!checked) }
 
         var salvato = false
         val dialog = AlertDialog.Builder(this)
@@ -1079,6 +1115,7 @@ class MainActivity : AppCompatActivity() {
         else loadedPhotos.filter { it.dateTakenMillis in period }
         val visible = inPeriod.filter { filter.accepts(loadedStates[it.platformId]?.status) }
 
+        ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
         if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
@@ -1132,6 +1169,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Adds a tag to the current photo, or removes one already present. */
+    /**
+     * Draws the five stars once, and wires each to the rating it stands for.
+     *
+     * Tapping a star that is already lit clears the rating: without that,
+     * one star would be a trap, since there would be no way back to none.
+     */
+    private fun buildStarBar() {
+        for (stars in 1..RatingRepository.MAX_STARS) {
+            val star = TextView(this).apply {
+                textSize = STAR_TEXT_SIZE
+                setPadding(STAR_PADDING, STAR_PADDING, STAR_PADDING, STAR_PADDING)
+                contentDescription = getString(R.string.star_hint, stars)
+                setOnClickListener { rateCurrent(stars) }
+            }
+            starBar.addView(star)
+        }
+    }
+
+    /** Records the rating and stays on the photo. */
+    private fun rateCurrent(stars: Int) {
+        val photo = session.current() ?: return
+        val current = ratingByPhoto[photo.photoId] ?: RatingRepository.UNRATED
+        val wanted = if (current == stars) RatingRepository.UNRATED else stars
+
+        ratings.rate(photo.photoId, wanted).fold(
+            onSuccess = {
+                ratingByPhoto = ratingByPhoto.toMutableMap().apply {
+                    if (wanted == RatingRepository.UNRATED) remove(photo.photoId)
+                    else put(photo.photoId, wanted)
+                }
+                if (wanted == RatingRepository.UNRATED) toast(getString(R.string.rating_cleared))
+                showStars()
+            },
+            onFailure = { showError(it) }
+        )
+    }
+
+    /** Lights the stars the photo in view has earned. */
+    private fun showStars() {
+        val photo = session.current()
+        val stars = photo?.let { ratingByPhoto[it.photoId] } ?: RatingRepository.UNRATED
+
+        for (index in 0 until starBar.childCount) {
+            val star = starBar.getChildAt(index) as TextView
+            star.setText(if (index < stars) R.string.star_filled else R.string.star_empty)
+            star.isEnabled = photo != null
+        }
+    }
+
+    /**
+     * Marks the photo for printing, and does not move on.
+     *
+     * Deciding a photo is worth printing is not deciding where it goes: the
+     * two happen at different moments, and one advancing would take the
+     * photo away before the other could be made.
+     */
+    private fun togglePrintTag() {
+        val name = getString(R.string.print_tag_name)
+        val outcome = if (session.currentTags().any { it.equals(name, ignoreCase = true) }) {
+            session.untagCurrent(name)
+        } else {
+            session.tagCurrent(name).map { }
+        }
+        outcome.fold(onSuccess = { render() }, onFailure = { showError(it) })
+    }
+
     private fun showTagDialog() {
         if (session.current() == null) return
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_tag, null)
@@ -1284,10 +1387,13 @@ class MainActivity : AppCompatActivity() {
             applyStateFrame(null)
             photoInfo.setText(R.string.status_empty)
             photoTags.text = ""
+            showStars()
             return
         }
         applyStateFrame(session.currentStatus())
         photoInfo.text = describe(photo)
+        showStars()
+        printButton.isEnabled = !busy && session.current() != null
         photoTags.text = getString(
             R.string.photo_tags,
             session.currentTags().joinToString(", ").ifEmpty { getString(R.string.tag_none) }
@@ -1430,8 +1536,36 @@ class MainActivity : AppCompatActivity() {
         if (bitmap != null) preview.setImageBitmap(bitmap)
     }
 
-    /** Asks for one consent covering the whole queue. */
+    /**
+     * States what the queue would write, then asks for consent.
+     *
+     * Counts say how much; only the list says what. Filing a hundred photos
+     * by swiping is exactly the situation where one of them went to the
+     * wrong category without being noticed, and this is the last moment that
+     * can still be seen.
+     */
     private fun startApply() {
+        val moves = session.queuedMoves
+        if (moves.isEmpty()) return toast(getString(R.string.message_queue_empty))
+
+        val righe = moves.map { move ->
+            getString(
+                R.string.reorganize_move_line,
+                move.photo.relativePath + move.photo.displayName,
+                move.destinationRelativePath + (move.newDisplayName ?: move.photo.displayName)
+            )
+        }.toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.reorganize_list_title, moves.size))
+            .setItems(righe, null)
+            .setPositiveButton(R.string.reorganize_apply) { _, _ -> requestMoveConsent() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Asks for one consent covering the whole queue. */
+    private fun requestMoveConsent() {
         val moves = session.queuedMoves
         if (moves.isEmpty()) return toast(getString(R.string.message_queue_empty))
         try {

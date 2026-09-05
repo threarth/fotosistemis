@@ -100,6 +100,29 @@
         android:textSize="12sp"
         tools:text="IMG_0001.jpg" />
 
+    <!-- Rating and the print mark: both act on the photo in view and
+         neither advances, so a judgement can be made without committing to
+         where the photo goes. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/starBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal" />
+
+        <Button
+            android:id="@+id/printButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/action_print_tag" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/photoTags"
         android:layout_width="match_parent"
@@ -222,6 +245,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/action_undo" />
+
+        <Button
+            android:id="@+id/placementButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/action_placement_short" />
 
         <Button
             android:id="@+id/applyButton"

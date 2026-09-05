@@ -139,6 +139,7 @@ class DestinationsActivity : AppCompatActivity() {
         val voci = arrayOf<CharSequence>(
             getString(R.string.action_adopt),
             getString(R.string.action_reorganize),
+            getString(R.string.action_placement),
             getString(R.string.action_export),
             getString(R.string.action_import),
             getString(R.string.action_cloud_backup)
@@ -149,8 +150,9 @@ class DestinationsActivity : AppCompatActivity() {
                 when (which) {
                     0 -> previewAdoption()
                     1 -> startActivity(Intent(this, ReorganizeActivity::class.java))
-                    2 -> startExport()
-                    3 -> confirmImport()
+                    2 -> startActivity(Intent(this, PlacementActivity::class.java))
+                    3 -> startExport()
+                    4 -> confirmImport()
                     else -> editCloudBackup()
                 }
             }

@@ -90,6 +90,10 @@ object Reorganizer {
 
         /** True when nothing can be applied until the user decides. */
         val isBlocked: Boolean get() = conflicts.isNotEmpty()
+
+        /** Categories that still have photos to move. */
+        val categoriesWithWork: Set<String>
+            get() = moves.map { it.categoryLabel }.toSet()
     }
 
     /**
