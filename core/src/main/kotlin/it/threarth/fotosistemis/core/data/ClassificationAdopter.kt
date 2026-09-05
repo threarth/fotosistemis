@@ -76,7 +76,37 @@ object ClassificationAdopter {
 
         /** True when accepting would also create folders. */
         val createsCategories: Boolean get() = proposedCategories.isNotEmpty()
+
+        /** Every category involved, and whether the app already knew it. */
+        val categories: List<Offered>
+            get() {
+                val nuove = proposedCategories.map { it.label.lowercase() }.toSet()
+                return byCategory.entries
+                    .sortedByDescending { it.value }
+                    .map { Offered(it.key, it.value, it.key.lowercase() in nuove) }
+            }
+
+        /**
+         * The same proposal with only [labels] kept.
+         *
+         * Searching the whole device for a shape finds things that merely
+         * have the shape: a folder whose name happens to contain a year
+         * makes its parent look like a category, so DCIM and storage-0 turn
+         * up beside Famiglia. Which of them mean anything is not something
+         * the shape can answer, so it is asked.
+         */
+        fun restrictedTo(labels: Set<String>): Proposal {
+            val wanted = labels.map { it.lowercase() }.toSet()
+
+            return Proposal(
+                candidates.filter { it.categoryLabel.lowercase() in wanted },
+                proposedCategories.filter { it.label.lowercase() in wanted }
+            )
+        }
     }
+
+    /** A category the recogniser is offering, with what it would bring. */
+    data class Offered(val label: String, val photoCount: Int, val isNew: Boolean)
 
     /**
      * Works out which photos are already filed, and under what.

@@ -221,6 +221,45 @@ class DestinationsActivity : AppCompatActivity() {
         )
         if (proposal.total == 0) return toast(getString(R.string.adopt_none))
 
+        chooseCategories(proposal)
+    }
+
+    /**
+     * Asks which of the categories found actually mean something.
+     *
+     * Searching the whole device for a shape finds things that merely have
+     * the shape: a folder whose name contains a year makes its parent look
+     * like a category, so DCIM and storage-0 turn up beside Famiglia. Only
+     * the user can tell which is which.
+     */
+    private fun chooseCategories(proposal: ClassificationAdopter.Proposal) {
+        val offerte = proposal.categories
+        val checked = BooleanArray(offerte.size) { !offerte[it].isNew }
+        val labels = offerte.map { offerta ->
+            getString(
+                if (offerta.isNew) R.string.adopt_category_new else R.string.adopt_category_known,
+                offerta.label,
+                offerta.photoCount
+            )
+        }.toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.adopt_choose_title)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val tenute = offerte.filterIndexed { i, _ -> checked[i] }.map { it.label }
+                if (tenute.isEmpty()) return@setPositiveButton toast(getString(R.string.adopt_none_kept))
+
+                summariseAdoption(proposal.restrictedTo(tenute.toSet()))
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** States what accepting would record, before anything is written. */
+    private fun summariseAdoption(proposal: ClassificationAdopter.Proposal) {
         val breakdown = proposal.byCategory.entries
             .sortedByDescending { it.value }
             .joinToString("\n") { "  ${it.key}: ${it.value}" }

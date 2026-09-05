@@ -262,4 +262,45 @@ class ClassificationAdopterTest {
             proposal.candidates.isEmpty()
         )
     }
+
+    @Test
+    fun `what the shape finds can be pruned`() {
+        // Searching everywhere also finds folders that merely look the part.
+        val proposal = ClassificationAdopter.propose(
+            listOf(
+                entry(10, "Pictures/storage-0/Famiglia/2020-famiglia/"),
+                entry(11, "DCIM/2023 Recita di Natale/"),
+                entry(12, "Pictures/storage-0/Festa Tommy 2021/")
+            ),
+            emptyList(),
+            alreadyDecided = emptySet(),
+            roots = ClassificationAdopter.ANYWHERE
+        )
+
+        assertEquals(
+            "La forma da sola non sa distinguerle",
+            setOf("Famiglia", "DCIM", "storage-0"),
+            proposal.categories.map { it.label }.toSet()
+        )
+        assertTrue("Sono tutte da creare", proposal.categories.all { it.isNew })
+
+        val tenute = proposal.restrictedTo(setOf("Famiglia"))
+        assertEquals(1, tenute.total)
+        assertEquals(1, tenute.proposedCategories.size)
+        assertEquals("Famiglia", tenute.proposedCategories.single().label)
+    }
+
+    @Test
+    fun `a category already known is offered as known`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(10, "Pictures/storage-1/Famiglia/2026-famiglia/")),
+            listOf(famiglia),
+            alreadyDecided = emptySet(),
+            roots = ClassificationAdopter.ANYWHERE
+        )
+
+        assertTrue("Esiste gia'", proposal.categories.none { it.isNew })
+        assertEquals(1, proposal.restrictedTo(setOf("Famiglia")).total)
+        assertEquals(0, proposal.restrictedTo(emptySet()).total)
+    }
 }
