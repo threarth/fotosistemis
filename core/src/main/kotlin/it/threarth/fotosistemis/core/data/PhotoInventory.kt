@@ -359,6 +359,19 @@ class PhotoInventory(private val database: Database) {
     }
 
     /** Records the moment a volume was last reconciled in full. */
+    /**
+     * When the last full scan of [volumeName] finished, or zero.
+     *
+     * A full reconciliation reads every photo on the device: worth doing, but
+     * not each time the app comes back from standby, which on a large archive
+     * turns every glance into a wait.
+     */
+    fun lastFullScanAt(volumeName: String): Long = database.query(
+        "SELECT ${Schema.COLUMN_LAST_FULL_SCAN_AT} AS at FROM ${Schema.TABLE_SYNC_STATE} " +
+                "WHERE ${Schema.COLUMN_VOLUME_NAME} = ?",
+        listOf(volumeName)
+    ).firstOrNull()?.getLong("at") ?: 0L
+
     fun rememberFullScan(volumeName: String): Result<Unit> = runCatching {
         database.execute(
             "INSERT OR REPLACE INTO ${Schema.TABLE_SYNC_STATE} " +

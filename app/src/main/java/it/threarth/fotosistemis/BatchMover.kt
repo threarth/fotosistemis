@@ -103,10 +103,16 @@ class BatchMover(
             ).fold(
                 onSuccess = {
                     succeeded++
+                    val name = move.newDisplayName ?: move.photo.displayName
                     stateRepository.recordMovedPath(
-                        move.photo.photoId,
-                        move.destinationRelativePath,
-                        move.newDisplayName ?: move.photo.displayName
+                        move.photo.photoId, move.destinationRelativePath, name
+                    )
+                    // Where the photo is, not only where it has been: without
+                    // this the inventory keeps the old folder until the next
+                    // full scan, and every screen reading it says the photo
+                    // is still where it no longer is.
+                    inventory.recordRelocation(
+                        move.photo.photoId, move.destinationRelativePath, name
                     )
                 },
                 onFailure = { error ->

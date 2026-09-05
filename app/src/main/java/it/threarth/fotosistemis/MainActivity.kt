@@ -70,6 +70,17 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
 
+        /** The volume every phone has, and the only one these photos use. */
+        const val PRIMARY_VOLUME = "external_primary"
+
+        /**
+         * How long a full scan stands before another is worth running.
+         *
+         * Ten minutes: long enough that standby and a glance cost nothing,
+         * short enough that photos taken while the app was away show up.
+         */
+        const val FULL_SCAN_REST_MILLIS = 10 * 60 * 1000L
+
         /** Big enough to tap, small enough that five fit beside a button. */
         const val STAR_TEXT_SIZE = 22f
         const val STAR_PADDING = 10
@@ -359,9 +370,17 @@ class MainActivity : AppCompatActivity() {
      * A full reload would lose the current position every time the app is
      * reopened, which is too high a price for a number in a button.
      */
+    /**
+     * Counts the bin from the platform, not from our own inventory.
+     *
+     * The point of the bin is that it gets emptied elsewhere — from Google
+     * Photos, so the copy in the cloud goes too — and our inventory learns
+     * that only at the next full scan. Asking the platform is what makes the
+     * number drop when the folder is actually emptied.
+     */
     private fun refreshStagingCount() {
         thread {
-            val counted = inventory
+            val counted = photoSource
                 .countPhotosIn(ReviewSession.DELETION_STAGING_PATH)
                 .getOrNull() ?: return@thread
             runOnUiThread { onStagingCountRefreshed(counted) }
@@ -372,6 +391,7 @@ class MainActivity : AppCompatActivity() {
         if (counted == stagingCount) return
         stagingCount = counted
         stagingButton.text = getString(R.string.action_staging, stagingCount)
+        refreshWaitingCount()
         updateButtonState()
 
         // Emptied while we were looking at it: what is on screen no longer
@@ -416,6 +436,7 @@ class MainActivity : AppCompatActivity() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
         printButton.setOnClickListener { togglePrintTag() }
+        findViewById<Button>(R.id.queueButton).setOnClickListener { showWaitingWork() }
         findViewById<Button>(R.id.placementButton).setOnClickListener {
             placementLauncher.launch(Intent(this, PlacementActivity::class.java))
         }
@@ -708,6 +729,12 @@ class MainActivity : AppCompatActivity() {
      * found, and it used to be thrown away.
      */
     private fun reconcileWithPlatform() {
+        // Reading every photo on the device is worth doing, and not worth
+        // doing again minutes later: coming back from standby should not
+        // cost the same as opening the app for the first time.
+        val since = System.currentTimeMillis() - inventory.lastFullScanAt(PRIMARY_VOLUME)
+        if (since < FULL_SCAN_REST_MILLIS) return
+
         runOnUiThread { statusText.setText(R.string.status_reading) }
         val records = photoSource.listPhotos(null).getOrElse { error ->
             runOnUiThread { showError(error) }
@@ -718,9 +745,56 @@ class MainActivity : AppCompatActivity() {
             statusText.text = getString(R.string.status_reconciling, records.size)
         }
         inventory.reconcile(records, recordsAreComplete = true).fold(
-            onSuccess = { (_, report) -> runOnUiThread { showReconcileReport(report) } },
+            onSuccess = { (_, report) ->
+                inventory.rememberFullScan(PRIMARY_VOLUME)
+                runOnUiThread { showReconcileReport(report) }
+            },
             onFailure = { error -> runOnUiThread { showError(error) } }
         )
+    }
+
+    /**
+     * What has been decided and not yet carried out, of both kinds.
+     *
+     * A decision is written the instant it is made; carrying it out can fail,
+     * be refused, or be lost when the session ends. The two drift, and this
+     * is where the drift is shown and closed.
+     */
+    /** Keeps the queue button honest about how much is waiting. */
+    private fun refreshWaitingCount() {
+        thread {
+            val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+                .getOrElse { emptyList() }.size
+            val fuoriPosto = inventory.countByDestination().getOrElse { emptyList() }
+                .sumOf { it.elsewhereCount }
+            runOnUiThread {
+                findViewById<Button>(R.id.queueButton).text =
+                    getString(R.string.action_queue, cestino + fuoriPosto)
+            }
+        }
+    }
+
+    private fun showWaitingWork() {
+        val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+            .getOrElse { emptyList() }
+        val fuoriPosto = inventory.countByDestination().getOrElse { emptyList() }
+            .sumOf { it.elsewhereCount }
+
+        if (cestino.isEmpty() && fuoriPosto == 0) return toast(getString(R.string.queue_empty))
+
+        val voci = listOfNotNull(
+            cestino.size.takeIf { it > 0 }?.let { getString(R.string.queue_trash, it) },
+            fuoriPosto.takeIf { it > 0 }?.let { getString(R.string.queue_categorised, it) }
+        ).toTypedArray<CharSequence>()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.queue_title)
+            .setItems(voci) { _, which ->
+                if (which == 0 && cestino.isNotEmpty()) offerPendingTrash(cestino)
+                else placementLauncher.launch(Intent(this, PlacementActivity::class.java))
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /** Says what the reconciliation actually changed, not just that it ran. */
