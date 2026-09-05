@@ -48,6 +48,7 @@ import it.threarth.fotosistemis.core.review.PhotoFilter
 import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.core.view.WindowInsetsCompat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -150,7 +151,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Stars per photo, read once and kept in step with what is written. */
     private var ratingByPhoto: Map<Long, Int> = emptyMap()
-    private lateinit var restoreButton: Button
+
     private lateinit var stagingButton: Button
     private lateinit var openExternalButton: Button
     private lateinit var undoButton: Button
@@ -417,11 +418,59 @@ class MainActivity : AppCompatActivity() {
         printButton = findViewById(R.id.printButton)
         starBar = findViewById(R.id.starBar)
         buildStarBar()
-        restoreButton = findViewById(R.id.restoreButton)
+
         stagingButton = findViewById(R.id.stagingButton)
         openExternalButton = findViewById(R.id.openExternalButton)
         undoButton = findViewById(R.id.undoButton)
         applyButton = findViewById(R.id.applyButton)
+    }
+
+    /**
+     * Wires the drawer: everything that is not sorting a photo lives there.
+     *
+     * Nine buttons around the picture made the rare and the constant look
+     * equally reachable, and a thumb swiping through an archive should not
+     * be a thumb's width from rebuilding the inventory.
+     */
+    private fun bindDrawer() {
+        val drawer = findViewById<DrawerLayout>(R.id.drawer)
+        findViewById<Button>(R.id.menuButton).setOnClickListener { drawer.open() }
+
+        fun voce(id: Int, azione: () -> Unit) {
+            findViewById<Button>(id).setOnClickListener {
+                drawer.close()
+                azione()
+            }
+        }
+        voce(R.id.drawerSourceButton) { editSourceRoots() }
+        voce(R.id.drawerOutputButton) {
+            startActivity(Intent(this, DestinationsActivity::class.java))
+        }
+        voce(R.id.drawerQueueButton) { showWaitingWork() }
+        voce(R.id.drawerPlacementButton) {
+            placementLauncher.launch(Intent(this, PlacementActivity::class.java))
+        }
+        voce(R.id.drawerRestoreButton) { showRestoreDialog() }
+        voce(R.id.drawerRescanButton) { confirmRescan() }
+    }
+
+    /**
+     * Forces the full scan the ten-minute rest would otherwise skip.
+     *
+     * Needed when the world changed outside the app — a file manager moved
+     * something, Google Photos emptied the bin — which our own records have
+     * no way of noticing.
+     */
+    private fun confirmRescan() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.rescan_title)
+            .setMessage(R.string.rescan_message)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                inventory.forgetFullScan(PRIMARY_VOLUME)
+                refreshFolders()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     private fun applySystemBarInsets() {
@@ -436,20 +485,14 @@ class MainActivity : AppCompatActivity() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
         printButton.setOnClickListener { togglePrintTag() }
-        findViewById<Button>(R.id.queueButton).setOnClickListener { showWaitingWork() }
-        findViewById<Button>(R.id.placementButton).setOnClickListener {
-            placementLauncher.launch(Intent(this, PlacementActivity::class.java))
-        }
-        restoreButton.setOnClickListener { showRestoreDialog() }
+        bindDrawer()
+
         stagingButton.setOnClickListener { showStagingFolder() }
         openExternalButton.setOnClickListener { openCurrentExternally() }
         undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
         applyButton.setOnClickListener { startApply() }
         findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
         findViewById<Button>(R.id.pickRangeButton).setOnClickListener { pickDateRange() }
-        findViewById<Button>(R.id.destinationsButton).setOnClickListener {
-            startActivity(Intent(this, DestinationsActivity::class.java))
-        }
     }
 
     /**
@@ -768,7 +811,7 @@ class MainActivity : AppCompatActivity() {
             val fuoriPosto = inventory.countByDestination().getOrElse { emptyList() }
                 .sumOf { it.elsewhereCount }
             runOnUiThread {
-                findViewById<Button>(R.id.queueButton).text =
+                findViewById<Button>(R.id.drawerQueueButton).text =
                     getString(R.string.action_queue, cestino + fuoriPosto)
             }
         }
@@ -1399,31 +1442,41 @@ class MainActivity : AppCompatActivity() {
         val restorable = session.restorableCount()
         if (restorable == 0) return toast(getString(R.string.restore_none))
 
-        val options = ArrayList<String>()
-        val plans = ArrayList<List<ReviewSession.PendingMove>>()
+        // Only the photo in view. Undoing the archiving of everything the
+        // filters happen to be showing is too much to hang on one button:
+        // the history in photo_paths keeps every original location, so
+        // anything older can still be reconstructed deliberately.
+        if (session.currentRestorePath() == null) return toast(getString(R.string.restore_none))
 
-        if (session.currentRestorePath() != null) {
-            options.add(getString(R.string.restore_current))
-            plans.add(session.buildRestorePlan(onlyCurrent = true))
-        }
-        options.add(getString(R.string.restore_all, restorable))
-        plans.add(session.buildRestorePlan(onlyCurrent = false))
+        confirmRestore(session.buildRestorePlan(onlyCurrent = true))
+    }
 
+    /** Final confirmation, naming exactly how many photos will move. */
+    /**
+     * Restoring undoes the most and used to say the least.
+     *
+     * It moves photos back to where the app first saw them, gives back their
+     * original names — undoing the stamp — and marks them kept. "All" means
+     * every photo the current filter has loaded, which with no filter is the
+     * archive. A count alone was not an answer.
+     */
+    private fun confirmRestore(plan: List<ReviewSession.PendingMove>) {
+        if (plan.isEmpty()) return toast(getString(R.string.restore_none))
         AlertDialog.Builder(this)
-            .setTitle(R.string.restore_title)
-            .setItems(options.toTypedArray()) { _, which -> confirmRestore(plans[which]) }
+            .setTitle(getString(R.string.restore_confirm_title, plan.size))
+            .setAdapter(MovePreviewAdapter(this, plan, photoSource), null)
+            .setPositiveButton(R.string.restore_do) { _, _ -> startRestore(plan) }
+            .setNeutralButton(R.string.restore_explain) { _, _ -> explainRestore(plan.size) }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
 
-    /** Final confirmation, naming exactly how many photos will move. */
-    private fun confirmRestore(plan: List<ReviewSession.PendingMove>) {
-        if (plan.isEmpty()) return toast(getString(R.string.restore_none))
+    /** Spells out what restoring gives back, and what it takes away. */
+    private fun explainRestore(count: Int) {
         AlertDialog.Builder(this)
             .setTitle(R.string.restore_title)
-            .setMessage(getString(R.string.restore_confirm, plan.size))
-            .setPositiveButton(android.R.string.ok) { _, _ -> startRestore(plan) }
-            .setNegativeButton(R.string.action_cancel, null)
+            .setMessage(getString(R.string.restore_explained, count))
+            .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 
@@ -1572,8 +1625,6 @@ class MainActivity : AppCompatActivity() {
         tagButton.isEnabled = !busy && hasPhoto
         openExternalButton.isEnabled = !busy && hasPhoto
         stagingButton.isEnabled = !busy && stagingCount > 0
-        restoreButton.isEnabled = !busy && (session.currentRestorePath() != null ||
-                session.restorableCount() > 0)
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {
@@ -1712,14 +1763,6 @@ class MainActivity : AppCompatActivity() {
         val moves = session.queuedMoves
         if (moves.isEmpty()) return toast(getString(R.string.message_queue_empty))
 
-        val righe = moves.map { move ->
-            getString(
-                R.string.reorganize_move_line,
-                move.photo.relativePath + move.photo.displayName,
-                move.destinationRelativePath + (move.newDisplayName ?: move.photo.displayName)
-            )
-        }.toTypedArray<CharSequence>()
-
         // Some of them the system will refuse, and saying so afterwards
         // reads as a fault of the app rather than a rule of the platform.
         val bloccate = moves.count { PhotoSourcePort.isImmovable(it.photo.relativePath) }
@@ -1728,7 +1771,7 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle(titolo)
-            .setItems(righe, null)
+            .setAdapter(MovePreviewAdapter(this, moves, photoSource), null)
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> requestMoveConsent() }
             // Discarding belonged only to the dialog that interrupts a
             // filter change, which meant the queue could be emptied by

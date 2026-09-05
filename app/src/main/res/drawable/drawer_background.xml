@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A slightly deeper ground than the screen, so the drawer reads as
+     something laid over it rather than part of it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/brand_blue_light" />
+</shape>

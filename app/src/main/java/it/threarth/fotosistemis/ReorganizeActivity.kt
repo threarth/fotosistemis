@@ -347,17 +347,11 @@ class ReorganizeActivity : AppCompatActivity() {
      * the only place that difference shows before it is written.
      */
     private fun showMoveList(plan: Reorganizer.Plan) {
-        val righe = plan.moves.map { move ->
-            getString(
-                R.string.reorganize_move_line,
-                move.fromRelativePath + move.fromDisplayName,
-                move.toRelativePath + move.toDisplayName
-            )
-        }.toTypedArray<CharSequence>()
+        val moves = buildMoves(plan) ?: return
 
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.reorganize_list_title, plan.total))
-            .setItems(righe, null)
+            .setAdapter(MovePreviewAdapter(this, moves, photoSource), null)
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> startApply() }
             .setNeutralButton(R.string.reorganize_review) { _, _ -> reviewPlan(plan) }
             .setNegativeButton(R.string.action_cancel) { _, _ -> pendingPlan = null }

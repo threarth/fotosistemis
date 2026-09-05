@@ -372,6 +372,17 @@ class PhotoInventory(private val database: Database) {
         listOf(volumeName)
     ).firstOrNull()?.getLong("at") ?: 0L
 
+    /** Forgets the last scan, so the next one runs however recent it was. */
+    fun forgetFullScan(volumeName: String): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "DELETE FROM ${Schema.TABLE_SYNC_STATE} WHERE ${Schema.COLUMN_VOLUME_NAME} = ?",
+                listOf(volumeName)
+            )
+            Unit
+        }
+    }
+
     fun rememberFullScan(volumeName: String): Result<Unit> = runCatching {
         database.execute(
             "INSERT OR REPLACE INTO ${Schema.TABLE_SYNC_STATE} " +

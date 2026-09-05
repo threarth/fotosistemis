@@ -1,271 +1,319 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
+    android:id="@+id/drawer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="12dp"
     tools:context=".MainActivity">
 
-    <!-- Scope on the left, the folder being worked on beside it. The two
-         answer different questions: where the archive lives, and where the
-         work is right now. -->
-    <LinearLayout
+    <LinearLayout android:id="@+id/main"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:background="@color/surface_tint">
 
-        <Button
-            android:id="@+id/sourceButton"
-            android:layout_width="0dp"
+        <!-- Scope on the left, the folder being worked on beside it. The two
+             answer different questions: where the archive lives, and where the
+             work is right now. -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_source" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/folderButton"
-            android:layout_width="0dp"
+            <Button
+                android:id="@+id/sourceButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_source" />
+
+            <Button
+                android:id="@+id/folderButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="@string/folder_all" />
+
+            <Button
+                android:id="@+id/menuButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_menu" />
+
+            <Button
+                android:id="@+id/stagingButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_staging" />
+        </LinearLayout>
+
+        <!-- Filters: which period, and which review states, to load. -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="2"
-            android:text="@string/folder_all" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/stagingButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_staging" />
-    </LinearLayout>
+            <Spinner
+                android:id="@+id/periodSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
-    <!-- Filters: which period, and which review states, to load. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <Spinner
-            android:id="@+id/periodSpinner"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <Spinner
-            android:id="@+id/scopeSpinner"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/pickRangeButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_pick_range" />
-
-        <Button
-            android:id="@+id/reloadButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_reload" />
-
-        <Button
-            android:id="@+id/destinationsButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_destinations" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:textSize="12sp"
-        tools:text="0 / 0" />
-
-    <TextView
-        android:id="@+id/photoInfo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        tools:text="IMG_0001.jpg" />
-
-    <!-- Rating and the print mark: both act on the photo in view and
-         neither advances, so a judgement can be made without committing to
-         where the photo goes. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+            <Spinner
+                android:id="@+id/scopeSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/starBar"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/pickRangeButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_pick_range" />
+
+            <Button
+                android:id="@+id/reloadButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_reload" />
+
+       </LinearLayout>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textSize="12sp"
+            tools:text="0 / 0" />
+
+        <TextView
+            android:id="@+id/photoInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            tools:text="IMG_0001.jpg" />
+
+        <!-- Rating and the print mark: both act on the photo in view and
+             neither advances, so a judgement can be made without committing to
+             where the photo goes. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/starBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/printButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_print_tag" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/photoTags"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textStyle="italic"
+            tools:text="tag: festatommy2024" />
+
+        <!-- Preview with the four actions laid over it, which saves the two
+             rows of buttons they replace. Taps are hit-tested by coordinate and
+             flings are read in the same directions, so the overlay is only a
+             label: it never intercepts touches itself. -->
+        <FrameLayout
+            android:id="@+id/mediaStage"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
             android:layout_weight="1"
-            android:orientation="horizontal" />
+            android:background="@drawable/photo_frame"
+            android:padding="4dp">
 
-        <Button
-            android:id="@+id/printButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/action_print_tag" />
-    </LinearLayout>
+            <!-- Sits under the current photo and shows the neighbouring one, so
+                 a drag reveals where it is going instead of cutting to it. -->
+            <ImageView
+                android:id="@+id/previewAdjacent"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:contentDescription="@string/preview_description"
+                android:scaleType="fitCenter"
+                android:visibility="invisible" />
 
-    <TextView
-        android:id="@+id/photoTags"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        android:textStyle="italic"
-        tools:text="tag: festatommy2024" />
+            <ImageView
+                android:id="@+id/preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:background="#10000000"
+                android:contentDescription="@string/preview_description"
+                android:scaleType="fitCenter" />
 
-    <!-- Preview with the four actions laid over it, which saves the two
-         rows of buttons they replace. Taps are hit-tested by coordinate and
-         flings are read in the same directions, so the overlay is only a
-         label: it never intercepts touches itself. -->
-    <FrameLayout
-        android:id="@+id/mediaStage"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="6dp"
-        android:layout_weight="1">
+            <!-- Legend only: every action is a swipe. Tap zones were removed
+                 because "left" is ambiguous, meaning either where the finger
+                 starts or where it travels, and the two readings disagree. -->
+            <TextView
+                android:id="@+id/swipeLegend"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_margin="8dp"
+                android:alpha="0.55"
+                android:background="#66000000"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="@string/swipe_legend"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
 
-        <!-- Sits under the current photo and shows the neighbouring one, so
-             a drag reveals where it is going instead of cutting to it. -->
-        <ImageView
-            android:id="@+id/previewAdjacent"
+            <!-- Confirms the gesture just made, then fades out. -->
+            <TextView
+                android:id="@+id/actionFlash"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:alpha="0"
+                android:background="#CC000000"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="12dp"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <!-- One button per destination folder, built from the database. -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:adjustViewBounds="true"
-            android:contentDescription="@string/preview_description"
-            android:scaleType="fitCenter"
-            android:visibility="invisible" />
-
-        <ImageView
-            android:id="@+id/preview"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:adjustViewBounds="true"
-            android:background="#10000000"
-            android:contentDescription="@string/preview_description"
-            android:scaleType="fitCenter" />
-
-        <!-- Legend only: every action is a swipe. Tap zones were removed
-             because "left" is ambiguous, meaning either where the finger
-             starts or where it travels, and the two readings disagree. -->
-        <TextView
-            android:id="@+id/swipeLegend"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_margin="8dp"
-            android:alpha="0.55"
-            android:background="#66000000"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="4dp"
-            android:text="@string/swipe_legend"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp" />
+            android:scrollbars="none">
 
-        <!-- Confirms the gesture just made, then fades out. -->
-        <TextView
-            android:id="@+id/actionFlash"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:alpha="0"
-            android:background="#CC000000"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="12dp"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-    </FrameLayout>
-
-    <!-- One button per destination folder, built from the database. -->
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/destinationActions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
         <LinearLayout
-            android:id="@+id/destinationActions"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal" />
-    </HorizontalScrollView>
+            android:orientation="horizontal">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+            <Button
+                android:id="@+id/tagButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_tag" />
 
-        <Button
-            android:id="@+id/tagButton"
-            android:layout_width="0dp"
+            <Button
+                android:id="@+id/openExternalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_open_external" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_tag" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/restoreButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_restore" />
+            <Button
+                android:id="@+id/undoButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_undo" />
 
-        <Button
-            android:id="@+id/openExternalButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_open_external" />
+            <Button
+                android:id="@+id/applyButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_apply" />
+        </LinearLayout>
+
     </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+    <!-- Everything that is not the act of sorting a photo: rare, weighty,
+         and out of reach of a thumb that is swiping. -->
+    <ScrollView
+        android:layout_width="280dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="@drawable/drawer_background"
+        android:padding="12dp">
 
-        <Button
-            android:id="@+id/undoButton"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_undo" />
+            android:orientation="vertical">
 
-        <Button
-            android:id="@+id/queueButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_queue" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
+                android:text="@string/menu_title"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/placementButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_placement_short" />
+            <Button
+                android:id="@+id/drawerSourceButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_source" />
 
-        <Button
-            android:id="@+id/applyButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_apply" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/drawerOutputButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_destinations" />
 
-</LinearLayout>
+            <Button
+                android:id="@+id/drawerQueueButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_queue_plain" />
+
+            <Button
+                android:id="@+id/drawerPlacementButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_placement" />
+
+            <Button
+                android:id="@+id/drawerRestoreButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_restore" />
+
+            <Button
+                android:id="@+id/drawerRescanButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_rescan" />
+        </LinearLayout>
+    </ScrollView>
+</androidx.drawerlayout.widget.DrawerLayout>
