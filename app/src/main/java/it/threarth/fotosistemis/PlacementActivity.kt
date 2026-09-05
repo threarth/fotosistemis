@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis
 
 import android.content.Intent
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -17,7 +18,7 @@ import androidx.core.view.WindowInsetsCompat
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.model.Destination
-import it.threarth.fotosistemis.core.reorg.Reorganizer
+import it.threarth.fotosistemis.core.review.ReviewSession
 
 /**
  * Every filed photo and where it actually sits.
@@ -29,6 +30,12 @@ import it.threarth.fotosistemis.core.reorg.Reorganizer
  */
 class PlacementActivity : AppCompatActivity() {
 
+    companion object {
+
+        /** Told to the caller when the bin needs gathering, which only it can do. */
+        const val EXTRA_GATHER_TRASH = "it.threarth.fotosistemis.GATHER_TRASH"
+    }
+
     private lateinit var inventory: PhotoInventory
     private lateinit var settings: AppSettings
     private lateinit var listView: ListView
@@ -37,13 +44,19 @@ class PlacementActivity : AppCompatActivity() {
     private var rows: List<Row> = emptyList()
     private var onlyWrong = false
 
+    /** Categories being shown; empty means all of them. */
+    private var chosenCategories: Set<String> = emptySet()
+
     /** One photo: where its category says it goes, and where it is. */
     private data class Row(
         val photoId: Long,
         val displayName: String,
         val categoryLabel: String,
         val actualPath: String,
-        val expectedPath: String
+        val expectedPath: String,
+
+        /** Bound for the bin rather than a category: fixed a different way. */
+        val isTrash: Boolean = false
     ) {
         val isHome: Boolean get() = actualPath == expectedPath
     }
@@ -64,7 +77,10 @@ class PlacementActivity : AppCompatActivity() {
             redraw()
         }
         findViewById<Button>(R.id.placementFixAllButton).setOnClickListener {
-            fix(rows.filter { !it.isHome })
+            fix(shownRows().filter { !it.isHome })
+        }
+        findViewById<Button>(R.id.placementCategoryButton).setOnClickListener {
+            chooseCategories()
         }
         listView.setOnItemClickListener { _, _, position, _ ->
             val row = (listView.adapter as Adapter).getItem(position)
@@ -91,7 +107,20 @@ class PlacementActivity : AppCompatActivity() {
         val byId: Map<Long, Destination> = repository.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
 
-        rows = entries.mapNotNull { entry ->
+        val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+            .getOrElse { emptyList() }
+            .map { photo ->
+                Row(
+                    photoId = photo.photoId,
+                    displayName = photo.displayName,
+                    categoryLabel = getString(R.string.placement_trash_label),
+                    actualPath = photo.relativePath,
+                    expectedPath = ReviewSession.DELETION_STAGING_PATH,
+                    isTrash = true
+                )
+            }
+
+        rows = cestino + entries.mapNotNull { entry ->
             val destination = byId[entry.destinationId] ?: return@mapNotNull null
             Row(
                 photoId = entry.photoId,
@@ -115,25 +144,69 @@ class PlacementActivity : AppCompatActivity() {
     private fun fix(chosen: List<Row>) {
         if (chosen.isEmpty()) return toast(getString(R.string.placement_fix_none))
 
-        startActivity(
-            Intent(this, ReorganizeActivity::class.java).putExtra(
-                ReorganizeActivity.EXTRA_PHOTO_IDS,
-                chosen.map { it.photoId }.toLongArray()
+        // The bin is gathered from the screen that owns the review session,
+        // and categories by the reorganiser: each act keeps its one path to
+        // writing, rather than growing a second.
+        val (cestino, categorie) = chosen.partition { it.isTrash }
+        if (categorie.isNotEmpty()) {
+            startActivity(
+                Intent(this, ReorganizeActivity::class.java).putExtra(
+                    ReorganizeActivity.EXTRA_PHOTO_IDS,
+                    categorie.map { it.photoId }.toLongArray()
+                )
             )
-        )
+            return
+        }
+
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_GATHER_TRASH, true))
+        finish()
     }
+
+    /** Narrows the list to the categories worth looking at. */
+    private fun chooseCategories() {
+        val etichette = rows.map { it.categoryLabel }.distinct().sorted()
+        if (etichette.isEmpty()) return toast(getString(R.string.placement_fix_none))
+
+        val checked = BooleanArray(etichette.size) {
+            chosenCategories.isEmpty() || etichette[it] in chosenCategories
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.placement_categories_title)
+            .setMultiChoiceItems(etichette.toTypedArray<CharSequence>(), checked) { _, which, on ->
+                checked[which] = on
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val tenute = etichette.filterIndexed { i, _ -> checked[i] }.toSet()
+                chosenCategories = if (tenute.size == etichette.size) emptySet() else tenute
+                redraw()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** The rows the filters leave visible. */
+    private fun shownRows(): List<Row> = rows
+        .filter { chosenCategories.isEmpty() || it.categoryLabel in chosenCategories }
+        .filter { !onlyWrong || !it.isHome }
 
     private fun toast(message: String) {
         android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
     }
 
     private fun redraw() {
-        val fuori = rows.count { !it.isHome }
-        summary.text = getString(R.string.placement_summary, rows.size, rows.size - fuori, fuori)
+        val visibili = shownRows()
+        val fuori = visibili.count { !it.isHome }
+        summary.text = getString(
+            R.string.placement_summary, visibili.size, visibili.size - fuori, fuori
+        )
         findViewById<Button>(R.id.placementFilterButton).setText(
             if (onlyWrong) R.string.placement_show_all else R.string.placement_only_wrong
         )
-        listView.adapter = Adapter(if (onlyWrong) rows.filter { !it.isHome } else rows)
+        findViewById<Button>(R.id.placementCategoryButton).text =
+            if (chosenCategories.isEmpty()) getString(R.string.placement_categories_all)
+            else getString(R.string.placement_categories_some, chosenCategories.size)
+
+        listView.adapter = Adapter(visibili)
     }
 
     /** Green and a tick when the photo is where its category says. */

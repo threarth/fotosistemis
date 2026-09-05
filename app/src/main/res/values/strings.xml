@@ -177,6 +177,7 @@
     <string name="star_empty">☆</string>
     <string name="star_hint">%1$d stelle</string>
     <string name="rating_cleared">Voto tolto.</string>
+    <string name="placement_trash_label">Da eliminare</string>
     <string name="placement_categories">Categorie</string>
     <string name="placement_categories_title">Quali categorie mostrare</string>
     <string name="placement_categories_all">tutte le categorie</string>

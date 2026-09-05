@@ -281,6 +281,15 @@ class MainActivity : AppCompatActivity() {
     /** Photos being gathered into the bin, outside any review session. */
     private var pendingTrash: List<ReviewSession.PendingMove> = emptyList()
 
+    /** Posizioni can ask for the bin to be gathered; only this screen can. */
+    private val placementLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val chiesto = result.data?.getBooleanExtra(
+                PlacementActivity.EXTRA_GATHER_TRASH, false
+            ) ?: false
+            if (result.resultCode == Activity.RESULT_OK && chiesto) showStagingFolder()
+        }
+
     private val requestTrashConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             val moves = pendingTrash
@@ -408,7 +417,7 @@ class MainActivity : AppCompatActivity() {
         tagButton.setOnClickListener { showTagDialog() }
         printButton.setOnClickListener { togglePrintTag() }
         findViewById<Button>(R.id.placementButton).setOnClickListener {
-            startActivity(Intent(this, PlacementActivity::class.java))
+            placementLauncher.launch(Intent(this, PlacementActivity::class.java))
         }
         restoreButton.setOnClickListener { showRestoreDialog() }
         stagingButton.setOnClickListener { showStagingFolder() }
