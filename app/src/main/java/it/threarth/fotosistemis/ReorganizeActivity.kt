@@ -40,6 +40,19 @@ import kotlin.concurrent.thread
  */
 class ReorganizeActivity : AppCompatActivity() {
 
+    companion object {
+
+        /**
+         * Photos to work on, when the caller has already chosen them.
+         *
+         * Posizioni knows which photos are not where they belong and
+         * survives the app being closed, which the review queue does not:
+         * handing them over is what turns that list into something you can
+         * act on rather than only read.
+         */
+        const val EXTRA_PHOTO_IDS = "it.threarth.fotosistemis.PHOTO_IDS"
+    }
+
     private lateinit var repository: DestinationRepository
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
@@ -106,6 +119,10 @@ class ReorganizeActivity : AppCompatActivity() {
             redrawList()
         }
 
+        // Arriving with a chosen set means the choosing is done: show the
+        // plan straight away rather than a list of one category.
+        if (intent.hasExtra(EXTRA_PHOTO_IDS)) listView.post { preview(choices) }
+
         refresh()
     }
 
@@ -127,6 +144,9 @@ class ReorganizeActivity : AppCompatActivity() {
         entries = inventory.loadForReorganization().getOrElse {
             showError(it)
             emptyList()
+        }
+        intent.getLongArrayExtra(EXTRA_PHOTO_IDS)?.toHashSet()?.let { wanted ->
+            entries = entries.filter { it.photoId in wanted }
         }
         val destinations = repository.loadAll().getOrElse {
             showError(it)

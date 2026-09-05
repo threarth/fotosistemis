@@ -1,5 +1,6 @@
 package it.threarth.fotosistemis
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -38,6 +39,7 @@ class PlacementActivity : AppCompatActivity() {
 
     /** One photo: where its category says it goes, and where it is. */
     private data class Row(
+        val photoId: Long,
         val displayName: String,
         val categoryLabel: String,
         val actualPath: String,
@@ -60,6 +62,13 @@ class PlacementActivity : AppCompatActivity() {
         findViewById<Button>(R.id.placementFilterButton).setOnClickListener {
             onlyWrong = !onlyWrong
             redraw()
+        }
+        findViewById<Button>(R.id.placementFixAllButton).setOnClickListener {
+            fix(rows.filter { !it.isHome })
+        }
+        listView.setOnItemClickListener { _, _, position, _ ->
+            val row = (listView.adapter as Adapter).getItem(position)
+            if (!row.isHome) fix(listOf(row))
         }
 
         load(DestinationRepository(database))
@@ -85,6 +94,7 @@ class PlacementActivity : AppCompatActivity() {
         rows = entries.mapNotNull { entry ->
             val destination = byId[entry.destinationId] ?: return@mapNotNull null
             Row(
+                photoId = entry.photoId,
                 displayName = entry.displayName,
                 categoryLabel = destination.label,
                 actualPath = entry.relativePath,
@@ -93,6 +103,28 @@ class PlacementActivity : AppCompatActivity() {
         }.sortedWith(compareBy({ it.isHome }, { it.categoryLabel }, { it.displayName }))
 
         redraw()
+    }
+
+    /**
+     * Hands photos to the reorganiser, which is the only thing that writes.
+     *
+     * Nothing is moved from here: the plan, the preview and the system's
+     * consent all belong to one place, and duplicating them would mean two
+     * paths to the same irreversible act.
+     */
+    private fun fix(chosen: List<Row>) {
+        if (chosen.isEmpty()) return toast(getString(R.string.placement_fix_none))
+
+        startActivity(
+            Intent(this, ReorganizeActivity::class.java).putExtra(
+                ReorganizeActivity.EXTRA_PHOTO_IDS,
+                chosen.map { it.photoId }.toLongArray()
+            )
+        )
+    }
+
+    private fun toast(message: String) {
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
     }
 
     private fun redraw() {

@@ -14,6 +14,10 @@
     <string name="pending_apply">Applica</string>
     <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
     <string name="message_applied_blocked">%1$d foto spostate. %2$d restano dove sono: stanno nella cartella di un\'altra app e Android non lascia portarle fuori. Sono comunque catalogate, ed escono dalla coda.</string>
+    <string name="pending_trash_title">Da eliminare, non ancora raccolte</string>
+    <string name="pending_trash_message">%1$d foto le hai segnate da eliminare ma non sono mai arrivate nella cartella di raccolta: lo spostamento non e\' andato a buon fine o la coda si e\' persa chiudendo l\'app.\n\nRaccoglierle ora le porta in _FotoSistemis_DaEliminare, da dove puoi sempre riprenderle se hai cambiato idea. Quelle dentro la cartella di un\'altra app verranno copiate, e ti sara\' chiesto se eliminare l\'originale.</string>
+    <string name="pending_trash_gather">Raccoglile ora</string>
+    <string name="staging_open">Apri la cartella</string>
     <string name="cleanup_title">Originali rimasti</string>
     <string name="cleanup_message">%1$d foto sono state COPIATE nella loro categoria, perche\' Android non lascia spostare i file dalla cartella di un\'altra app.\n\nGli originali sono ancora al loro posto: la stessa immagine e\' ora sul telefono due volte. Vuoi eliminarli? Te lo chiedera\' il sistema.</string>
     <string name="cleanup_delete">Elimina gli originali</string>

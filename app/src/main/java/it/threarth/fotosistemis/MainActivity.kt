@@ -278,6 +278,25 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    /** Photos being gathered into the bin, outside any review session. */
+    private var pendingTrash: List<ReviewSession.PendingMove> = emptyList()
+
+    private val requestTrashConsent =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            val moves = pendingTrash
+            pendingTrash = emptyList()
+            if (result.resultCode != Activity.RESULT_OK) {
+                refuseConsent()
+                return@registerForActivityResult
+            }
+
+            setBusy(true)
+            thread {
+                val outcome = mover.applyAll(moves)
+                runOnUiThread { onMovesApplied(outcome) }
+            }
+        }
+
     private val requestRestoreConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) applyRestore()
@@ -1365,10 +1384,54 @@ class MainActivity : AppCompatActivity() {
      * deleting it anywhere else would leave the cloud copy behind.
      */
     private fun showStagingFolder() {
+        val arretrate = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+            .getOrElse { emptyList() }
+        if (arretrate.isNotEmpty()) return offerPendingTrash(arretrate)
         if (stagingCount == 0) return toast(getString(R.string.staging_empty))
 
         changeFilter { preferredSubtree = stagingPath() }
         toast(getString(R.string.staging_hint))
+    }
+
+    /**
+     * Offers to gather the photos marked for deletion that never moved.
+     *
+     * They are the drift between a decision and its consequence: the queue
+     * dies with the session while the decision is written at once, so a
+     * refused or interrupted batch leaves photos the app believes are in the
+     * bin and are not. Gathering them is what makes the bin mean something —
+     * and what lets a change of mind still find them.
+     */
+    private fun offerPendingTrash(photos: List<PhotoRecord>) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pending_trash_title)
+            .setMessage(getString(R.string.pending_trash_message, photos.size))
+            .setPositiveButton(R.string.pending_trash_gather) { _, _ -> gatherTrash(photos) }
+            .setNeutralButton(R.string.staging_open) { _, _ ->
+                changeFilter { preferredSubtree = stagingPath() }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Queues them for the bin and hands them to the usual apply flow. */
+    private fun gatherTrash(photos: List<PhotoRecord>) {
+        pendingTrash = photos.map { photo ->
+            ReviewSession.PendingMove(
+                photo = photo,
+                destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
+                status = ReviewStatus.TRASHED,
+                destinationId = null
+            )
+        }
+        try {
+            requestTrashConsent.launch(
+                IntentSenderRequest.Builder(mover.buildConsent(pendingTrash)).build()
+            )
+        } catch (error: Exception) {
+            pendingTrash = emptyList()
+            showError(error)
+        }
     }
 
     /**
@@ -1654,38 +1717,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Reports the batch and decides what is worth trying again.
+     * Reports the batch and keeps what failed for another attempt.
      *
-     * A photo inside another app's folder will be refused every time, and
-     * keeping it queued makes the queue grow without end: a hundred WhatsApp
-     * photos sat there being retried forever. Its decision is already
-     * recorded, so leaving the queue costs nothing.
+     * Everything that fails now is worth retrying: the one failure that was
+     * permanent — a photo in another app's folder — is copied instead of
+     * moved, so it no longer fails at all.
      */
     private fun onMovesApplied(result: BatchMover.BatchResult) {
         setBusy(false)
-        val (bloccate, ritentabili) = result.failed.partition {
-            PhotoSourcePort.isImmovable(it.photo.relativePath)
-        }
-
-        when {
-            result.failed.isEmpty() ->
-                toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
-
-            ritentabili.isEmpty() -> toast(
-                getString(R.string.message_applied_blocked, result.succeeded, bloccate.size)
-            )
-
-            else -> toast(
+        if (result.failed.isEmpty()) {
+            toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
+        } else {
+            toast(
                 getString(
                     R.string.message_partial,
                     result.succeeded,
-                    ritentabili.size,
+                    result.failed.size,
                     result.firstError ?: ""
                 )
             )
         }
 
-        session.retainFailedMoves(ritentabili)
+        session.retainFailedMoves(result.failed)
         if (result.copiedOriginals.isNotEmpty()) offerOriginalCleanup(result.copiedOriginals)
         refreshFolders()
     }

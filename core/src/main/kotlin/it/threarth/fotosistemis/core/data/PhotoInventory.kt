@@ -189,6 +189,28 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
+     * Photos decided for deletion that never reached the bin.
+     *
+     * A decision is written the moment it is made, while the move can be
+     * refused, postponed, or lost when the queue dies with the session. The
+     * two drift apart silently, and these are the photos the app believes it
+     * has gathered and has not.
+     */
+    fun loadPendingTrash(stagingPath: String): Result<List<PhotoRecord>> = runCatching {
+        val ids = database.query(
+            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_PHOTO_ID} " +
+                    "WHERE s.${Schema.COLUMN_STATUS} = ? " +
+                    "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ?",
+            listOf(ReviewStatus.TRASHED.storedValue, stagingPath)
+        ).mapNotNull { it.getLong("pid") }
+
+        if (ids.isEmpty()) emptyList() else loadRecords(ids).getOrThrow()
+    }
+
+    /**
      * Points a photo at the copy that now stands for it.
      *
      * The copy is a different file to the platform, with a new id, but the
