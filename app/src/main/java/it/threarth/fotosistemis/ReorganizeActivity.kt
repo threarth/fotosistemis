@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.widget.ArrayAdapter
@@ -100,20 +101,6 @@ class ReorganizeActivity : AppCompatActivity() {
     /** Originals waiting for permission to go. */
     private var pendingCleanup: List<Uri> = emptyList()
 
-    private val cleanupLauncher =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            val count = pendingCleanup.size
-            pendingCleanup = emptyList()
-            toast(
-                getString(
-                    if (result.resultCode == RESULT_OK) R.string.cleanup_done
-                    else R.string.cleanup_kept,
-                    count
-                )
-            )
-            refresh()
-        }
-
     private val consentLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == RESULT_OK) applyCurrentBatch()
@@ -124,7 +111,7 @@ class ReorganizeActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_reorganize)
-        applySystemBarInsets()
+        findViewById<View>(R.id.reorganizeRoot).padForSystemBars()
 
         val database = AndroidDatabase(this)
         repository = DestinationRepository(database)
@@ -151,14 +138,6 @@ class ReorganizeActivity : AppCompatActivity() {
         if (intent.hasExtra(EXTRA_PHOTO_IDS)) listView.post { preview(choices) }
 
         refresh()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.reorganizeRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     /**
@@ -517,7 +496,11 @@ class ReorganizeActivity : AppCompatActivity() {
         statusText.text = ""
         refresh()
 
-        if (copiedOriginals.isNotEmpty()) offerOriginalCleanup(copiedOriginals)
+        // Never destroyed, only ever copied: what this app calls deleting
+        // is moving into its own bin.
+        if (copiedOriginals.isNotEmpty()) {
+            toast(getString(R.string.originals_left, copiedOriginals.size))
+        }
     }
 
     /**
@@ -527,27 +510,6 @@ class ReorganizeActivity : AppCompatActivity() {
      * ends that. Asked separately because it is a deletion, and the system
      * has to be the one to ask.
      */
-    private fun offerOriginalCleanup(originals: List<Uri>) {
-        pendingCleanup = originals
-        AlertDialog.Builder(this)
-            .setTitle(R.string.cleanup_title)
-            .setMessage(getString(R.string.cleanup_message, originals.size))
-            .setPositiveButton(R.string.cleanup_delete) { _, _ ->
-                try {
-                    cleanupLauncher.launch(
-                        IntentSenderRequest.Builder(
-                            MediaStore.createDeleteRequest(contentResolver, originals).intentSender
-                        ).build()
-                    )
-                } catch (error: Exception) {
-                    pendingCleanup = emptyList()
-                    showError(error)
-                }
-            }
-            .setNegativeButton(R.string.cleanup_keep) { _, _ -> pendingCleanup = emptyList() }
-            .show()
-    }
-
     private fun showError(error: Throwable) {
         toast(getString(R.string.message_error, error.message ?: error::class.java.simpleName))
     }

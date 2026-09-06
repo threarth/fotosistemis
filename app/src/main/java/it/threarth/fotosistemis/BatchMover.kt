@@ -142,10 +142,16 @@ class BatchMover(
     private fun copyOne(move: ReviewSession.PendingMove): Result<Unit> {
         val name = move.newDisplayName ?: move.photo.displayName
         return photoSource.copyInto(move.photo, move.destinationRelativePath, name)
-            .mapCatching { newMediaId ->
-                inventory.rekeyToCopy(
-                    move.photo.photoId, newMediaId, move.destinationRelativePath, name
+            .mapCatching { copy ->
+                val copyId = inventory.recordCopy(
+                    move.photo.photoId, copy.mediaId, move.destinationRelativePath, name
                 ).getOrThrow()
+
+                // A copy whose date could not be written will sit in the
+                // gallery under the day it was copied. Saying so is better
+                // than letting the user find it there by accident.
+                if (!copy.captureDateWritten) inventory.markDateSuspect(copyId, true)
+
                 stateRepository.recordMovedPath(
                     move.photo.photoId, move.destinationRelativePath, name
                 ).getOrThrow()

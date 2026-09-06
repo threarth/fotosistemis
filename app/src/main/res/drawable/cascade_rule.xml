@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A rule down the left of what depends on the folder above it: the period
+     and the state filter only ever speak about the chosen folder, and the
+     indent is what says so without a word. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+    <stroke
+        android:width="2dp"
+        android:color="@color/brand_blue_light" />
+</shape>

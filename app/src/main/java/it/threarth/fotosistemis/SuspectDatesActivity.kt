@@ -2,6 +2,7 @@ package it.threarth.fotosistemis
 
 import android.app.AlertDialog
 import android.os.Bundle
+import android.view.View
 import android.widget.ListView
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
@@ -43,7 +44,7 @@ class SuspectDatesActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_suspect_dates)
-        applySystemBarInsets()
+        findViewById<View>(R.id.suspectRoot).padForSystemBars()
 
         inventory = PhotoInventory(AndroidDatabase(this))
         photoSource = MediaStorePhotoSource(this)
@@ -54,14 +55,6 @@ class SuspectDatesActivity : AppCompatActivity() {
         }
 
         load()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.suspectRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     /** Reads off the main thread: this is a database query over the archive. */

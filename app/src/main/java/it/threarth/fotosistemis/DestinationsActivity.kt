@@ -24,6 +24,8 @@ import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import java.text.SimpleDateFormat
 import it.threarth.fotosistemis.core.data.ClassificationAdopter
+import it.threarth.fotosistemis.core.review.ReviewSession
+import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import java.util.Calendar
 import java.util.Date
@@ -77,7 +79,7 @@ class DestinationsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_destinations)
-        applySystemBarInsets()
+        findViewById<View>(R.id.destinationsRoot).padForSystemBars()
 
         val database = AndroidDatabase(this)
         repository = DestinationRepository(database)
@@ -104,14 +106,6 @@ class DestinationsActivity : AppCompatActivity() {
         }
 
         refresh()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.destinationsRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     /** Reloads the categories and says where they all live. */
@@ -234,9 +228,15 @@ class DestinationsActivity : AppCompatActivity() {
      * first.
      */
     private fun previewAdoption() {
-        val entries = inventory.loadForAdoption().getOrElse { return showError(it) }
         val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
         val destinations = repository.loadAll().getOrElse { return showError(it) }
+
+        // Every photo on the device is the source, less two kinds: what is
+        // already filed, which has nothing to gain from being read again,
+        // and the app's own bin, which holds what was decided against and
+        // must never be offered back as though it were sorted.
+        val entries = inventory.loadForAdoption().getOrElse { return showError(it) }
+            .filterNot { FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) }
 
         // Everywhere, not just the scope: recognising is meant to find the
         // whole of what is already sorted in one pass, and the same category

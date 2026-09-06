@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.view.View
 import android.os.Handler
 import android.os.Looper
 import android.widget.Button
@@ -82,7 +83,7 @@ class PhotoPreviewActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_photo_preview)
-        applySystemBarInsets()
+        findViewById<View>(R.id.previewRoot).padForSystemBars()
 
         photoSource = MediaStorePhotoSource(this)
         photos = pendingPhotos
@@ -110,14 +111,6 @@ class PhotoPreviewActivity : AppCompatActivity() {
         super.onDestroy()
         handler.removeCallbacks(advance)
         pendingPhotos = emptyList()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.previewRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     @SuppressLint("ClickableViewAccessibility")

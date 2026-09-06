@@ -65,7 +65,7 @@ class PlacementActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_placement)
-        applySystemBarInsets()
+        findViewById<View>(R.id.placementRoot).padForSystemBars()
 
         val database = AndroidDatabase(this)
         inventory = PhotoInventory(database)
@@ -88,14 +88,6 @@ class PlacementActivity : AppCompatActivity() {
         }
 
         load(DestinationRepository(database))
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.placementRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     /** Pairs each filed photo with the folder its category names. */

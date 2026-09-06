@@ -33,6 +33,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.data.RatingRepository
@@ -156,6 +157,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tagButton: Button
     private lateinit var dateButton: Button
     private lateinit var stateBadge: TextView
+    private lateinit var photoFolder: TextView
+
+    /** The category folders are checked once each time the app opens. */
+    private var filedFoldersChecked = false
 
     /** Photos the user has said carry a wrong date. */
     private var suspectDates: Set<Long> = emptySet()
@@ -288,38 +293,25 @@ class MainActivity : AppCompatActivity() {
             else refuseConsent()
         }
 
-    /** Restores bypass the queue, so they carry their own consent. */
-    /** Originals left behind by a copy, waiting for permission to go. */
-    private var pendingCleanup: List<Uri> = emptyList()
-
-    private val requestCleanupDelete =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            val count = pendingCleanup.size
-            pendingCleanup = emptyList()
-            if (result.resultCode == Activity.RESULT_OK) {
-                toast(getString(R.string.cleanup_done, count))
-                refreshFolders()
-            } else {
-                toast(getString(R.string.cleanup_kept, count))
-            }
-        }
-
-    /** Photos being gathered into the bin, outside any review session. */
+    /** Photos decided for the bin, waiting for permission to be moved. */
     private var pendingTrash: List<ReviewSession.PendingMove> = emptyList()
 
-    /** Posizioni can ask for the bin to be gathered; only this screen can. */
     /** The queue can change what is waiting, so the counts are re-read. */
     private val queueLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             refreshFolders()
         }
 
+    /**
+     * Placement hands work back: either photos to reorganise, or a request
+     * to gather what is waiting for the bin.
+     */
     private val placementLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val chiesto = result.data?.getBooleanExtra(
-                PlacementActivity.EXTRA_GATHER_TRASH, false
-            ) ?: false
-            if (result.resultCode == Activity.RESULT_OK && chiesto) showStagingFolder()
+            refreshFolders()
+            if (result.data?.getBooleanExtra(PlacementActivity.EXTRA_GATHER_TRASH, false) == true) {
+                showStagingFolder()
+            }
         }
 
     private val requestTrashConsent =
@@ -352,7 +344,7 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
         bindViews()
-        applySystemBarInsets()
+        findViewById<View>(R.id.main).padForSystemBars()
 
         val database = AndroidDatabase(this)
         settings = AppSettings(this)
@@ -439,6 +431,8 @@ class MainActivity : AppCompatActivity() {
         tagButton = findViewById(R.id.tagButton)
         dateButton = findViewById(R.id.dateButton)
         stateBadge = findViewById(R.id.stateBadge)
+        photoFolder = findViewById(R.id.photoFolder)
+        photoFolder.setOnClickListener { offerFolderAsCategory() }
         printButton = findViewById(R.id.printButton)
         starBar = findViewById(R.id.starBar)
         buildStarBar()
@@ -477,6 +471,7 @@ class MainActivity : AppCompatActivity() {
             placementLauncher.launch(Intent(this, PlacementActivity::class.java))
         }
         voce(R.id.drawerTrashButton) { showStagingFolder() }
+        voce(R.id.drawerCheckFoldersButton) { checkFiledFolders(asked = true) }
         voce(R.id.drawerAdoptButton) { openOutput(DestinationsActivity.ACTION_ADOPT) }
         voce(R.id.drawerReorganizeButton) {
             startActivity(Intent(this, ReorganizeActivity::class.java))
@@ -487,6 +482,7 @@ class MainActivity : AppCompatActivity() {
         voce(R.id.drawerExportButton) { openOutput(DestinationsActivity.ACTION_EXPORT) }
         voce(R.id.drawerImportButton) { openOutput(DestinationsActivity.ACTION_IMPORT) }
         voce(R.id.drawerBackupButton) { openOutput(DestinationsActivity.ACTION_BACKUP) }
+        voce(R.id.drawerRepairDatesButton) { offerDateRepair() }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
     }
@@ -508,14 +504,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     private fun wireActions() {
@@ -855,6 +843,303 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Checks every carrier of the capture date, on every photo the app owns
+     * and has filed, and offers to put right what disagrees.
+     *
+     * A photograph's date lives in three places — inside the file, on the
+     * file, and in the archive's index — and mending one of them says
+     * nothing about the other two. Checking one carrier and reporting the
+     * photo as sound is how twenty-five copies came to be called repaired
+     * while the gallery still filed them under the day they were copied.
+     * So all three are read, and a photo counts as right only when all
+     * three agree.
+     */
+    private fun offerDateRepair() {
+        setBusy(true)
+        thread {
+            val da = photosToCheck()
+            val rotte = da.mapNotNull { voce ->
+                val carriers = photoSource.readCarriers(voce.photo).getOrNull()
+                    ?: return@mapNotNull null
+                val verdict = CaptureDateCheck.check(voce.expectedMillis, carriers)
+                if (verdict.settled) null else voce to verdict
+            }
+
+            runOnUiThread {
+                setBusy(false)
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (rotte.isEmpty()) return@runOnUiThread toast(
+                    getString(R.string.repair_dates_none, da.size)
+                )
+                askDateRepair(da.size, rotte)
+            }
+        }
+    }
+
+    /** One photo to check: what it is, when it was taken, and whose it is. */
+    private data class Checkable(
+        val photo: PhotoRecord,
+        val expectedMillis: Long,
+
+        /** Made by this app, and so the only kind it may write into. */
+        val ours: Boolean
+    )
+
+    /**
+     * Every filed photo, whoever made it.
+     *
+     * Reading is not writing. A photo the app did not create can still be
+     * looked at, and knowing how many of them carry a date that does not
+     * hold is worth having before deciding whether to ask for permission to
+     * touch them. Only the app's own files are ever written to.
+     *
+     * Undecided photos are left out: a photo nobody has filed is not yet
+     * anybody's to tidy.
+     */
+    private fun photosToCheck(): List<Checkable> {
+        val filed = stateRepository.loadAll().getOrElse { emptyMap() }
+            .filterValues { it.status == ReviewStatus.CATEGORIZED }
+            .keys
+        val nostre = photoSource.ownPhotos().getOrElse { emptyList() }
+            .map { it.platformId }
+            .toHashSet()
+
+        return inventory.loadRecords(filed.toList()).getOrElse { emptyList() }
+            .map { Checkable(it, it.dateTakenMillis, it.platformId in nostre) }
+    }
+
+    /**
+     * Says which carriers are wrong, on how many photos, before writing.
+     *
+     * The two groups are told apart because only one of them can be acted
+     * on. Photos the app did not make are counted and named, so the size of
+     * that half is known, and then left exactly as they are.
+     */
+    private fun askDateRepair(
+        checked: Int,
+        broken: List<Pair<Checkable, CaptureDateCheck.Verdict>>
+    ) {
+        val nostre = broken.filter { it.first.ours }
+        val altrui = broken.size - nostre.size
+        val perPortatore = broken
+            .flatMap { it.second.wrong }
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .joinToString("\n") { "· ${it.key}: ${it.value}" }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.repair_dates_title)
+            .setMessage(
+                getString(
+                    R.string.repair_dates_message,
+                    checked, broken.size, perPortatore, nostre.size, altrui
+                )
+            )
+            .setPositiveButton(R.string.repair_dates_do) { _, _ ->
+                runDateRepair(nostre.map { it.first })
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Heals each photo and reports what is still wrong afterwards.
+     *
+     * The count that matters is the one read back from the files and the
+     * archive, not the number of writes attempted. A photo whose EXIF says
+     * something else is left alone and counted as unresolved: the photograph
+     * disagreeing with the app about its own date is the user's to judge, so
+     * it is marked as having a doubtful date rather than quietly overwritten.
+     */
+    private fun runDateRepair(photos: List<Checkable>) {
+        setBusy(true)
+        thread {
+            var sanate = 0
+            val irrisolte = ArrayList<Long>()
+
+            for (voce in photos) {
+                val verdict = photoSource
+                    .healCaptureDate(voce.photo, voce.expectedMillis).getOrNull()
+                if (verdict != null && verdict.settled) sanate++
+                else irrisolte.add(voce.photo.photoId)
+            }
+            for (photoId in irrisolte) inventory.markDateSuspect(photoId, true)
+
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.repair_dates_done, sanate, irrisolte.size))
+                refreshSuspectDates()
+                reload()
+            }
+        }
+    }
+
+    /**
+     * Offers to turn the folder this photo lives in into a category.
+     *
+     * Leafing through an archive, the folder is often the whole answer: a
+     * hundred photos from one job, one holiday, one year, all deciding the
+     * same way. Naming that folder a category and filing what is in it says
+     * in one act what a hundred swipes would say one at a time.
+     *
+     * Nothing is moved and nothing is renamed: the photos stay exactly where
+     * they are, and simply stop being unsorted.
+     */
+    private fun offerFolderAsCategory() {
+        val photo = session.current() ?: return
+        val folder = photo.relativePath.trim('/')
+        if (folder.isEmpty()) return
+
+        val existing = destinations.firstOrNull {
+            it.relativePath.trim('/').equals(folder, ignoreCase = true)
+        }
+        if (existing != null) {
+            return toast(getString(R.string.folder_category_exists, existing.label))
+        }
+
+        thread {
+            val da = undecidedIn(folder)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (da.isEmpty()) return@runOnUiThread toast(
+                    getString(R.string.folder_category_empty)
+                )
+                askFolderCategory(folder, da)
+            }
+        }
+    }
+
+    /** Photo ids sitting directly in [folder] that nobody has decided about. */
+    private fun undecidedIn(folder: String): List<Long> {
+        val decided = stateRepository.loadAll().getOrElse { emptyMap() }.keys
+
+        return inventory.loadForAdoption().getOrElse { emptyList() }
+            .filter { it.relativePath.trim('/').equals(folder, ignoreCase = true) }
+            .map { it.photoId }
+            .filterNot { it in decided }
+    }
+
+    /**
+     * States what will happen and how many photos it will file.
+     *
+     * A category with this name already existing is not a reason to stop:
+     * it is a reason not to make a second one. A split archive — two
+     * Famiglia, half the photos under each — is the thing this app exists
+     * to undo, and it must not create one itself.
+     */
+    private fun askFolderCategory(folder: String, photoIds: List<Long>) {
+        val label = folder.substringAfterLast('/')
+        val sameName = destinations.firstOrNull { it.label.equals(label, ignoreCase = true) }
+        val message =
+            if (sameName == null) getString(R.string.folder_category_message, label, photoIds.size)
+            else getString(R.string.folder_category_join, sameName.label, photoIds.size)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.folder_category_title)
+            .setMessage(message)
+            .setPositiveButton(
+                if (sameName == null) R.string.folder_category_do
+                else R.string.folder_category_join_do
+            ) { _, _ ->
+                createFolderCategory(label, folder, photoIds, sameName?.id)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Files every photo of the folder, creating the category unless
+     * [existingId] names one that already carries this name.
+     */
+    private fun createFolderCategory(
+        label: String,
+        folder: String,
+        photoIds: List<Long>,
+        existingId: Long?
+    ) {
+        thread {
+            // The folder is already where these photos live, so a category
+            // made here must not add a year subfolder: filing must move
+            // nothing. Joining an existing one changes nothing about it.
+            val destinationId = existingId ?: destinationRepository.insert(
+                label = label,
+                relativePath = folder,
+                yearSubfolder = false
+            ).getOrElse { error ->
+                return@thread runOnUiThread {
+                    toast(getString(R.string.message_error, error.message.orEmpty()))
+                }
+            }
+
+            val photos = inventory.loadRecords(photoIds).getOrElse { emptyList() }
+            val filed = stateRepository
+                .recordAll(photos, ReviewStatus.CATEGORIZED, destinationId)
+                .getOrElse { 0 }
+
+            runOnUiThread {
+                toast(getString(R.string.folder_category_done, label, filed))
+                reload()
+            }
+        }
+    }
+
+    /**
+     * Checks the category folders every time the app opens.
+     *
+     * Not the whole archive — that is the reconciliation, and it is slow
+     * enough that it must not run unasked. This asks a narrower question, of
+     * the folders that are meant to be in order: does everything in them
+     * belong there, and is it where its category says it should be.
+     *
+     * It only reports. Nothing is moved, filed, or deleted without being
+     * asked for, and the answer opens the queue where the work is shown.
+     */
+    private fun checkFiledFolders(asked: Boolean = false) {
+        // Once per opening when it speaks up by itself, because the same
+        // warning returning after every filter change would be noise, and
+        // noise gets dismissed without being read. Asked for from the menu
+        // it always runs, and always answers — including to say all is well,
+        // which is the answer a question deserves.
+        if (!asked) {
+            if (filedFoldersChecked) return
+            filedFoldersChecked = true
+        }
+
+        thread {
+            val estranei = inventory.loadStrangersInDestinations()
+                .getOrElse { emptyList() }
+            val fuoriPosto = inventory.loadMisplaced().getOrElse { emptyList() }
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (estranei.isEmpty() && fuoriPosto.isEmpty()) {
+                    if (asked) toast(getString(R.string.filed_check_clean))
+                    return@runOnUiThread
+                }
+                showFiledFolderProblems(estranei.size, fuoriPosto.size)
+            }
+        }
+    }
+
+    /** Offers the two ways out: file the strangers, or open the queue. */
+    private fun showFiledFolderProblems(strangers: Int, misplaced: Int) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.filed_check_title)
+            .setMessage(getString(R.string.filed_check_message, strangers, misplaced))
+            .setPositiveButton(R.string.filed_check_open) { _, _ ->
+                queueLauncher.launch(Intent(this, QueueActivity::class.java))
+            }
+            .apply {
+                if (strangers > 0) setNeutralButton(R.string.filed_check_adopt) { _, _ ->
+                    openOutput(DestinationsActivity.ACTION_ADOPT)
+                }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
     /** Re-reads the marked dates, so the badge agrees with the database. */
     private fun refreshSuspectDates() {
         thread {
@@ -1039,6 +1324,23 @@ class MainActivity : AppCompatActivity() {
         val branch = preferredSubtree
         folderButton.text = if (branch == null) getString(R.string.folder_all)
         else getString(R.string.folder_chosen, branch.substringAfterLast('/'))
+        showCascadeCaption(null)
+    }
+
+    /**
+     * Says out loud what the indent already shows: period and state speak
+     * only about the folder above them, and about [photoCount] photos.
+     */
+    private fun showCascadeCaption(photoCount: Int?) {
+        val branch = preferredSubtree
+        val dove = branch?.substringAfterLast('/')
+        // Null while the folder has changed and nothing has been counted yet:
+        // announcing zero photos would be stating a number nobody measured.
+        val quante = photoCount?.toString() ?: getString(R.string.cascade_counting)
+
+        findViewById<TextView>(R.id.cascadeCaption).text =
+            if (dove == null) getString(R.string.cascade_all, quante)
+            else getString(R.string.cascade_within, dove, quante)
     }
 
     /**
@@ -1335,6 +1637,7 @@ class MainActivity : AppCompatActivity() {
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
+        showCascadeCaption(loadedPhotos.size)
         rebuildPeriodSpinner(loadedPhotos, loadedStates)
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
@@ -1344,6 +1647,7 @@ class MainActivity : AppCompatActivity() {
         ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
         takeFingerprints()
         refreshSuspectDates()
+        checkFiledFolders()
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
         if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
@@ -1588,10 +1892,53 @@ class MainActivity : AppCompatActivity() {
         val arretrate = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
             .getOrElse { emptyList() }
         if (arretrate.isNotEmpty()) return offerPendingTrash(arretrate)
-        if (stagingCount == 0) return toast(getString(R.string.staging_empty))
 
-        changeFilter { preferredSubtree = stagingPath() }
-        toast(getString(R.string.staging_hint))
+        setBusy(true)
+        thread {
+            val contenuto = photoSource.binContents(stagingPath() + "/").getOrNull()
+            runOnUiThread {
+                setBusy(false)
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                showBinContents(contenuto)
+            }
+        }
+    }
+
+    /**
+     * Tells the truth about the bin, including what Android has hidden.
+     *
+     * A deleted photo on this phone is not gone: it is renamed, kept in
+     * place for thirty days, and hidden from every ordinary query. The app
+     * was therefore reporting an empty bin over a bin that was full, and the
+     * photos in it were recoverable the whole time — right up until the day
+     * they would not be.
+     */
+    private fun showBinContents(contents: MediaStorePhotoSource.BinContents?) {
+        if (contents == null || contents.total == 0) {
+            return toast(getString(R.string.staging_empty))
+        }
+        if (contents.trashed == 0) {
+            changeFilter { preferredSubtree = stagingPath() }
+            return toast(getString(R.string.staging_hint))
+        }
+
+        val quando = contents.earliestExpiryMillis
+            ?.let { SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(it)) }
+            ?: getString(R.string.bin_expiry_unknown)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.bin_title)
+            .setMessage(
+                getString(
+                    R.string.bin_message, contents.total, contents.trashed,
+                    quando, contents.visible
+                )
+            )
+            .setPositiveButton(R.string.bin_open) { _, _ ->
+                changeFilter { preferredSubtree = stagingPath() }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     /**
@@ -1617,7 +1964,17 @@ class MainActivity : AppCompatActivity() {
 
     /** Queues them for the bin and hands them to the usual apply flow. */
     private fun gatherTrash(photos: List<PhotoRecord>) {
-        pendingTrash = photos.map { photo ->
+        // A photo with no platform id was never matched to anything on the
+        // device: there is no file to ask permission for, and asking anyway
+        // fails for the whole batch, taking the photos that could have been
+        // gathered down with the one that could not.
+        val (indirizzabili, senzaIndirizzo) = photos.partition { it.platformId > 0 }
+        if (senzaIndirizzo.isNotEmpty()) {
+            toast(getString(R.string.trash_unaddressable, senzaIndirizzo.size))
+        }
+        if (indirizzabili.isEmpty()) return
+
+        pendingTrash = indirizzabili.map { photo ->
             ReviewSession.PendingMove(
                 photo = photo,
                 destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
@@ -1668,6 +2025,7 @@ class MainActivity : AppCompatActivity() {
             preview.setImageDrawable(null)
             applyStateFrame(null)
             stateBadge.visibility = View.GONE
+            photoFolder.text = ""
             photoInfo.setText(R.string.status_empty)
             photoTags.text = ""
             showStars()
@@ -1675,6 +2033,7 @@ class MainActivity : AppCompatActivity() {
         }
         applyStateFrame(session.currentStatus())
         showStateBadge(session.currentStatus(), photo)
+        photoFolder.text = getString(R.string.photo_folder, photo.relativePath.trim('/'))
         photoInfo.text = describe(photo)
         showStars()
         printButton.isEnabled = !busy && session.current() != null
@@ -1990,42 +2349,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         session.retainFailedMoves(result.failed)
-        if (result.copiedOriginals.isNotEmpty()) offerOriginalCleanup(result.copiedOriginals)
-        refreshFolders()
-    }
-
-    /**
-     * Offers to remove the originals of the photos that had to be copied.
-     *
-     * Copying leaves the picture on the device twice, and only a deletion
-     * ends that. It is asked separately because it is a deletion: the app
-     * has no way to perform one without the system asking first, and no
-     * wish to have one.
-     */
-    private fun offerOriginalCleanup(originals: List<Uri>) {
-        pendingCleanup = originals
-        AlertDialog.Builder(this)
-            .setTitle(R.string.cleanup_title)
-            .setMessage(getString(R.string.cleanup_message, originals.size))
-            .setPositiveButton(R.string.cleanup_delete) { _, _ -> requestCleanupConsent() }
-            .setNegativeButton(R.string.cleanup_keep) { _, _ -> pendingCleanup = emptyList() }
-            .show()
-    }
-
-    /** The system asks about the deletion; the app only proposes it. */
-    private fun requestCleanupConsent() {
-        val originals = pendingCleanup
-        if (originals.isEmpty()) return
-        try {
-            requestCleanupDelete.launch(
-                IntentSenderRequest.Builder(
-                    MediaStore.createDeleteRequest(contentResolver, originals).intentSender
-                ).build()
-            )
-        } catch (error: Exception) {
-            pendingCleanup = emptyList()
-            showError(error)
+        // The originals are deliberately left alone. Deleting in this app
+        // means moving into its own bin, never asking the system to destroy
+        // anything: the system delete goes to Android's own trash, which is
+        // outside the app's control and empties itself on a timer.
+        if (result.copiedOriginals.isNotEmpty()) {
+            toast(getString(R.string.originals_left, result.copiedOriginals.size))
         }
+        refreshFolders()
     }
 
     private fun refuseConsent() {

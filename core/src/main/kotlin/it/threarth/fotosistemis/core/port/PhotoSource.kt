@@ -81,7 +81,18 @@ interface PhotoSource {
         photo: PhotoRecord,
         destinationRelativePath: String,
         newDisplayName: String
-    ): Result<Long>
+    ): Result<CopyResult>
+
+    /**
+     * What a copy produced: the new photo's platform id, and whether it
+     * ended up carrying its capture date.
+     *
+     * The date is reported rather than assumed because it can fail to stick
+     * without the copy failing. A photograph whose date could not be written
+     * is still a good copy; it is simply one the user needs to know about,
+     * since it will sit in the gallery under the wrong day.
+     */
+    data class CopyResult(val mediaId: Long, val captureDateWritten: Boolean)
 
     /**
      * A fingerprint of a photo's own bytes.

@@ -31,14 +31,6 @@
                 android:text="@string/action_source" />
 
             <Button
-                android:id="@+id/folderButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="2"
-                android:text="@string/folder_all" />
-
-            <Button
                 android:id="@+id/menuButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -54,23 +46,49 @@
                 android:text="@string/action_staging" />
         </LinearLayout>
 
-        <!-- Filters: which period, and which review states, to load. -->
+        <!-- The folder governs everything under it: the periods offered are
+             the periods of the photos in that folder, and the state filter
+             counts only those. The indent says so at a glance. -->
+        <Button
+            android:id="@+id/folderButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:text="@string/folder_all" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_marginStart="14dp"
+            android:background="@drawable/cascade_rule"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
 
-            <Spinner
-                android:id="@+id/periodSpinner"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/cascadeCaption"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1" />
+                android:textSize="11sp" />
 
-            <Spinner
-                android:id="@+id/scopeSpinner"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1" />
+                android:orientation="horizontal">
+
+                <Spinner
+                    android:id="@+id/periodSpinner"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <Spinner
+                    android:id="@+id/scopeSpinner"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -135,6 +153,20 @@
                 android:layout_margin="3dp"
                 android:text="@string/action_print_tag" />
         </LinearLayout>
+
+        <!-- Where the photograph actually lives. Scrolling through an
+             archive, the folder is often what decides what to do with a
+             photo: a whole folder can be left alone, or become a category. -->
+        <TextView
+            android:id="@+id/photoFolder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="start"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:singleLine="true"
+            android:textColor="@color/brand_blue_dark"
+            android:textSize="11sp" />
 
         <TextView
             android:id="@+id/photoTags"
@@ -347,11 +379,18 @@
                 android:text="@string/action_staging_plain" />
 
             <Button
-                android:id="@+id/drawerAdoptButton"
+                android:id="@+id/drawerCheckFoldersButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_margin="3dp"
                 android:layout_marginTop="10dp"
+                android:text="@string/action_check_folders" />
+
+            <Button
+                android:id="@+id/drawerAdoptButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="3dp"
                 android:text="@string/action_adopt" />
 
             <Button
@@ -406,6 +445,13 @@
                 android:text="@string/menu_dangerous"
                 android:textSize="12sp"
                 android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/drawerRepairDatesButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="3dp"
+                android:text="@string/action_repair_dates" />
 
             <Button
                 android:id="@+id/drawerRestoreButton"

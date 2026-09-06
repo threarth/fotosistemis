@@ -84,12 +84,31 @@ class ClassificationAdopterTest {
 
     @Test
     fun `ignores structures deeper than category and year`() {
+        // No destination declared: the shape is all there is to go on, and
+        // two folders below a root are not a category and a year.
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(10, "Pictures/Famiglia/2026/compleanni/")),
+            destinations = emptyList(),
+            alreadyDecided = emptySet()
+        )
+        assertTrue(proposal.candidates.isEmpty())
+    }
+
+    /**
+     * The same path, once the user has said that folder is a category.
+     *
+     * Shape is a guess about what a folder means; a declared destination is
+     * an answer, and it holds however deep the photo sits inside it.
+     */
+    @Test
+    fun `sotto una destinazione dichiarata anche il profondo appartiene`() {
         val proposal = ClassificationAdopter.propose(
             listOf(entry(10, "Pictures/Famiglia/2026/compleanni/")),
             listOf(famiglia),
             alreadyDecided = emptySet()
         )
-        assertTrue(proposal.candidates.isEmpty())
+
+        assertEquals(1L, proposal.candidates.single().destinationId)
     }
 
     @Test
@@ -302,5 +321,64 @@ class ClassificationAdopterTest {
         assertTrue("Esiste gia'", proposal.categories.none { it.isNew })
         assertEquals(1, proposal.restrictedTo(setOf("Famiglia")).total)
         assertEquals(0, proposal.restrictedTo(emptySet()).total)
+    }
+
+    /**
+     * A copy the app made lands flat in the category folder, with no year
+     * folder to give it away. Before, nothing recognised it and the photo
+     * came back to be sorted a second time.
+     */
+    @Test
+    fun `una foto dentro una cartella di destinazione appartiene a quella`() {
+        val famiglia = destination(7, "Famiglia", "Pictures/Famiglia")
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(1, "Pictures/Famiglia/", "IMG-20260826-WA0007.jpg")),
+            listOf(famiglia),
+            alreadyDecided = emptySet()
+        )
+
+        assertEquals(1, proposal.total)
+        assertEquals("Famiglia", proposal.candidates.first().categoryLabel)
+        assertEquals(7L, proposal.candidates.first().destinationId)
+        assertTrue(proposal.proposedCategories.isEmpty())
+    }
+
+    /** A year folder under a known destination belongs to it just the same. */
+    @Test
+    fun `anche la sottocartella dell'anno appartiene alla destinazione`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(1, "Pictures/Famiglia/2026-famiglia/", "foto.jpg")),
+            listOf(destination(7, "Famiglia", "Pictures/Famiglia")),
+            alreadyDecided = emptySet()
+        )
+
+        assertEquals(7L, proposal.candidates.first().destinationId)
+    }
+
+    /** The nearer folder wins, or a category inside another would lose its own. */
+    @Test
+    fun `fra due destinazioni annidate vince la piu' vicina`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(1, "Pictures/Famiglia/Sport/", "foto.jpg")),
+            listOf(
+                destination(7, "Famiglia", "Pictures/Famiglia"),
+                destination(8, "Sport", "Pictures/Famiglia/Sport")
+            ),
+            alreadyDecided = emptySet()
+        )
+
+        assertEquals(8L, proposal.candidates.first().destinationId)
+    }
+
+    /** A decision already taken is never revisited, wherever the photo sits. */
+    @Test
+    fun `una foto gia' decisa non viene riproposta`() {
+        val proposal = ClassificationAdopter.propose(
+            listOf(entry(1, "Pictures/Famiglia/", "foto.jpg")),
+            listOf(destination(7, "Famiglia", "Pictures/Famiglia")),
+            alreadyDecided = setOf(1L)
+        )
+
+        assertEquals(0, proposal.total)
     }
 }

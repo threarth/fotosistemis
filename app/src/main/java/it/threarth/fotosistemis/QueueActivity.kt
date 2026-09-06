@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import android.provider.MediaStore
 import android.widget.Button
 import android.widget.ListView
@@ -49,7 +50,6 @@ class QueueActivity : AppCompatActivity() {
 
     /** What the buttons act on, and the consent covers. */
     private var pending: List<ReviewSession.PendingMove> = emptyList()
-    private var originals: List<Uri> = emptyList()
 
     private val consentLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -57,25 +57,11 @@ class QueueActivity : AppCompatActivity() {
             else pending = emptyList()
         }
 
-    private val cleanupLauncher =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            val count = originals.size
-            originals = emptyList()
-            toast(
-                getString(
-                    if (result.resultCode == Activity.RESULT_OK) R.string.cleanup_done
-                    else R.string.cleanup_kept,
-                    count
-                )
-            )
-            load()
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_queue)
-        applySystemBarInsets()
+        findViewById<View>(R.id.queueRoot).padForSystemBars()
 
         val database = AndroidDatabase(this)
         inventory = PhotoInventory(database)
@@ -95,14 +81,6 @@ class QueueActivity : AppCompatActivity() {
         findViewById<Button>(R.id.queueCallOffButton).setOnClickListener { confirmCallOff() }
 
         load()
-    }
-
-    private fun applySystemBarInsets() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.queueRoot)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
     }
 
     /** Reads both halves of the waiting work and turns them into moves. */
@@ -195,34 +173,15 @@ class QueueActivity : AppCompatActivity() {
             val result = mover.applyAll(moves)
             runOnUiThread {
                 toast(getString(R.string.queue_carried_out, result.succeeded, result.failed.size))
-                originals = result.copiedOriginals
-                if (originals.isNotEmpty()) offerCleanup() else load()
-            }
-        }
-    }
-
-    /** A copy leaves the picture twice; ending that is a deletion, so it is asked. */
-    private fun offerCleanup() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.cleanup_title)
-            .setMessage(getString(R.string.cleanup_message, originals.size))
-            .setPositiveButton(R.string.cleanup_delete) { _, _ ->
-                try {
-                    cleanupLauncher.launch(
-                        IntentSenderRequest.Builder(
-                            MediaStore.createDeleteRequest(contentResolver, originals).intentSender
-                        ).build()
-                    )
-                } catch (error: Exception) {
-                    originals = emptyList()
-                    toast(getString(R.string.message_error, error.message.orEmpty()))
+                // Left where they are on purpose: deleting here means
+                // moving into the app's own bin, never asking the system to
+                // destroy a file.
+                if (result.copiedOriginals.isNotEmpty()) {
+                    toast(getString(R.string.originals_left, result.copiedOriginals.size))
                 }
-            }
-            .setNegativeButton(R.string.cleanup_keep) { _, _ ->
-                originals = emptyList()
                 load()
             }
-            .show()
+        }
     }
 
     /** Undoing decisions is itself one, and is stated before it happens. */

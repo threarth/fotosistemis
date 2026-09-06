@@ -203,8 +203,21 @@ class PhotoInventory(private val database: Database) {
                     "s.${Schema.COLUMN_PHOTO_ID} " +
                     "WHERE s.${Schema.COLUMN_STATUS} = ? " +
                     "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
-                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ?",
-            listOf(ReviewStatus.TRASHED.storedValue, stagingPath)
+                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ? " +
+                    // Where the file could not be moved it was copied, and
+                    // the original stays put until someone agrees to delete
+                    // it. Its own path therefore still says nothing has
+                    // happened, while the photograph is already in the bin.
+                    // The record of the move is what says otherwise.
+                    "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_PATHS} pp " +
+                    "WHERE pp.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
+                    "AND pp.${Schema.COLUMN_KIND} = ? AND pp.${Schema.COLUMN_PATH} = ?)",
+            listOf(
+                ReviewStatus.TRASHED.storedValue,
+                stagingPath,
+                PhotoStateRepository.PathKind.MOVED.storedValue,
+                stagingPath
+            )
         ).mapNotNull { it.getLong("pid") }
 
         if (ids.isEmpty()) emptyList() else loadRecords(ids).getOrThrow()
@@ -261,6 +274,57 @@ class PhotoInventory(private val database: Database) {
         }
     }
 
+    /**
+     * Photos inside a category folder that nobody ever filed there.
+     *
+     * A category folder is supposed to hold decided photographs and nothing
+     * else. Something else can get in: a copy the app made and then lost
+     * track of, a file dropped in by hand, a restore from another phone.
+     * Left alone it is invisible — it is not offered for review either,
+     * because it no longer looks like an unsorted photo.
+     *
+     * Finding them is cheap, since it asks only about the category folders.
+     */
+    fun loadStrangersInDestinations(): Result<List<Long>> = runCatching {
+        database.query(
+            "SELECT p.${Schema.COLUMN_ID} AS pid FROM ${Schema.TABLE_PHOTOS} p " +
+                    "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "WHERE s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID}) " +
+                    "AND EXISTS (SELECT 1 FROM ${Schema.TABLE_DESTINATIONS} d " +
+                    "WHERE p.${Schema.COLUMN_RELATIVE_PATH} = " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/' " +
+                    "OR p.${Schema.COLUMN_RELATIVE_PATH} LIKE " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%')"
+        ).mapNotNull { it.getLong("pid") }
+    }
+
+    /** What the inventory knows about a photo, found by its platform id. */
+    data class Known(val photoId: Long, val dateTakenMillis: Long)
+
+    /**
+     * Looks photos up by the id the platform gave them.
+     *
+     * The way in when a photo comes from MediaStore rather than from here:
+     * such a record carries no inventory id at all, and asking by one would
+     * quietly read the wrong row.
+     */
+    fun byMediaId(mediaIds: List<Long>): Result<Map<Long, Known>> = runCatching {
+        if (mediaIds.isEmpty()) return@runCatching emptyMap()
+
+        val wanted = mediaIds.toSet()
+        database.query(
+            "SELECT ${Schema.COLUMN_ID} AS pid, ${Schema.COLUMN_MEDIA_ID} AS mid, " +
+                    "${Schema.COLUMN_DATE_TAKEN} AS taken FROM ${Schema.TABLE_PHOTOS} " +
+                    "WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL"
+        ).mapNotNull { row ->
+            val mediaId = row.getLong("mid") ?: return@mapNotNull null
+            if (mediaId !in wanted) return@mapNotNull null
+            val photoId = row.getLong("pid") ?: return@mapNotNull null
+            mediaId to Known(photoId, row.getLong("taken") ?: 0L)
+        }.toMap()
+    }
+
     /** Ids of every photo whose date the user has contradicted. */
     fun loadDateSuspect(): Result<Set<Long>> = runCatching {
         database.query(
@@ -299,27 +363,58 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
-     * Points a photo at the copy that now stands for it.
+     * Records a copy as a photo in its own right, already carrying the
+     * decision taken about the original, and says which id it got.
      *
-     * The copy is a different file to the platform, with a new id, but the
-     * same photograph to us — and everything decided about it, filed under
-     * our own id, has to follow it rather than be orphaned when the original
-     * goes. This is what "the media id is not an identity" was for.
+     * The old way repointed the original's row at the copy, which reads as
+     * the same photograph having moved. It is not: the original is still
+     * there until someone agrees to delete it, and a reconciliation running
+     * in that window finds it, matches the row back to it, and leaves the
+     * copy a stranger — offered again as if nothing had been decided.
+     *
+     * Two rows, both decided, written in one transaction: whichever of the
+     * two files survives, neither comes back to be sorted a second time.
      */
-    fun rekeyToCopy(
-        photoId: Long,
+    fun recordCopy(
+        originalPhotoId: Long,
         newMediaId: Long,
         relativePath: String,
         displayName: String
-    ): Result<Unit> = runCatching {
+    ): Result<Long> = runCatching {
         database.transaction {
-            database.execute(
-                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_MEDIA_ID} = ?, " +
-                        "${Schema.COLUMN_RELATIVE_PATH} = ?, ${Schema.COLUMN_DISPLAY_NAME} = ? " +
-                        "WHERE ${Schema.COLUMN_ID} = ?",
-                listOf(newMediaId, relativePath, displayName, photoId)
+            val now = System.currentTimeMillis()
+            val copyId = database.insert(
+                "INSERT INTO ${Schema.TABLE_PHOTOS} (${Schema.COLUMN_MEDIA_ID}, " +
+                        "${Schema.COLUMN_VOLUME_NAME}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                        "${Schema.COLUMN_RELATIVE_PATH}, ${Schema.COLUMN_SIZE_BYTES}, " +
+                        "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE}, " +
+                        "${Schema.COLUMN_MEDIA_TYPE}, ${Schema.COLUMN_WIDTH}, " +
+                        "${Schema.COLUMN_HEIGHT}, ${Schema.COLUMN_DURATION_MILLIS}, " +
+                        "${Schema.COLUMN_CONTENT_HASH}, ${Schema.COLUMN_DATE_SUSPECT}, " +
+                        "${Schema.COLUMN_FIRST_SEEN_AT}, ${Schema.COLUMN_LAST_SEEN_AT}) " +
+                        "SELECT ?, ${Schema.COLUMN_VOLUME_NAME}, ?, ?, " +
+                        "${Schema.COLUMN_SIZE_BYTES}, ${Schema.COLUMN_DATE_TAKEN}, " +
+                        "${Schema.COLUMN_DATE_SOURCE}, ${Schema.COLUMN_MEDIA_TYPE}, " +
+                        "${Schema.COLUMN_WIDTH}, ${Schema.COLUMN_HEIGHT}, " +
+                        "${Schema.COLUMN_DURATION_MILLIS}, ${Schema.COLUMN_CONTENT_HASH}, " +
+                        "${Schema.COLUMN_DATE_SUSPECT}, ?, ? " +
+                        "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(
+                    newMediaId, displayName, relativePath, now, now, originalPhotoId
+                )
             )
-            Unit
+
+            // The same decision, verbatim: the copy is that photograph, and
+            // deciding it again is work the user has already done.
+            database.execute(
+                "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
+                        "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
+                        "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}) " +
+                        "SELECT ?, ${Schema.COLUMN_STATUS}, ${Schema.COLUMN_DESTINATION_ID}, ? " +
+                        "FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+                listOf(copyId, now, originalPhotoId)
+            )
+            copyId
         }
     }
 

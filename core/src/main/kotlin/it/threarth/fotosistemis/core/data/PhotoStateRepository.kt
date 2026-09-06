@@ -103,6 +103,37 @@ class PhotoStateRepository(private val database: Database) {
     }
 
     /**
+     * Records the same decision about many photos, and says how many.
+     *
+     * One transaction for the lot: filing a folder is one act as far as the
+     * user is concerned, and half a folder filed because something failed
+     * partway would be worse than none. Each photo's original location is
+     * remembered here too, exactly as when deciding one at a time.
+     */
+    fun recordAll(
+        photos: List<PhotoRecord>,
+        status: ReviewStatus,
+        destinationId: Long?
+    ): Result<Int> = runCatching {
+        if (photos.isEmpty()) return@runCatching 0
+
+        database.transaction {
+            val now = System.currentTimeMillis()
+            for (photo in photos) {
+                database.execute(
+                    "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
+                            "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
+                            "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}) " +
+                            "VALUES (?, ?, ?, ?)",
+                    listOf(photo.photoId, status.storedValue, destinationId, now)
+                )
+                rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
+            }
+            photos.size
+        }
+    }
+
+    /**
      * Appends the location a photo was moved to, name included.
      *
      * Every move and every rename adds a row, so the history is what makes

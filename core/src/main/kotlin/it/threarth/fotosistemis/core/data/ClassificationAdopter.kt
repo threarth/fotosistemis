@@ -138,6 +138,25 @@ object ClassificationAdopter {
 
         for (entry in inventory) {
             if (entry.photoId in alreadyDecided) continue
+
+            // A folder the user has named as a category answers the question
+            // outright, whatever shape the path has. This is what catches a
+            // photo the app itself put there and then lost track of, and a
+            // category holding its photos flat, with no year folder at all.
+            val settled = destinationHolding(entry.relativePath, destinations)
+            if (settled != null) {
+                candidates.add(
+                    Candidate(
+                        entry.photoId,
+                        entry.relativePath,
+                        entry.displayName,
+                        settled.label,
+                        settled.id
+                    )
+                )
+                continue
+            }
+
             val category = categoryOf(entry.relativePath, roots) ?: continue
 
             // The path is the surer match; the name catches the same
@@ -166,6 +185,26 @@ object ClassificationAdopter {
             }
         }
         return Proposal(candidates, discovered.values.sortedByDescending { it.photoCount })
+    }
+
+    /**
+     * The destination whose folder holds [relativePath], if any.
+     *
+     * The longest match wins, so a category living inside another category
+     * keeps its own photos instead of losing them to its parent.
+     */
+    private fun destinationHolding(
+        relativePath: String,
+        destinations: List<Destination>
+    ): Destination? {
+        val path = relativePath.trim('/').lowercase()
+
+        return destinations
+            .filter { destination ->
+                val folder = destination.relativePath.trim('/').lowercase()
+                folder.isNotEmpty() && (path == folder || path.startsWith("$folder/"))
+            }
+            .maxByOrNull { it.relativePath.trim('/').length }
     }
 
     /** The category folder a photo sits in, when its path has that shape. */
