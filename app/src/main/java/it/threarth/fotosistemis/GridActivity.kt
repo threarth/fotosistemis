@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AbsListView
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.GridView
@@ -58,6 +59,12 @@ class GridActivity : AppCompatActivity() {
 
         /** Small enough for three across, big enough to recognise a face. */
         private const val TILE_EDGE_PIXELS = 400
+
+        /** Tiles handed over at a time, as the reader gets near the end. */
+        private const val PAGE_SIZE = 60
+
+        /** How many rows ahead of the end to fetch the next page. */
+        private const val PAGE_MARGIN = 12
     }
 
     private lateinit var inventory: PhotoInventory
@@ -68,6 +75,17 @@ class GridActivity : AppCompatActivity() {
     private lateinit var systemBin: SystemBinHandover
     private lateinit var settings: AppSettings
     private lateinit var grid: GridView
+
+    /** The side of a square tile: a third of the screen. */
+    private val tileSide: Int by lazy { resources.displayMetrics.widthPixels / COLUMNS }
+
+    /** Fetches the tiles' pictures a few at a time, never all at once. */
+    private val thumbnails: ThumbnailLoader by lazy {
+        ThumbnailLoader(photoSource, TILE_EDGE_PIXELS)
+    }
+
+    /** How many tiles the grid is currently offering. */
+    private var shown = PAGE_SIZE
 
     private var photos: List<PhotoRecord> = emptyList()
     private var destinations: List<Destination> = emptyList()
@@ -102,6 +120,7 @@ class GridActivity : AppCompatActivity() {
         settings = AppSettings(this)
 
         photos = pendingPhotos
+        shown = PAGE_SIZE.coerceAtMost(photos.size)
         destinations = destinationRepository.loadAll().getOrElse { emptyList() }
         grid = findViewById(R.id.gridPhotos)
 
@@ -111,8 +130,42 @@ class GridActivity : AppCompatActivity() {
 
         grid.adapter = TileAdapter()
         grid.setOnItemClickListener { _, _, position, _ -> toggle(photos[position].photoId) }
+        showMoreWhileScrolling()
         buildActions()
         showCounts()
+    }
+
+    override fun onDestroy() {
+        thumbnails.stop()
+        super.onDestroy()
+    }
+
+    /**
+     * Hands the grid another chapter when the reader nears the end of this
+     * one.
+     *
+     * Building four thousand tiles to show nine of them is work spent on
+     * what nobody is looking at, and it is the thumbnails behind them that
+     * cost. A page at a time keeps the first screen quick and the rest
+     * arrives before it is wanted.
+     */
+    private fun showMoreWhileScrolling() {
+        grid.setOnScrollListener(object : AbsListView.OnScrollListener {
+            override fun onScrollStateChanged(view: AbsListView?, state: Int) = Unit
+
+            override fun onScroll(
+                view: AbsListView?,
+                firstVisible: Int,
+                visibleCount: Int,
+                totalCount: Int
+            ) {
+                if (shown >= photos.size) return
+                if (firstVisible + visibleCount < totalCount - PAGE_MARGIN) return
+
+                shown = (shown + PAGE_SIZE).coerceAtMost(photos.size)
+                (grid.adapter as TileAdapter).notifyDataSetChanged()
+            }
+        })
     }
 
     /** Selecting is not deciding: it says which photos the next act is about. */
@@ -202,9 +255,8 @@ class GridActivity : AppCompatActivity() {
     private inner class TileAdapter : BaseAdapter() {
 
         private val inflater = LayoutInflater.from(this@GridActivity)
-        private val cache = HashMap<Long, Bitmap>()
 
-        override fun getCount(): Int = photos.size
+        override fun getCount(): Int = shown
 
         override fun getItem(position: Int): PhotoRecord = photos[position]
 
@@ -214,10 +266,15 @@ class GridActivity : AppCompatActivity() {
             val view = convertView ?: inflater.inflate(R.layout.item_grid_tile, parent, false)
             val photo = photos[position]
 
-            // Square tiles: a grid of mixed heights reads as a jumble, and
-            // the point of the grid is that the eye can sweep it.
-            val side = (parent?.width ?: grid.width) / COLUMNS
-            if (side > 0) view.layoutParams = ViewGroup.LayoutParams(side, side)
+            // Square tiles, measured from the screen rather than from the
+            // grid: on the first pass the grid has no width yet, so the
+            // tiles kept whatever height their content suggested and the
+            // rows came out ragged, with holes where a thumbnail had not
+            // arrived. And a child of a GridView needs that grid's own kind
+            // of layout parameters, or it is measured as if it had none.
+            view.layoutParams = AbsListView.LayoutParams(
+                AbsListView.LayoutParams.MATCH_PARENT, tileSide
+            )
 
             val label = view.findViewById<TextView>(R.id.tileLabel)
             val decision = decided[photo.photoId]
@@ -234,22 +291,14 @@ class GridActivity : AppCompatActivity() {
                 else -> null
             }
 
-            bindThumbnail(view.findViewById(R.id.tileImage), photo)
+            val image = view.findViewById<ImageView>(R.id.tileImage)
+            // Until the picture arrives the tile shows a plain ground: an
+            // empty square reads as a gap in the archive, which it is not.
+            image.setBackgroundColor(
+                ContextCompat.getColor(this@GridActivity, R.color.brand_blue_light)
+            )
+            thumbnails.into(image, photo)
             return view
-        }
-
-        private fun bindThumbnail(image: ImageView, photo: PhotoRecord) {
-            image.tag = photo.photoId
-            image.setImageBitmap(cache[photo.photoId])
-            if (cache.containsKey(photo.photoId)) return
-
-            thread {
-                val bitmap = photoSource.loadThumbnail(photo, TILE_EDGE_PIXELS).getOrNull()
-                image.post {
-                    if (bitmap != null) cache[photo.photoId] = bitmap
-                    if (image.tag == photo.photoId) image.setImageBitmap(bitmap)
-                }
-            }
         }
     }
 

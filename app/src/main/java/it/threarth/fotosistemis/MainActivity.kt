@@ -596,10 +596,12 @@ class MainActivity : AppCompatActivity() {
             if (max(abs(dx), abs(dy)) < AXIS_LOCK_PIXELS) return true
             dragAxis = if (abs(dx) > abs(dy)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
 
-            // Filing and deleting mean nothing in the deletion folder, where
-            // the only sensible act is putting a photo back. The drag is
-            // abandoned rather than moving the photo to no effect.
-            if (dragAxis == DragAxis.HORIZONTAL && !canDecide()) {
+            // Abandoned when there is nothing the drag could do. In the bin
+            // there is: dragging left puts a photo back where it came from,
+            // which is the one act available there. Refusing every sideways
+            // drag made that act unreachable — the gesture was stopped
+            // before it began, and stopped without a word.
+            if (dragAxis == DragAxis.HORIZONTAL && !canActOnCurrent()) {
                 dragBlocked = true
                 dragAxis = DragAxis.UNDECIDED
                 return true
@@ -751,7 +753,7 @@ class MainActivity : AppCompatActivity() {
      * to say the same thing, and the hand already knows this one.
      */
     private fun keepCurrent() {
-        if (!canDecide()) return
+        if (!canActOnCurrent()) return
         applyDecision {
             if (workingInBin()) session.restoreCurrent()
             else session.keepCurrent()
@@ -799,8 +801,24 @@ class MainActivity : AppCompatActivity() {
      * back. Keeping one there would mark it reviewed while leaving it queued
      * for deletion, which is a contradiction.
      */
-    private fun canDecide(): Boolean = !busy && session.current() != null &&
-            !workingInBin()
+    /**
+     * True when the current photo can be filed into a category.
+     *
+     * Never in the bin: what is in there has been decided against, and the
+     * one act available is taking it back out.
+     */
+    private fun canDecide(): Boolean = canActOnCurrent() && !workingInBin()
+
+    /**
+     * True when there is a photo and the app is free to act on it.
+     *
+     * Kept apart from [canDecide] because the bin allows exactly one act —
+     * keeping a photo, which there means putting it back where it came
+     * from. Answering both questions with the one predicate made that act
+     * impossible: the gesture was refused before it was read, and refused
+     * without a word.
+     */
+    private fun canActOnCurrent(): Boolean = !busy && session.current() != null
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
     private fun ensureReadPermission() {
