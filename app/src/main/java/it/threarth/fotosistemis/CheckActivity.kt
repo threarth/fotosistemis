@@ -67,6 +67,7 @@ class CheckActivity : AppCompatActivity() {
 
     private lateinit var check: IgnoredRepository.Check
     private lateinit var listView: ListView
+    private lateinit var progress: ScanProgress
 
     private var findings: List<Finding> = emptyList()
     private var examined = 0
@@ -97,6 +98,7 @@ class CheckActivity : AppCompatActivity() {
             ?: IgnoredRepository.Check.STRANGERS
 
         listView = findViewById(R.id.checkList)
+        progress = ScanProgress(findViewById(R.id.checkProgress))
         title = getString(titleOf(check))
         findViewById<TextView>(R.id.checkTitle).setText(titleOf(check))
         findViewById<Button>(R.id.checkUnignoreButton).text =
@@ -143,6 +145,7 @@ class CheckActivity : AppCompatActivity() {
         // archive is hundreds of them. Saying so beats an empty screen that
         // looks broken while it is in fact working.
         findViewById<TextView>(R.id.checkOutcome).setText(R.string.check_running)
+        progress.startSpinning()
         listView.adapter = null
 
         thread {
@@ -216,6 +219,7 @@ class CheckActivity : AppCompatActivity() {
         examined = photos.size
 
         return photos.mapIndexedNotNull { index, photo ->
+            if (index == 0) runOnUiThread { progress.start(photos.size) }
             if (index % PROGRESS_EVERY == 0) showProgress(index, photos.size)
             val carriers = photoSource.readCarriers(photo).getOrNull()
                 ?: return@mapIndexedNotNull null
@@ -238,6 +242,7 @@ class CheckActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return@runOnUiThread
             findViewById<TextView>(R.id.checkOutcome).text =
                 getString(R.string.check_progress, done, total)
+            progress.advance(done)
         }
     }
 
@@ -254,6 +259,7 @@ class CheckActivity : AppCompatActivity() {
     }
 
     private fun redraw() {
+        progress.stop()
         val outcome = findViewById<TextView>(R.id.checkOutcome)
         outcome.text =
             if (findings.isEmpty()) getString(R.string.check_nothing, examined)

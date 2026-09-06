@@ -43,6 +43,7 @@ class QueueActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
 
     private lateinit var listView: ListView
+    private lateinit var progress: ScanProgress
     private lateinit var summary: TextView
 
     private var trash: List<ReviewSession.PendingMove> = emptyList()
@@ -76,6 +77,7 @@ class QueueActivity : AppCompatActivity() {
         settings = AppSettings(this)
 
         listView = findViewById(R.id.queueList)
+        progress = ScanProgress(findViewById(R.id.queueProgress))
         summary = findViewById(R.id.queueSummary)
         findViewById<Button>(R.id.queueKindButton).setOnClickListener {
             showingTrash = !showingTrash
@@ -89,10 +91,12 @@ class QueueActivity : AppCompatActivity() {
 
     /** Reads both halves of the waiting work and turns them into moves. */
     private fun load() {
+        progress.startSpinning()
         thread {
             val cestino = readTrash()
             val fuoriPosto = readMisplaced()
             runOnUiThread {
+                progress.stop()
                 trash = cestino
                 misplaced = fuoriPosto
                 if (trash.isEmpty() && misplaced.isNotEmpty()) showingTrash = false

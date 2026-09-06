@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var stateBadge: TextView
     private lateinit var photoFolder: TextView
     private lateinit var swipeLegend: TextView
+    private lateinit var progress: ScanProgress
 
     /** The category folders are checked once each time the app opens. */
     private var filedFoldersChecked = false
@@ -308,9 +309,6 @@ class MainActivity : AppCompatActivity() {
             else refuseConsent()
         }
 
-    /** Photos decided for the bin, waiting for permission to be moved. */
-    private var pendingTrash: List<ReviewSession.PendingMove> = emptyList()
-
     /** The queue can change what is waiting, so the counts are re-read. */
     private val queueLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -332,21 +330,6 @@ class MainActivity : AppCompatActivity() {
     /** Photos this app cannot move end up in Android's bin, if allowed. */
     private lateinit var systemBin: SystemBinHandover
 
-    private val requestTrashConsent =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            val moves = pendingTrash
-            pendingTrash = emptyList()
-            if (result.resultCode != Activity.RESULT_OK) {
-                refuseConsent()
-                return@registerForActivityResult
-            }
-
-            setBusy(true)
-            thread {
-                val outcome = mover.applyAll(moves)
-                runOnUiThread { onMovesApplied(outcome) }
-            }
-        }
 
     private val requestRestoreConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -454,6 +437,7 @@ class MainActivity : AppCompatActivity() {
         stateBadge = findViewById(R.id.stateBadge)
         photoFolder = findViewById(R.id.photoFolder)
         swipeLegend = findViewById(R.id.swipeLegend)
+        progress = ScanProgress(findViewById(R.id.mainProgress))
         photoFolder.setOnClickListener { offerFolderAsCategory() }
         printButton = findViewById(R.id.printButton)
         starBar = findViewById(R.id.starBar)
@@ -1939,8 +1923,11 @@ class MainActivity : AppCompatActivity() {
      * deleting it anywhere else would leave the cloud copy behind.
      */
     private fun showStagingFolder() {
-        val arretrate = pendingTrashStillWaiting()
-        if (arretrate.isNotEmpty()) return offerPendingTrash(arretrate)
+        // Only what the bin holds. Photos decided against whose file has not
+        // moved yet are work still to do, not bin contents, and work still
+        // to do belongs to the queue: two screens answering the same
+        // question differently is how a reader stops trusting either.
+        markAlreadyHandedOver()
 
         setBusy(true)
         thread {
@@ -1962,19 +1949,19 @@ class MainActivity : AppCompatActivity() {
      * as done rather than offered again, which is the difference between a
      * check that can be trusted and one that repeats itself.
      */
-    private fun pendingTrashStillWaiting(): List<PhotoRecord> {
-        val waiting = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
-            .getOrElse { emptyList() }
-        if (waiting.isEmpty()) return waiting
+    private fun markAlreadyHandedOver() {
+        thread {
+            val waiting = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+                .getOrElse { emptyList() }
+            if (waiting.isEmpty()) return@thread
 
-        val inAndroidBin = photoSource.systemBinIds().getOrElse { emptySet() }
-        if (inAndroidBin.isEmpty()) return waiting
-
-        val (consegnate, resto) = waiting.partition { it.platformId in inAndroidBin }
-        for (photo in consegnate) {
-            stateRepository.recordSystemBin(photo.photoId, photo.relativePath, photo.displayName)
+            val inAndroidBin = photoSource.systemBinIds().getOrElse { emptySet() }
+            for (photo in waiting.filter { it.platformId in inAndroidBin }) {
+                stateRepository.recordSystemBin(
+                    photo.photoId, photo.relativePath, photo.displayName
+                )
+            }
         }
-        return resto
     }
 
     /**
@@ -1999,14 +1986,20 @@ class MainActivity : AppCompatActivity() {
             ?.let { SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(it)) }
             ?: getString(R.string.bin_expiry_unknown)
 
+        // Told as two separate facts, because they are: what the app's bin
+        // holds, and what has since been handed to Android and is counting
+        // down. Leading with the total made the app's own bin appear to be
+        // talking about somebody else's — the file is still in our folder,
+        // but the decision about it is no longer ours.
+        val message =
+            if (contents.visible == 0) getString(R.string.bin_message_all_trashed, contents.trashed, quando)
+            else getString(
+                R.string.bin_message_mixed, contents.visible, contents.trashed, quando
+            )
+
         AlertDialog.Builder(this)
             .setTitle(R.string.bin_title)
-            .setMessage(
-                getString(
-                    R.string.bin_message, contents.total, contents.trashed,
-                    quando, contents.visible
-                )
-            )
+            .setMessage(message)
             .setPositiveButton(R.string.bin_open) { _, _ ->
                 changeFilter { preferredSubtree = stagingPath() }
             }
@@ -2023,47 +2016,6 @@ class MainActivity : AppCompatActivity() {
      * bin and are not. Gathering them is what makes the bin mean something —
      * and what lets a change of mind still find them.
      */
-    private fun offerPendingTrash(photos: List<PhotoRecord>) {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.pending_trash_title)
-            .setMessage(getString(R.string.pending_trash_message, photos.size))
-            .setPositiveButton(R.string.pending_trash_gather) { _, _ -> gatherTrash(photos) }
-            .setNeutralButton(R.string.staging_open) { _, _ ->
-                changeFilter { preferredSubtree = stagingPath() }
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    /** Queues them for the bin and hands them to the usual apply flow. */
-    private fun gatherTrash(photos: List<PhotoRecord>) {
-        // A photo with no platform id was never matched to anything on the
-        // device: there is no file to ask permission for, and asking anyway
-        // fails for the whole batch, taking the photos that could have been
-        // gathered down with the one that could not.
-        val (indirizzabili, senzaIndirizzo) = photos.partition { it.platformId > 0 }
-        if (senzaIndirizzo.isNotEmpty()) {
-            toast(getString(R.string.trash_unaddressable, senzaIndirizzo.size))
-        }
-        if (indirizzabili.isEmpty()) return
-
-        pendingTrash = indirizzabili.map { photo ->
-            ReviewSession.PendingMove(
-                photo = photo,
-                destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
-                status = ReviewStatus.TRASHED,
-                destinationId = null
-            )
-        }
-        try {
-            requestTrashConsent.launch(
-                IntentSenderRequest.Builder(mover.buildConsent(pendingTrash)).build()
-            )
-        } catch (error: Exception) {
-            pendingTrash = emptyList()
-            showError(error)
-        }
-    }
 
     /**
      * Hands the current photo to whichever gallery the user prefers, which
@@ -2477,6 +2429,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun setBusy(value: Boolean) {
         busy = value
+        // Spinning rather than counting: reading the archive is one query to
+        // the platform, and there is no honest number to put on it.
+        if (value) progress.startSpinning() else progress.stop()
         updateButtonState()
     }
 

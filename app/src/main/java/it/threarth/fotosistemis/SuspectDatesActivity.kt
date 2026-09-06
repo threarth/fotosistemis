@@ -36,6 +36,7 @@ class SuspectDatesActivity : AppCompatActivity() {
     private lateinit var inventory: PhotoInventory
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var listView: ListView
+    private lateinit var progress: ScanProgress
     private lateinit var summary: TextView
 
     private var photos: List<PhotoRecord> = emptyList()
@@ -49,6 +50,7 @@ class SuspectDatesActivity : AppCompatActivity() {
         inventory = PhotoInventory(AndroidDatabase(this))
         photoSource = MediaStorePhotoSource(this)
         listView = findViewById(R.id.suspectList)
+        progress = ScanProgress(findViewById(R.id.suspectProgress))
         summary = findViewById(R.id.suspectSummary)
         listView.setOnItemClickListener { _, _, position, _ ->
             confirmClearing(photos[position])
@@ -59,9 +61,11 @@ class SuspectDatesActivity : AppCompatActivity() {
 
     /** Reads off the main thread: this is a database query over the archive. */
     private fun load() {
+        progress.startSpinning()
         thread {
             val found = inventory.loadDateSuspectRecords().getOrElse { emptyList() }
             runOnUiThread {
+                progress.stop()
                 photos = found
                 redraw()
             }

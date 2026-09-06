@@ -19,6 +19,17 @@
         android:layout_height="wrap_content"
         android:layout_margin="3dp" />
 
+    <!-- Determinate where the total is known, spinning where it is not:
+         a bar that lies about progress is worse than no bar. -->
+    <ProgressBar
+        android:id="@+id/queueProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:visibility="gone" />
+
     <ListView
         android:id="@+id/queueList"
         android:layout_width="match_parent"

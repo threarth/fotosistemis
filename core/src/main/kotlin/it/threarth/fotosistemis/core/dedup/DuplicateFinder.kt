@@ -23,7 +23,16 @@ object DuplicateFinder {
         val sizeBytes: Long,
 
         /** Filled only for files whose length is shared with another. */
-        val contentHash: String? = null
+        val contentHash: String? = null,
+
+        /** True when a decision has been recorded about this copy. */
+        val catalogued: Boolean = false,
+
+        /** True when the platform will not let this copy be moved. */
+        val immovable: Boolean = false,
+
+        /** True when the name carries the app's date stamp. */
+        val stamped: Boolean = false
     )
 
     /** One photograph, and every file holding it. */
@@ -31,6 +40,28 @@ object DuplicateFinder {
 
         /** How many files could go without the photograph being lost. */
         val extra: Int get() = copies.size - 1
+
+        /**
+         * The copy worth proposing to keep — a proposal, never a decision.
+         *
+         * Filed beats unfiled: work has been done on that copy, and throwing
+         * it away would throw the work away with it. Then movable beats
+         * immovable, because a copy inside another app's folder cannot be
+         * organised, dated or renamed ever again, and discarding it costs
+         * only Android's bin. Then stamped beats unstamped, since the stamp
+         * is what makes a flat folder sort by time. Alphabetical order
+         * settles what is left, so the answer does not wander between runs.
+         *
+         * Sorting a list this way, rather than picking a winner, means the
+         * reasons stay legible and stay in one place.
+         */
+        val suggested: Candidate
+            get() = copies.sortedWith(
+                compareByDescending<Candidate> { it.catalogued }
+                    .thenBy { it.immovable }
+                    .thenByDescending { it.stamped }
+                    .thenBy { it.relativePath + it.displayName }
+            ).first()
     }
 
     /**

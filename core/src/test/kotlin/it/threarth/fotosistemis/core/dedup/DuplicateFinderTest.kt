@@ -80,4 +80,77 @@ class DuplicateFinderTest {
         assertEquals(2, gruppi.first().extra)
         assertEquals(1, gruppi.last().extra)
     }
+
+    private fun copy(
+        name: String,
+        path: String,
+        catalogued: Boolean = false,
+        immovable: Boolean = false,
+        stamped: Boolean = false
+    ) = DuplicateFinder.Candidate(
+        photoId = name.hashCode().toLong(),
+        relativePath = path,
+        displayName = name,
+        sizeBytes = 100,
+        contentHash = "x",
+        catalogued = catalogued,
+        immovable = immovable,
+        stamped = stamped
+    )
+
+    /**
+     * The case that prompted the rule: the WhatsApp original sorted first
+     * alphabetically, so the app proposed keeping the one copy that can
+     * never be organised again.
+     */
+    @Test
+    fun `fra una catalogata e l'originale whatsapp vince la catalogata`() {
+        val gruppo = DuplicateFinder.Group(
+            listOf(
+                copy("IMG.jpg", "Android/media/com.whatsapp/", immovable = true),
+                copy("__20240827__IMG.jpg", "Pictures/Famiglia/", catalogued = true, stamped = true)
+            )
+        )
+
+        assertEquals("Pictures/Famiglia/", gruppo.suggested.relativePath)
+    }
+
+    /** Filed outranks everything, even a copy that is easier to handle. */
+    @Test
+    fun `la catalogata vince anche se e' l'unica immovibile`() {
+        val gruppo = DuplicateFinder.Group(
+            listOf(
+                copy("a.jpg", "Pictures/Varie/"),
+                copy("b.jpg", "Android/media/com.whatsapp/", catalogued = true, immovable = true)
+            )
+        )
+
+        assertTrue(gruppo.suggested.catalogued)
+    }
+
+    /** Neither filed: the one that can still be moved is worth more. */
+    @Test
+    fun `a parita' di stato vince quella spostabile`() {
+        val gruppo = DuplicateFinder.Group(
+            listOf(
+                copy("a.jpg", "Android/media/com.whatsapp/", immovable = true),
+                copy("b.jpg", "Pictures/Varie/")
+            )
+        )
+
+        assertEquals("Pictures/Varie/", gruppo.suggested.relativePath)
+    }
+
+    /** All else equal, the stamp decides; and after it, the alphabet. */
+    @Test
+    fun `a parita' vince la timbrata, poi l'ordine alfabetico`() {
+        val gruppo = DuplicateFinder.Group(
+            listOf(
+                copy("z.jpg", "Pictures/Famiglia/"),
+                copy("__20240827__a.jpg", "Pictures/Famiglia/", stamped = true)
+            )
+        )
+
+        assertTrue(gruppo.suggested.stamped)
+    }
 }

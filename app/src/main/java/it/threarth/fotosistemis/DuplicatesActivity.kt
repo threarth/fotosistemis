@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -9,9 +10,9 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -23,8 +24,10 @@ import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.dedup.DuplicateFinder
 import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.port.PhotoSource
+import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
@@ -62,6 +65,7 @@ class DuplicatesActivity : AppCompatActivity() {
     private lateinit var systemBin: SystemBinHandover
     private lateinit var listView: ListView
     private lateinit var outcome: TextView
+    private lateinit var progress: ScanProgress
 
     private var groups: List<DuplicateFinder.Group> = emptyList()
     private var byId: Map<Long, PhotoRecord> = emptyMap()
@@ -92,6 +96,7 @@ class DuplicatesActivity : AppCompatActivity() {
 
         listView = findViewById(R.id.duplicatesList)
         outcome = findViewById(R.id.duplicatesOutcome)
+        progress = ScanProgress(findViewById(R.id.duplicatesProgress))
         findViewById<Button>(R.id.duplicatesApplyButton).setOnClickListener { askConsent() }
         listenToSizeSlider()
 
@@ -116,15 +121,59 @@ class DuplicatesActivity : AppCompatActivity() {
     /** Two passes: lengths narrow the field, the bytes decide. */
     private fun search() {
         outcome.setText(R.string.duplicates_running)
+        progress.startSpinning()
         listView.adapter = null
         keeping.clear()
 
         thread {
+            val decisions = stateRepository.loadAll().getOrElse { emptyMap() }
+            val handedOver = stateRepository.handedToSystemBin().getOrElse { emptySet() }
+
+            // A photo already thrown away is not a duplicate to weigh
+            // against the copy that was kept: offering it could propose
+            // keeping the discarded one and binning the survivor.
+            //
+            // Being decided for the bin and being in it are not two cases
+            // but one, in two moments: the decision is written at once, the
+            // file moves when Android grants it. Both are excluded by the
+            // decision, whether or not it has been carried out.
+            //
+            // Apart from those, one case that really is different: an
+            // immovable original handed to Android's bin after its copy was
+            // filed. That photo is CATEGORISED, not thrown away — the
+            // picture was kept, in another file — so no decision marks it,
+            // and only the record of the handover does. It is hidden rather
+            // than gone, and without this the scan found every WhatsApp
+            // original it had just disposed of.
+            //
+            // The path is checked too, for anything dropped into the bin
+            // from outside the app, which no decision of ours would know.
             val photos = inventory.loadAllPresent().getOrElse { emptyList() }
+                .filterNot {
+                    FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) ||
+                            it.photoId in handedOver ||
+                            decisions[it.photoId]?.status == ReviewStatus.TRASHED
+                }
+
+            // What makes one copy worth more than another: whether work has
+            // been done on it, whether it can still be organised at all, and
+            // whether it carries the date stamp.
+            val filed = decisions.keys
             val candidates = photos.map {
-                DuplicateFinder.Candidate(it.photoId, it.relativePath, it.displayName, it.sizeBytes)
+                DuplicateFinder.Candidate(
+                    photoId = it.photoId,
+                    relativePath = it.relativePath,
+                    displayName = it.displayName,
+                    sizeBytes = it.sizeBytes,
+                    catalogued = it.photoId in filed,
+                    immovable = PhotoSource.isImmovable(it.relativePath),
+                    stamped = CaptureDateResolver.readStamp(it.displayName) != null
+                )
             }
             val daLeggere = DuplicateFinder.needingHash(candidates)
+            // From here the length of the work is known, so the bar can
+            // stop spinning and start meaning something.
+            runOnUiThread { progress.start(daLeggere.size) }
             val perId = photos.associateBy { it.photoId }
 
             val hashed = daLeggere.mapIndexed { index, candidate ->
@@ -138,7 +187,10 @@ class DuplicatesActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 byId = perId
                 groups = found
-                found.indices.forEach { keeping[it] = found[it].copies.first().photoId }
+                // The finder's proposal, not the first in the list: the
+                // alphabet put the WhatsApp original first, which is the
+                // one copy that can never be organised again.
+                found.indices.forEach { keeping[it] = found[it].suggested.photoId }
                 redraw(photos.size, daLeggere.size)
             }
         }
@@ -148,10 +200,12 @@ class DuplicatesActivity : AppCompatActivity() {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
             outcome.text = getString(R.string.duplicates_progress, done, total)
+            progress.advance(done)
         }
     }
 
     private fun redraw(examined: Int, hashed: Int) {
+        progress.stop()
         val extra = groups.sumOf { it.extra }
         outcome.text =
             if (groups.isEmpty()) getString(R.string.duplicates_none, examined)
@@ -181,25 +235,33 @@ class DuplicatesActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.groupHeading).text =
                 getString(R.string.duplicates_group_heading, group.copies.size, group.extra)
 
-            val rows = view.findViewById<RadioGroup>(R.id.groupCopies)
+            val rows = view.findViewById<LinearLayout>(R.id.groupCopies)
             rows.removeAllViews()
-            rows.setOnCheckedChangeListener(null)
-            group.copies.forEachIndexed { index, copy -> addCopyRow(rows, position, index, copy) }
+
+            // Built together so each button can turn the others off: one
+            // copy is kept, and the rule has to be visible on screen, not
+            // merely honoured when the button is finally read.
+            val radios = ArrayList<RadioButton>(group.copies.size)
+            group.copies.forEach { copy -> radios.add(addCopyRow(rows, position, copy, radios)) }
             return view
         }
 
         /** One copy: the radio that keeps it, its picture, and its whole path. */
         private fun addCopyRow(
-            rows: RadioGroup,
+            rows: LinearLayout,
             groupIndex: Int,
-            copyIndex: Int,
-            copy: DuplicateFinder.Candidate
-        ) {
+            copy: DuplicateFinder.Candidate,
+            siblings: MutableList<RadioButton>
+        ): RadioButton {
             val row = inflater.inflate(R.layout.item_duplicate_copy, rows, false)
             val radio = row.findViewById<RadioButton>(R.id.copyKeep)
-            radio.id = View.generateViewId()
             radio.isChecked = keeping[groupIndex] == copy.photoId
-            radio.setOnClickListener { keeping[groupIndex] = copy.photoId }
+            radio.setOnClickListener {
+                keeping[groupIndex] = copy.photoId
+                siblings.forEach { it.isChecked = it === radio }
+            }
+            // The whole row chooses, not the small circle alone.
+            row.setOnClickListener { radio.performClick() }
 
             // Not every discarded copy goes to the same bin, and the
             // difference matters: one comes back whenever you like, the
@@ -207,7 +269,8 @@ class DuplicatesActivity : AppCompatActivity() {
             // WhatsApp's folder cannot be moved into the app's own bin, so
             // discarding it means handing it to Android's — which is said
             // here, on the row, before anything is chosen.
-            val toSystemBin = PhotoSource.isImmovable(copy.relativePath)
+            val toSystemBin = copy.immovable
+            val suggested = groups[groupIndex].suggested.photoId == copy.photoId
             row.findViewById<TextView>(R.id.copyPath).text = getString(
                 R.string.duplicates_copy_line,
                 copy.relativePath + copy.displayName,
@@ -216,7 +279,7 @@ class DuplicatesActivity : AppCompatActivity() {
                     if (toSystemBin) R.string.duplicates_copy_system_bin
                     else R.string.duplicates_copy_own_bin
                 )
-            )
+            ) + if (suggested) getString(R.string.duplicates_copy_suggested) else ""
 
             val image = row.findViewById<ImageView>(R.id.copyThumb)
             val side = (thumbSizeDp * resources.displayMetrics.density).toInt()
@@ -226,6 +289,7 @@ class DuplicatesActivity : AppCompatActivity() {
             }
             bindThumbnail(image, copy.photoId)
             rows.addView(row)
+            return radio
         }
 
         private fun bindThumbnail(image: ImageView, photoId: Long) {
@@ -258,6 +322,15 @@ class DuplicatesActivity : AppCompatActivity() {
         }
         if (pending.isEmpty()) return
 
+        // Written before the files move, as everywhere else in this app: the
+        // decision is the user's and holds even if Android refuses the move.
+        // Without it a copy would land in the bin marked as nothing, and the
+        // screens that ask "what did you decide about this?" would find no
+        // answer for a photo the user had plainly decided about.
+        for (move in pending) {
+            stateRepository.record(move.photo, ReviewStatus.TRASHED, null)
+        }
+
         try {
             consentLauncher.launch(
                 IntentSenderRequest.Builder(mover.buildConsent(pending)).build()
@@ -272,11 +345,21 @@ class DuplicatesActivity : AppCompatActivity() {
         val moves = pending
         pending = emptyList()
         outcome.setText(R.string.duplicates_running)
+        progress.startSpinning()
 
         thread {
             val result = mover.applyAll(moves)
             runOnUiThread {
+                progress.stop()
                 toast(getString(R.string.duplicates_binned, result.succeeded, result.failed.size))
+
+                // A refused move keeps its decision — the user decided, the
+                // platform declined — so the photo is excluded from the next
+                // scan of this screen and would vanish without explanation.
+                // It is not lost: it joins the ones waiting to be moved, and
+                // the reader is told where that is instead of being left to
+                // wonder where the copy went.
+                if (result.failed.isNotEmpty()) explainFailures(result.failed.size)
                 val handover = result.forSystemBin + result.copiedOriginals
                 if (handover.isNotEmpty()) {
                     systemBin.offer(handover, result.copiedOriginals.size)
@@ -285,6 +368,15 @@ class DuplicatesActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** Says what became of the copies Android would not move. */
+    private fun explainFailures(count: Int) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.duplicates_failed_title)
+            .setMessage(getString(R.string.duplicates_failed_message, count))
+            .setPositiveButton(R.string.action_ok, null)
+            .show()
     }
 
     private fun toast(message: String) {

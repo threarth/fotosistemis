@@ -196,6 +196,23 @@ class PhotoStateRepository(private val database: Database) {
         reached
     }
 
+    /**
+     * Photos already handed to Android's bin.
+     *
+     * They are still in the archive as far as the platform is concerned —
+     * a trashed file is hidden, not gone, for thirty days — and the app's
+     * own record still shows them present until the next reconciliation. So
+     * anything asking "what is on this phone?" will find them, and offer
+     * work that has already been done.
+     */
+    fun handedToSystemBin(): Result<Set<Long>> = runCatching {
+        database.query(
+            "SELECT DISTINCT ${Schema.COLUMN_PHOTO_ID} AS pid FROM ${Schema.TABLE_PHOTO_PATHS} " +
+                    "WHERE ${Schema.COLUMN_KIND} = ?",
+            listOf(PathKind.SYSTEM_BIN.storedValue)
+        ).mapNotNull { it.getLong("pid") }.toSet()
+    }
+
     /** Every location the photo has occupied, oldest first. */
     fun loadPathHistory(photoId: Long): Result<List<Pair<Location, PathKind>>> = runCatching {
         database.query(

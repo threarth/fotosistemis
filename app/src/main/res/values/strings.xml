@@ -56,7 +56,6 @@
     <string name="filed_check_clean">Cartelle catalogate in ordine: dentro c\'e\' solo roba catalogata, e sta dove la sua categoria dice.</string>
     <string name="trash_unaddressable">%1$d foto non sono raggiungibili sul dispositivo e restano fuori: l\'app le ricorda, ma Android non sa piu\' dove siano.</string>
     <string name="bin_title">Cestino fotosistemis</string>
-    <string name="bin_message">Nel cestino ci sono %1$d foto.\n\nDi queste, %2$d sono gia\' passate nel cestino di Android: il file resta al suo posto, rinominato e nascosto, e viene distrutto da solo il %3$s. Fino a quel giorno si possono ancora recuperare, da Google Foto o dalla galleria.\n\nL\'app non le vede nelle sue liste — Android le nasconde a chiunque — e per questo il cestino sembrava vuoto. Le altre %4$d sono ancora normali.</string>
     <string name="bin_open">Apri il cestino</string>
     <string name="bin_expiry_unknown">data non dichiarata</string>
     <string name="system_bin_title">Cestino di sistema</string>
@@ -123,7 +122,7 @@
     <string name="folder_category_undone">Annullato: %1$d foto tornano da catalogare.</string>
     <string name="reorganize_row_empty">\n→ nessuna foto catalogata qui: non c\'e\' niente da riorganizzare</string>
     <string name="duplicates_title">Doppioni</string>
-    <string name="duplicates_where">DOVE CERCA: fra tutte le foto del dispositivo, in ogni cartella.</string>
+    <string name="duplicates_where">DOVE CERCA: fra le foto del dispositivo, in ogni cartella. Sono escluse quelle che hai gia\' deciso di eliminare — sia quelle gia\' finite nel cestino, sia quelle che ci devono ancora arrivare — e gli originali WhatsApp gia\' consegnati al cestino di Android dopo essere stati copiati. Su quelle hai gia\' deciso.</string>
     <string name="duplicates_what">COSA CERCA: file che contengono la STESSA identica fotografia. Prima confronta le dimensioni, che costa nulla; poi, solo per quelle che hanno una dimensione in comune, legge i byte e confronta l\'impronta. Due file grandi uguali non sono la stessa foto: decidono i byte.</string>
     <string name="duplicates_action">SE APPLICHI: per ogni gruppo resta la copia che hai scelto tu. Le altre vanno nel cestino di fotosistemis, da cui puoi sempre riprenderle.\n\nEccezione: una copia che sta dentro la cartella di WhatsApp non si puo\' spostare, quindi va nel CESTINO DI SISTEMA di Android — che non e\' il nostro e si svuota da solo dopo 30 giorni. Ogni riga dice quale delle due la aspetta, e Android chiedera\' conferma.</string>
     <string name="duplicates_size">Dimensione</string>
@@ -138,6 +137,11 @@
     <string name="duplicates_apply">Manda nel cestino le copie non scelte</string>
     <string name="duplicates_binned">%1$d copie nel cestino, %2$d non riuscite.</string>
     <string name="action_duplicates">Controlla: doppioni</string>
+    <string name="duplicates_copy_suggested">\nCONSIGLIATA: e\' catalogata, o e\' quella che l\'app puo\' ancora gestire. Cambia pure se non sei d\'accordo.</string>
+    <string name="duplicates_failed_title">Alcune non si sono spostate</string>
+    <string name="duplicates_failed_message">%1$d copie sono rimaste dove sono: Android non ha permesso lo spostamento.\n\nLa tua decisione resta scritta — quelle copie risultano da eliminare — quindi NON ricompariranno in questa schermata: qui si cercano solo le foto su cui non hai ancora deciso.\n\nLe ritrovi in \"Cestino fotosistemis\", che ti proporra\' di portarle dentro, oppure nella Coda, dove puoi anche annullare la decisione se hai cambiato idea.</string>
+    <string name="bin_message_all_trashed">Il cestino di fotosistemis e\' VUOTO: non c\'e\' piu\' niente da riprendere da qui.\n\nMa lo spazio non e\' stato liberato. Nella cartella restano %1$d file che hai eliminato dalla galleria: Android li ha solo rinominati e nascosti, e li tiene fino al %2$s.\n\nPer liberare davvero lo spazio devi SVUOTARE IL CESTINO DI SISTEMA — da Google Foto o dalla galleria. Fotosistemis non puo\' farlo al posto tuo. Oppure aspetti quella data e Android lo fa da solo.</string>
+    <string name="bin_message_mixed">Nel cestino di fotosistemis ci sono %1$d foto che puoi ancora riprendere da qui: aprilo, scorri, e usa \"conserva\" su quelle da salvare.\n\nNella stessa cartella restano poi %2$d file che avevi gia\' eliminato dalla galleria. Quelli non sono piu\' affare di fotosistemis: Android li tiene nascosti fino al %3$s, e per liberare lo spazio devi svuotare il cestino di sistema da Google Foto o dalla galleria.</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
@@ -154,10 +158,6 @@
     <string name="queue_trash">Da eliminare — %1$d foto</string>
     <string name="queue_categorised">Da spostare nella loro categoria — %1$d foto</string>
     <string name="queue_empty">Niente in attesa: ogni decisione presa e\' stata eseguita.</string>
-    <string name="pending_trash_title">Da eliminare, non ancora raccolte</string>
-    <string name="pending_trash_message">%1$d foto le hai segnate da eliminare, ma non sono mai state raccolte: lo spostamento non e\' riuscito, oppure la coda si e\' persa chiudendo l\'app.\n\nQuelle normali finiscono in Pictures/_FotoSistemis_DaEliminare, il cestino di fotosistemis, da dove puoi sempre riprenderle: nessun file viene distrutto.\n\nQuelle dentro la cartella di WhatsApp Android non le lascia spostare, quindi vanno nel CESTINO DI SISTEMA di Android — un cestino diverso, non governato dall\'app, che si svuota da solo dopo 30 giorni. Te lo chiedera\' Android, e prima ti verra\' detto chiaramente quante sono.</string>
-    <string name="pending_trash_gather">Raccoglile ora</string>
-    <string name="staging_open">Apri la cartella</string>
     <string name="cleanup_title">Originali da eliminare</string>
     <string name="cleanup_message">%1$d foto sono state COPIATE nel cestino di fotosistemis, perche\' Android non lascia spostare i file dalla cartella di un\'altra app come WhatsApp.\n\nOra la stessa immagine e\' sul telefono due volte: la copia nel cestino e l\'originale dentro WhatsApp.\n\n1. Toccando \"Elimina gli originali\" sara\' ANDROID a chiederti conferma, mostrandoti le foto.\n2. Le copie restano nel cestino, e da li\' puoi sempre riprenderle se hai cambiato idea.\n3. Quando vorrai eliminarle davvero, svuota il cestino da Google Foto: e\' l\'unico modo per togliere anche la copia caricata nel cloud.</string>
     <string name="cleanup_delete">Elimina gli originali</string>

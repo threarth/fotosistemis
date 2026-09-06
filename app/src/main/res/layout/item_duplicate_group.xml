@@ -17,8 +17,13 @@
         android:textSize="13sp"
         android:textStyle="bold" />
 
-    <!-- One row per copy, built in code: a group holds two or ten. -->
-    <RadioGroup
+    <!-- One row per copy, built in code: a group holds two or ten.
+
+         A plain column, not a RadioGroup: that only governs radio buttons
+         that are its own direct children, and each of these sits inside a
+         row with a thumbnail and a path. Left to it, every button in the
+         group stayed on at once. The one-of-many rule is enforced in code. -->
+    <LinearLayout
         android:id="@+id/groupCopies"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
