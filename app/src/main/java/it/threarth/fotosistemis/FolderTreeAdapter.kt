@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.CheckBox
+import android.widget.ImageView
 import android.widget.TextView
 import it.threarth.fotosistemis.core.review.FolderTree
 
@@ -44,6 +45,9 @@ class FolderTreeAdapter(
 
         /** How faded the tree looks while the whole device is chosen. */
         const val DISABLED_ALPHA = 0.35f
+
+        /** A folder that only holds other folders reads fainter. */
+        const val EMPTY_FOLDER_ALPHA = 0.4f
     }
 
     private val inflater = LayoutInflater.from(context)
@@ -114,6 +118,12 @@ class FolderTreeAdapter(
         val label = view.findViewById<TextView>(R.id.nodeLabel)
 
         check.isChecked = node.relativePath in selected
+
+        // Dimmed on a folder that holds nothing itself: it can still be
+        // chosen, because choosing it takes everything beneath, but the eye
+        // should be able to tell a folder of photos from a fork in the path.
+        view.findViewById<ImageView>(R.id.nodeIcon).alpha =
+            if (node.ownPhotoCount > 0) 1f else EMPTY_FOLDER_ALPHA
         label.text = view.context.getString(
             R.string.roots_entry,
             node.label,

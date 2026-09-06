@@ -1,0 +1,293 @@
+package it.threarth.fotosistemis
+
+import android.app.Activity
+import android.graphics.Bitmap
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.Button
+import android.widget.GridView
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.PhotoInventory
+import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.ReviewSession
+import kotlin.concurrent.thread
+
+/**
+ * The same work as leafing through, done to many photos at once.
+ *
+ * Leafing suits a photograph that needs looking at; a grid suits fifty that
+ * belong together and are recognised at a glance — a match, an afternoon, a
+ * job. Choosing the tiles and then naming the category is fewer acts than
+ * deciding each in turn, and the eye does the sorting before the hand moves.
+ *
+ * The decision is written when the button is pressed, as everywhere else,
+ * and the file moves only when the batch is applied. A tile that has been
+ * decided says so on its face: a border, and the category written inside,
+ * because a colour can say that something happened but never what.
+ */
+class GridActivity : AppCompatActivity() {
+
+    companion object {
+
+        /**
+         * The photos to show, handed over out of band.
+         *
+         * An intent carries about a megabyte, which a few thousand records
+         * would exceed. Set immediately before starting the screen, and
+         * only within the same process.
+         */
+        var pendingPhotos: List<PhotoRecord> = emptyList()
+
+        /** Line saying which folders and period these came from. */
+        var pendingSummary: String = ""
+
+        /** Small enough for three across, big enough to recognise a face. */
+        private const val TILE_EDGE_PIXELS = 400
+    }
+
+    private lateinit var inventory: PhotoInventory
+    private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var destinationRepository: DestinationRepository
+    private lateinit var photoSource: MediaStorePhotoSource
+    private lateinit var mover: BatchMover
+    private lateinit var systemBin: SystemBinHandover
+    private lateinit var settings: AppSettings
+    private lateinit var grid: GridView
+
+    private var photos: List<PhotoRecord> = emptyList()
+    private var destinations: List<Destination> = emptyList()
+
+    /** Tiles chosen and not yet acted on. */
+    private val selected = LinkedHashSet<Long>()
+
+    /** What has been decided here, by photo: the label to write on the tile. */
+    private val decided = HashMap<Long, String>()
+
+    /** The moves those decisions have queued, by photo. */
+    private val queued = LinkedHashMap<Long, ReviewSession.PendingMove>()
+
+    private val consentLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) carryOut() else toastRefused()
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContentView(R.layout.activity_grid)
+        findViewById<View>(R.id.gridRoot).padForSystemBars()
+
+        val database = AndroidDatabase(this)
+        inventory = PhotoInventory(database)
+        stateRepository = PhotoStateRepository(database)
+        destinationRepository = DestinationRepository(database)
+        photoSource = MediaStorePhotoSource(this)
+        mover = BatchMover(this, photoSource, stateRepository, inventory)
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) { finish() }
+        settings = AppSettings(this)
+
+        photos = pendingPhotos
+        destinations = destinationRepository.loadAll().getOrElse { emptyList() }
+        grid = findViewById(R.id.gridPhotos)
+
+        findViewById<TextView>(R.id.gridWhere).text = pendingSummary
+        findViewById<TextView>(R.id.gridHint).setText(R.string.grid_hint)
+        findViewById<Button>(R.id.gridApplyButton).setOnClickListener { askConsent() }
+
+        grid.adapter = TileAdapter()
+        grid.setOnItemClickListener { _, _, position, _ -> toggle(photos[position].photoId) }
+        buildActions()
+        showCounts()
+    }
+
+    /** Selecting is not deciding: it says which photos the next act is about. */
+    private fun toggle(photoId: Long) {
+        if (!selected.remove(photoId)) selected.add(photoId)
+        (grid.adapter as TileAdapter).notifyDataSetChanged()
+        showCounts()
+    }
+
+    /** One button per category, plus the two decisions that are not one. */
+    private fun buildActions() {
+        val row = findViewById<LinearLayout>(R.id.gridActions)
+        row.removeAllViews()
+
+        for (destination in destinations) {
+            row.addView(actionButton(destination.label) { fileInto(destination) })
+        }
+        row.addView(actionButton(getString(R.string.grid_trash)) { trashSelected() })
+        row.addView(actionButton(getString(R.string.grid_clear)) { clearSelected() })
+    }
+
+    private fun actionButton(label: String, action: () -> Unit): Button {
+        val button = Button(this)
+        button.text = label
+        button.setOnClickListener {
+            if (selected.isEmpty()) toast(getString(R.string.grid_nothing_selected))
+            else action()
+        }
+        return button
+    }
+
+    /** Files every chosen tile into [destination], and queues the moves. */
+    private fun fileInto(destination: Destination) {
+        forEachSelected { photo ->
+            val target = destination.pathFor(photo.dateTakenMillis, settings.yearFolderPattern)
+            stateRepository.record(photo, ReviewStatus.CATEGORIZED, destination.id)
+            decided[photo.photoId] = destination.label
+            queued[photo.photoId] = ReviewSession.PendingMove(
+                photo, target, ReviewStatus.CATEGORIZED, destination.id
+            )
+        }
+    }
+
+    private fun trashSelected() {
+        forEachSelected { photo ->
+            stateRepository.record(photo, ReviewStatus.TRASHED, null)
+            decided[photo.photoId] = getString(R.string.grid_trash_label)
+            queued[photo.photoId] = ReviewSession.PendingMove(
+                photo, ReviewSession.DELETION_STAGING_PATH, ReviewStatus.TRASHED, null
+            )
+        }
+    }
+
+    /**
+     * Takes the decision back off the chosen tiles.
+     *
+     * Both halves have to go: the record of the decision and the move it
+     * queued. Forgetting one would leave a photo that says it is undecided
+     * and still moves when the batch is applied.
+     */
+    private fun clearSelected() {
+        forEachSelected { photo ->
+            stateRepository.forget(photo.photoId)
+            decided.remove(photo.photoId)
+            queued.remove(photo.photoId)
+        }
+    }
+
+    private fun forEachSelected(action: (PhotoRecord) -> Unit) {
+        photos.filter { it.photoId in selected }.forEach(action)
+        selected.clear()
+        (grid.adapter as TileAdapter).notifyDataSetChanged()
+        showCounts()
+    }
+
+    private fun showCounts() {
+        findViewById<Button>(R.id.gridApplyButton).apply {
+            text = getString(R.string.grid_apply, queued.size)
+            isEnabled = queued.isNotEmpty()
+        }
+        findViewById<TextView>(R.id.gridHint).text =
+            if (selected.isEmpty()) getString(R.string.grid_hint)
+            else getString(R.string.grid_selected, selected.size)
+    }
+
+    /** One tile: the photograph, its state, and whether it is chosen. */
+    private inner class TileAdapter : BaseAdapter() {
+
+        private val inflater = LayoutInflater.from(this@GridActivity)
+        private val cache = HashMap<Long, Bitmap>()
+
+        override fun getCount(): Int = photos.size
+
+        override fun getItem(position: Int): PhotoRecord = photos[position]
+
+        override fun getItemId(position: Int): Long = photos[position].photoId
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val view = convertView ?: inflater.inflate(R.layout.item_grid_tile, parent, false)
+            val photo = photos[position]
+
+            // Square tiles: a grid of mixed heights reads as a jumble, and
+            // the point of the grid is that the eye can sweep it.
+            val side = (parent?.width ?: grid.width) / COLUMNS
+            if (side > 0) view.layoutParams = ViewGroup.LayoutParams(side, side)
+
+            val label = view.findViewById<TextView>(R.id.tileLabel)
+            val decision = decided[photo.photoId]
+            label.text = decision.orEmpty()
+            label.visibility = if (decision == null) View.GONE else View.VISIBLE
+
+            view.foreground = when {
+                photo.photoId in selected ->
+                    ContextCompat.getDrawable(this@GridActivity, R.drawable.tile_selected)
+
+                decision != null ->
+                    ContextCompat.getDrawable(this@GridActivity, R.drawable.tile_decided)
+
+                else -> null
+            }
+
+            bindThumbnail(view.findViewById(R.id.tileImage), photo)
+            return view
+        }
+
+        private fun bindThumbnail(image: ImageView, photo: PhotoRecord) {
+            image.tag = photo.photoId
+            image.setImageBitmap(cache[photo.photoId])
+            if (cache.containsKey(photo.photoId)) return
+
+            thread {
+                val bitmap = photoSource.loadThumbnail(photo, TILE_EDGE_PIXELS).getOrNull()
+                image.post {
+                    if (bitmap != null) cache[photo.photoId] = bitmap
+                    if (image.tag == photo.photoId) image.setImageBitmap(bitmap)
+                }
+            }
+        }
+    }
+
+    /** Moving files needs the system's permission, whoever asked for it. */
+    private fun askConsent() {
+        if (queued.isEmpty()) return
+        try {
+            consentLauncher.launch(
+                IntentSenderRequest.Builder(mover.buildConsent(queued.values.toList())).build()
+            )
+        } catch (error: Exception) {
+            toast(getString(R.string.message_error, error.message.orEmpty()))
+        }
+    }
+
+    private fun carryOut() {
+        val moves = queued.values.toList()
+        thread {
+            val result = mover.applyAll(moves)
+            runOnUiThread {
+                toast(getString(R.string.grid_applied, result.succeeded, result.failed.size))
+                val handover = result.forSystemBin + result.copiedOriginals
+                if (handover.isNotEmpty()) {
+                    systemBin.offer(handover, result.copiedOriginals.size)
+                } else {
+                    setResult(RESULT_OK)
+                    finish()
+                }
+            }
+        }
+    }
+
+    private fun toastRefused() = toast(getString(R.string.message_consent_refused))
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+}
+
+/** Three across, as a gallery shows them. */
+private const val COLUMNS = 3

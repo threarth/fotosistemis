@@ -122,6 +122,9 @@ class ReviewSession(
 
     fun current(): PhotoRecord? = photos.getOrNull(currentIndex)
 
+    /** Everything this session is leafing through, in order. */
+    fun loadedPhotos(): List<PhotoRecord> = photos.toList()
+
     /** Photo [offset] places away, used to show where a drag is heading. */
     fun peek(offset: Int): PhotoRecord? = photos.getOrNull(currentIndex + offset)
 
@@ -136,10 +139,35 @@ class ReviewSession(
 
     fun canGoPrevious(): Boolean = currentIndex > 0
 
+    /**
+     * True when moving on leads somewhere, the wrap included.
+     *
+     * Kept apart from [canGoNext], which answers the narrower question of
+     * whether a photo follows this one. The gesture needs the wider one: at
+     * the last photo there is no next, and yet a swipe still goes somewhere.
+     */
+    fun canLeafForward(): Boolean = photos.size > 1
+
     /** Pure navigation: looking at a photo is not a decision about it. */
+    /**
+     * Moves on, and past the last photo comes the first again.
+     *
+     * A list that stops dead at the end leaves the reader stranded: the
+     * photos that were skipped rather than decided are behind them, and
+     * getting back to those meant swiping the other way as many times as
+     * they had come. Wrapping round is how leafing through a stack works,
+     * and it costs nothing when there is only one photo — there is nowhere
+     * else to go anyway.
+     */
     fun goNext(): Boolean {
-        if (!canGoNext()) return false
-        currentIndex++
+        if (photos.isEmpty()) return false
+        if (canGoNext()) {
+            currentIndex++
+            return true
+        }
+        if (photos.size == 1) return false
+
+        currentIndex = 0
         return true
     }
 

@@ -32,16 +32,9 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/sourceButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
-                android:text="@string/action_source" />
-
-            <Button
                 android:id="@+id/menuButton"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
+                android:layout_weight="1"
                 android:layout_height="wrap_content"
                 android:layout_margin="3dp"
                 android:text="@string/action_menu" />
@@ -97,6 +90,16 @@
 
                 <!-- Gives the photograph the whole screen. The selector is
                      read once and then in the way. -->
+                <Button
+                    android:id="@+id/gridButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="3dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="@string/action_grid" />
+
                 <Button
                     android:id="@+id/fullScreenButton"
                     android:layout_width="wrap_content"

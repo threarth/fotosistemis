@@ -99,6 +99,9 @@ class MainActivity : AppCompatActivity() {
         /** How long the way back stays on screen after filing a folder. */
         const val UNDO_VISIBLE_MILLIS = 12_000
 
+        /** How many folder names fit on the button before summarising. */
+        const val FOLDER_NAMES_ON_BUTTON = 2
+
         const val STAR_TEXT_SIZE = 22f
         const val STAR_PADDING = 10
 
@@ -202,7 +205,18 @@ class MainActivity : AppCompatActivity() {
      * always means that folder and what hangs from it, so "just this one"
      * and "this one and below" stopped being different questions.
      */
-    private var preferredSubtree: String? = null
+    /**
+     * The folders being worked on. Empty means every source folder.
+     *
+     * A set rather than one folder: an archive scattered by a phone
+     * transfer has the same photographs under two roots, and being able to
+     * take only one of them at a time made the app describe a split it was
+     * meant to help undo.
+     */
+    private var preferredSubtrees: Set<String> = emptySet()
+
+    /** True when the bin, and only the bin, is being worked on. */
+    private fun workingInBin(): Boolean = preferredSubtrees == setOf(stagingPath())
 
     /**
      * True once the scope has been put to the user in this session.
@@ -415,7 +429,7 @@ class MainActivity : AppCompatActivity() {
 
         // Emptied while we were looking at it: what is on screen no longer
         // exists, so the list has to be rebuilt.
-        if (preferredSubtree == stagingPath()) refreshFolders()
+        if (workingInBin()) refreshFolders()
     }
 
     private fun bindViews() {
@@ -426,7 +440,6 @@ class MainActivity : AppCompatActivity() {
         destinationActions = findViewById(R.id.destinationActions)
         folderButton = findViewById(R.id.folderButton)
         folderButton.setOnClickListener { editWorkingFolder() }
-        findViewById<Button>(R.id.sourceButton).setOnClickListener { editSourceRoots() }
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         mediaStage = findViewById(R.id.mediaStage)
@@ -521,6 +534,7 @@ class MainActivity : AppCompatActivity() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
         dateButton.setOnClickListener { toggleDateVerdict() }
+        findViewById<Button>(R.id.gridButton).setOnClickListener { openGrid() }
         findViewById<Button>(R.id.fullScreenButton).setOnClickListener {
             setFullScreen(!fullScreen)
         }
@@ -650,7 +664,7 @@ class MainActivity : AppCompatActivity() {
 
     /** True when there is a photo to reach in the direction being dragged. */
     private fun canMoveVertically(dy: Float): Boolean =
-        if (dy < 0) session.canGoNext() else session.canGoPrevious()
+        if (dy < 0) session.canLeafForward() else session.canGoPrevious()
 
     /** Distance past which releasing performs the action. */
     private fun commitThreshold(): Float =
@@ -739,7 +753,7 @@ class MainActivity : AppCompatActivity() {
     private fun keepCurrent() {
         if (!canDecide()) return
         applyDecision {
-            if (preferredSubtree == stagingPath()) session.restoreCurrent()
+            if (workingInBin()) session.restoreCurrent()
             else session.keepCurrent()
         }
         flashAction(getString(R.string.flash_keep))
@@ -753,7 +767,7 @@ class MainActivity : AppCompatActivity() {
      * applied for no result. The bin has one act, and this is not it.
      */
     private fun trashCurrent() {
-        if (preferredSubtree == stagingPath()) {
+        if (workingInBin()) {
             return toast(getString(R.string.trash_already_here))
         }
 
@@ -786,7 +800,7 @@ class MainActivity : AppCompatActivity() {
      * for deletion, which is a contradiction.
      */
     private fun canDecide(): Boolean = !busy && session.current() != null &&
-            preferredSubtree != stagingPath()
+            !workingInBin()
 
     /** Android 13 needs only READ_MEDIA_IMAGES; no legacy storage branch. */
     private fun ensureReadPermission() {
@@ -1108,6 +1122,25 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Opens the grid on exactly what is being looked at.
+     *
+     * Not on the whole archive: the folders and the period have already
+     * done the choosing, and a grid of twenty-four thousand tiles would be
+     * a different screen with a different purpose. What the swipe view
+     * would show one at a time, the grid shows all at once.
+     */
+    private fun openGrid() {
+        val visible = session.loadedPhotos()
+        if (visible.isEmpty()) return toast(getString(R.string.grid_nothing))
+
+        GridActivity.pendingPhotos = visible
+        GridActivity.pendingSummary = getString(
+            R.string.grid_where, chosenFoldersLabel(), visible.size
+        )
+        queueLauncher.launch(Intent(this, GridActivity::class.java))
+    }
+
     /** Re-reads the marked dates, so the badge agrees with the database. */
     private fun refreshSuspectDates() {
         thread {
@@ -1258,7 +1291,7 @@ class MainActivity : AppCompatActivity() {
         settings.wholeDeviceAsSource = wholeDevice
         settings.sourceRoots = chosen.sorted()
 
-        preferredSubtree = null
+        preferredSubtrees = emptySet()
         refreshFolders()
     }
 
@@ -1298,10 +1331,28 @@ class MainActivity : AppCompatActivity() {
 
     /** The button says what is being worked on, or that it is everything. */
     private fun showWorkingFolder() {
-        val branch = preferredSubtree
-        folderButton.text = if (branch == null) getString(R.string.folder_all)
-        else getString(R.string.folder_chosen, branch.substringAfterLast('/'))
+        folderButton.text = chosenFoldersLabel()
         showCascadeCaption(null)
+    }
+
+    /**
+     * The chosen folders, named by their last segment.
+     *
+     * Only the tail, because the whole path would not fit on a button and
+     * the tail is what the user picked in the tree. Beyond a couple, the
+     * rest is summarised: the button is a reminder, not the list.
+     */
+    private fun chosenFoldersLabel(): String {
+        if (preferredSubtrees.isEmpty()) return getString(R.string.folder_all)
+
+        val names = preferredSubtrees.map { it.substringAfterLast('/') }.sorted()
+        if (names.size <= FOLDER_NAMES_ON_BUTTON) return names.joinToString(", ")
+
+        return getString(
+            R.string.folder_chosen_many,
+            names.take(FOLDER_NAMES_ON_BUTTON).joinToString(", "),
+            names.size - FOLDER_NAMES_ON_BUTTON
+        )
     }
 
     /**
@@ -1309,8 +1360,9 @@ class MainActivity : AppCompatActivity() {
      * only about the folder above them, and about [photoCount] photos.
      */
     private fun showCascadeCaption(photoCount: Int?) {
-        val dove = preferredSubtree?.substringAfterLast('/')
-            ?: getString(R.string.cascade_everything)
+        val dove =
+            if (preferredSubtrees.isEmpty()) getString(R.string.cascade_everything)
+            else chosenFoldersLabel()
         // Null while the folder has changed and nothing has been counted yet:
         // announcing zero photos would be stating a number nobody measured.
         val quante = photoCount?.toString() ?: getString(R.string.cascade_counting)
@@ -1347,24 +1399,30 @@ class MainActivity : AppCompatActivity() {
      * is, and there is no reason to work outside it without saying so first.
      */
     private fun editWorkingFolder() {
+        // The bin is a special folder and never appears here. It is not a
+        // place to work from: what is in it has been decided against, and
+        // offering it beside the real folders would invite sorting the
+        // rubbish. Its own button opens it when that is what is wanted.
         val inScope = withinSourceRoots(allFolders)
+            .filterNot { FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) }
         val candidates = FolderTree.candidates(inScope)
         if (candidates.isEmpty()) return toast(getString(R.string.roots_none))
 
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_folder_tree, null)
         val everything = form.findViewById<CheckBox>(R.id.wholeDeviceCheck)
         everything.setText(R.string.folder_all)
-        everything.isChecked = preferredSubtree == null
+        everything.isChecked = preferredSubtrees.isEmpty()
 
-        val chosen = LinkedHashSet<String>()
-        preferredSubtree?.let(chosen::add)
+        val chosen = LinkedHashSet(preferredSubtrees)
 
-        // The two are alternatives and must behave like it in both
-        // directions. Picking a folder while "everything" stayed ticked
-        // looked like it had worked and was thrown away on save: the
-        // checkbox won, silently, and the whole device was loaded instead.
+        // "Everything" and a chosen folder are alternatives, and behave like
+        // it in both directions: ticking one clears the other. Among the
+        // folders themselves there is no such rule — an archive split by a
+        // phone transfer has the same photographs under two roots, and being
+        // made to take one at a time would describe the split instead of
+        // helping undo it.
         val adapter = FolderTreeAdapter(
-            this, candidates, chosen, singleChoice = true,
+            this, candidates, chosen,
             onPicked = { everything.isChecked = chosen.isEmpty() }
         )
         form.findViewById<ListView>(R.id.folderTree).adapter = adapter
@@ -1383,10 +1441,13 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.folder_title)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
-                // The folder wins when there is one: a tick left over from
+                // The folders win when there are any: a tick left over from
                 // before must never discard a choice just made.
-                val scelta = chosen.firstOrNull()
-                if (scelta != preferredSubtree) changeFilter { preferredSubtree = scelta }
+                val scelte = LinkedHashSet(chosen)
+                if (scelte != preferredSubtrees) {
+                    changeFilter { preferredSubtrees = scelte }
+                    buildDestinationButtons()
+                }
                 showWorkingFolder()
             }
             .setNegativeButton(R.string.action_cancel, null)
@@ -1543,7 +1604,7 @@ class MainActivity : AppCompatActivity() {
         // and nothing else is either: the one act there is the keep gesture,
         // which puts the photo back where it came from. Twelve category
         // buttons beside it would only invite a mis-tap.
-        if (preferredSubtree == stagingPath()) {
+        if (workingInBin()) {
             updateButtonState()
             return
         }
@@ -1653,15 +1714,14 @@ class MainActivity : AppCompatActivity() {
     ) {
         setBusy(false)
         val loaded = photos.getOrElse { return showError(it) }
-        val branch = preferredSubtree
-        val loadedPhotos = if (branch == stagingPath()) {
-            // Chosen on purpose: then it is exactly what should be shown.
-            loaded.filter { FolderTree.isWithin(it.relativePath, branch) }
-        } else if (branch != null) {
-            loaded.filter { FolderTree.isWithin(it.relativePath, branch) }
-        } else {
-            withinSourceRoots(loaded)
-        }
+        // Chosen folders win over the source scope, the bin included: if it
+        // was picked on purpose, it is exactly what should be shown.
+        val branches = preferredSubtrees
+        val loadedPhotos =
+            if (branches.isEmpty()) withinSourceRoots(loaded)
+            else loaded.filter { photo ->
+                branches.any { FolderTree.isWithin(photo.relativePath, it) }
+            }
         val loadedStates = states.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
@@ -1675,7 +1735,7 @@ class MainActivity : AppCompatActivity() {
         // decided against by definition, so filtering by "not yet decided"
         // empties the screen and leaves no way to take anything back out.
         val visible =
-            if (branch == stagingPath()) inPeriod
+            if (workingInBin()) inPeriod
             else inPeriod.filter { filter.accepts(loadedStates[it.photoId]?.status) }
 
         ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
@@ -1978,7 +2038,7 @@ class MainActivity : AppCompatActivity() {
             return toast(getString(R.string.staging_empty))
         }
         if (contents.trashed == 0) {
-            changeFilter { preferredSubtree = stagingPath() }
+            changeFilter { preferredSubtrees = setOf(stagingPath()) }
             return toast(getString(R.string.staging_hint))
         }
 
@@ -2001,7 +2061,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.bin_title)
             .setMessage(message)
             .setPositiveButton(R.string.bin_open) { _, _ ->
-                changeFilter { preferredSubtree = stagingPath() }
+                changeFilter { preferredSubtrees = setOf(stagingPath()) }
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
@@ -2057,7 +2117,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         swipeLegend.setText(
-            if (preferredSubtree == stagingPath()) R.string.swipe_legend_bin
+            if (workingInBin()) R.string.swipe_legend_bin
             else R.string.swipe_legend
         )
         applyStateFrame(session.currentStatus())

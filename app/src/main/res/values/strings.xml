@@ -6,7 +6,7 @@
     <!-- Filters -->
     <string name="action_pick_range">Date</string>
     <string name="action_reload">Refresh</string>
-    <string name="folder_all">Folder…  (tutte le cartelle di origine)</string>
+    <string name="folder_all">tutte le cartelle di origine</string>
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="folder_removable">SD: %1$s</string>
     <string name="pending_title">Modifiche non applicate</string>
@@ -97,7 +97,7 @@
     <string name="action_check_placement">Controlla: catalogate fuori posto</string>
     <string name="check_running">Controllo in corso…</string>
     <string name="check_progress">Controllo in corso: %1$d di %2$d</string>
-    <string name="roots_entry_detail">%1$s  ·  qui %2$d, nelle sottocartelle %3$d</string>
+    <string name="roots_entry_detail">%1$s\nqui %2$d · sotto %3$d</string>
     <string name="cascade_caption">%1$s\n%2$s foto</string>
     <string name="cascade_everything">Tutte le cartelle di origine</string>
     <string name="action_full_screen">⛶</string>
@@ -142,6 +142,20 @@
     <string name="duplicates_failed_message">%1$d copie sono rimaste dove sono: Android non ha permesso lo spostamento.\n\nLa tua decisione resta scritta — quelle copie risultano da eliminare — quindi NON ricompariranno in questa schermata: qui si cercano solo le foto su cui non hai ancora deciso.\n\nLe ritrovi in \"Cestino fotosistemis\", che ti proporra\' di portarle dentro, oppure nella Coda, dove puoi anche annullare la decisione se hai cambiato idea.</string>
     <string name="bin_message_all_trashed">Il cestino di fotosistemis e\' VUOTO: non c\'e\' piu\' niente da riprendere da qui.\n\nMa lo spazio non e\' stato liberato. Nella cartella restano %1$d file che hai eliminato dalla galleria: Android li ha solo rinominati e nascosti, e li tiene fino al %2$s.\n\nPer liberare davvero lo spazio devi SVUOTARE IL CESTINO DI SISTEMA — da Google Foto o dalla galleria. Fotosistemis non puo\' farlo al posto tuo. Oppure aspetti quella data e Android lo fa da solo.</string>
     <string name="bin_message_mixed">Nel cestino di fotosistemis ci sono %1$d foto che puoi ancora riprendere da qui: aprilo, scorri, e usa \"conserva\" su quelle da salvare.\n\nNella stessa cartella restano poi %2$d file che avevi gia\' eliminato dalla galleria. Quelli non sono piu\' affare di fotosistemis: Android li tiene nascosti fino al %3$s, e per liberare lo spazio devi svuotare il cestino di sistema da Google Foto o dalla galleria.</string>
+    <string name="folder_chosen_many">%1$s e altre %2$d</string>
+    <string name="roots_hint_tree">La freccia apre una cartella, il resto della riga la sceglie. Puoi sceglierne piu\' di una. Scegliendone una prendi anche tutto quello che c\'e\' sotto.</string>
+    <string name="grid_title">Griglia</string>
+    <string name="action_grid">\u25a6</string>
+    <string name="grid_hint">Tocca le foto per sceglierle, poi premi una categoria qui sotto per catalogarle tutte insieme.</string>
+    <string name="grid_selected">%1$d scelte. Ora premi una categoria, oppure Elimina o \u2715 per togliere la decisione.</string>
+    <string name="grid_nothing_selected">Prima scegli almeno una foto toccandola.</string>
+    <string name="grid_trash">Elimina</string>
+    <string name="grid_trash_label">da eliminare</string>
+    <string name="grid_clear">\u2715 togli decisione</string>
+    <string name="grid_apply">Applica (%1$d)</string>
+    <string name="grid_applied">%1$d sistemate, %2$d non riuscite.</string>
+    <string name="grid_where">%1$s · %2$d foto</string>
+    <string name="grid_nothing">Nessuna foto da mostrare in griglia con i filtri attuali.</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
@@ -222,7 +236,7 @@
     <string name="pattern_title">Nome sottocartella anno</string>
     <string name="pattern_example">Esempio: %1$s/%2$s/ — vale per tutte le categorie</string>
     <string name="roots_hint_with_report">Riconciliazione: %1$s.\n\nTocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
-    <string name="roots_hint_tree">Tocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
+    <string name="roots_hint_tree_old">Tocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
     <string name="action_adopt">Riconosci foto gia\' ordinate</string>
     <string name="adopt_choose_title">Quali di queste sono categorie?</string>
     <string name="adopt_category_new">%1$s — %2$d foto (nuova)</string>
