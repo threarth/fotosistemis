@@ -25,9 +25,21 @@ object Schema {
      * v6 records the file name beside every path, so a move can be undone.
      * v7 lets a photo be rated without deciding anything else about it.
      */
-    const val VERSION = 8
+    const val VERSION = 9
 
     const val TABLE_PHOTOS = "photos"
+
+    /**
+     * Photos the user has told a check to stop reporting.
+     *
+     * Keyed by check as well as by photo: saying "leave this photo's date
+     * alone" must not also hide the fact that it is sitting in the wrong
+     * folder. They are different questions and deserve separate answers.
+     */
+    const val TABLE_IGNORED = "ignored"
+
+    /** Which check was told to leave the photo alone. */
+    const val COLUMN_CHECK = "check_kind"
     const val TABLE_DESTINATIONS = "destinations"
     const val TABLE_PHOTO_STATE = "photo_state"
     const val TABLE_TAGS = "tags"
@@ -121,6 +133,16 @@ object Schema {
      * media_type and duration_millis are filled for images today and left
      * ready for video, so adding it later needs no migration.
      */
+    /** What a check has been told to stop reporting, and which check. */
+    private const val CREATE_IGNORED = """
+        CREATE TABLE IF NOT EXISTS $TABLE_IGNORED (
+            $COLUMN_PHOTO_ID INTEGER NOT NULL,
+            $COLUMN_CHECK TEXT NOT NULL,
+            $COLUMN_RECORDED_AT INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY ($COLUMN_PHOTO_ID, $COLUMN_CHECK)
+        )
+    """
+
     private const val CREATE_PHOTOS = """
         CREATE TABLE IF NOT EXISTS $TABLE_PHOTOS (
             $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,7 +245,7 @@ object Schema {
     private val CREATE_TABLES = listOf(
         CREATE_PHOTOS, CREATE_DESTINATIONS, CREATE_PHOTO_STATE, CREATE_TAGS,
         CREATE_PHOTO_TAGS, CREATE_PHOTO_PATHS, CREATE_SYNC_STATE,
-        CREATE_PHOTO_RATINGS
+        CREATE_PHOTO_RATINGS, CREATE_IGNORED
     )
 
     private val CREATE_INDEXES = listOf(
@@ -261,6 +283,7 @@ object Schema {
         if (oldVersion < 6) migrateToVersion6(database)
         // v7 added a table, and createTables above has already made it.
         if (oldVersion < 8) migrateToVersion8(database)
+        // v9 added a table, and createTables above has already made it.
     }
 
     /** v8 lets the user contradict a photo's recorded date. */

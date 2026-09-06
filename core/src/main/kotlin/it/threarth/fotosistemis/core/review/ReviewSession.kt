@@ -39,6 +39,32 @@ class ReviewSession(
          * No .nomedia file here on purpose: hiding the folder from Google
          * Photos would defeat its whole purpose.
          */
+        /**
+         * The app's own bin: where a photo goes when it is decided against.
+         *
+         * A special folder, and the rules the rest of the archive lives by
+         * do not apply inside it. Written down because each exemption is
+         * deliberate and each would look like a bug to someone reading only
+         * the general rule:
+         *
+         * - **No stamp.** Photos filed into a category are renamed with a
+         *   `__date__` prefix so a flat folder sorts by time. Nothing in the
+         *   bin is renamed: the name it arrived with is the name it must go
+         *   back with, and a photo about to be destroyed has no use for
+         *   tidy sorting.
+         * - **No state filter.** Everywhere else the app shows what has not
+         *   been decided yet. Everything here has been decided, by
+         *   definition, so filtering that way would show an empty bin over a
+         *   full one.
+         * - **Not a source.** It is excluded from the folders reviewed and
+         *   from what the recogniser reads, or photos thrown away would come
+         *   back offered as though they were sorted.
+         * - **Not a category.** It holds no year folders and takes no
+         *   destination: the one act available inside it is putting a photo
+         *   back where it came from.
+         * - **Nothing here is destroyed.** Emptying it is the user's doing,
+         *   from the gallery. The app only ever moves photos in and out.
+         */
         const val DELETION_STAGING_PATH = "Pictures/_FotoSistemis_DaEliminare/"
     }
 
@@ -143,6 +169,27 @@ class ReviewSession(
         queueMove(ReviewStatus.TRASHED, DELETION_STAGING_PATH, null)
 
     /**
+     * Queues the current photo to go back where it came from, and advances.
+     *
+     * Restoring used to bypass the queue, on the reasoning that a correction
+     * of an earlier decision should not itself need two steps. Working in
+     * the bin showed the opposite: there, restoring is not a correction but
+     * the ordinary act, done to one photo after another while leafing
+     * through. Every other act there is reviewed before it happens, and this
+     * one moves files just as they do.
+     *
+     * The original name goes back with the folder. A photo returned to its
+     * place still carrying a stamped name has not really been put back.
+     */
+    fun restoreCurrent(): Result<Unit> {
+        val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
+        val origin = originOf(photo)
+            ?: return Result.failure(IllegalStateException("Non si sa da dove venga"))
+
+        return queueMove(ReviewStatus.KEPT, origin.relativePath, null, origin.displayName)
+    }
+
+    /**
      * Queues the current photo for [destination], appending the capture year
      * when that destination asks for it, and advances.
      */
@@ -159,7 +206,8 @@ class ReviewSession(
     private fun queueMove(
         status: ReviewStatus,
         destinationRelativePath: String,
-        destinationId: Long?
+        destinationId: Long?,
+        newDisplayName: String? = null
     ): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
         return stateRepository.record(photo, status, destinationId).onSuccess {
@@ -167,7 +215,11 @@ class ReviewSession(
             // move instead of adding a second, contradictory one.
             dequeue(photo.photoId)
             rememberState(photo.photoId, status, destinationId)
-            pendingMoves.add(PendingMove(photo, destinationRelativePath, status, destinationId))
+            pendingMoves.add(
+                PendingMove(
+                    photo, destinationRelativePath, status, destinationId, newDisplayName
+                )
+            )
             goNext()
         }
     }

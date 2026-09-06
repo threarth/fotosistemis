@@ -32,7 +32,18 @@ class PhotoStateRepository(private val database: Database) {
         ORIGINAL("original"),
 
         /** Where the app put it afterwards. */
-        MOVED("moved")
+        MOVED("moved"),
+
+        /**
+         * Handed to Android's own bin, because it could not be moved.
+         *
+         * Recorded like a location because that is what it is: the photo
+         * left, and the app needs to know it left. Without this the decision
+         * looks unfinished for ever — the file is still in WhatsApp's folder
+         * as far as its own path is concerned — and the photo is offered for
+         * gathering again at every check.
+         */
+        SYSTEM_BIN("system_bin")
     }
 
     /**
@@ -143,6 +154,20 @@ class PhotoStateRepository(private val database: Database) {
         runCatching {
             database.transaction {
                 insertPath(photoId, path, displayName, PathKind.MOVED)
+                Unit
+            }
+        }
+
+    /**
+     * Records that a photo was handed to Android's bin.
+     *
+     * The app cannot follow it there and does not govern what happens next:
+     * what it can do is stop pretending the decision is still pending.
+     */
+    fun recordSystemBin(photoId: Long, path: String, displayName: String): Result<Unit> =
+        runCatching {
+            database.transaction {
+                insertPath(photoId, path, displayName, PathKind.SYSTEM_BIN)
                 Unit
             }
         }

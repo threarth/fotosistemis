@@ -50,6 +50,10 @@
             android:label="@string/suspect_title" />
 
         <activity
+            android:name=".CheckActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".QueueActivity"
             android:exported="false"
             android:label="@string/queue_screen_title" />

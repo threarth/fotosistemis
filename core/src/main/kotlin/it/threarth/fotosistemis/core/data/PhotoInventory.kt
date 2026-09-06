@@ -4,6 +4,7 @@ import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.ReviewSession
 import it.threarth.fotosistemis.core.reorg.Reorganizer
 import it.threarth.fotosistemis.core.port.Database
 
@@ -154,7 +155,9 @@ class PhotoInventory(private val database: Database) {
      * Only photos that carry a destination: the reorganisation arranges
      * categories, and a photo with no category has no shape to be given.
      */
-    fun loadForReorganization(): Result<List<Reorganizer.Entry>> = runCatching {
+    fun loadForReorganization(
+        stagingPath: String = ReviewSession.DELETION_STAGING_PATH
+    ): Result<List<Reorganizer.Entry>> = runCatching {
         database.query(
             "SELECT p.${Schema.COLUMN_ID} AS photo_id, " +
                     "s.${Schema.COLUMN_DESTINATION_ID} AS destination_id, " +
@@ -168,8 +171,15 @@ class PhotoInventory(private val database: Database) {
                     "ON s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
                     "AND s.${Schema.COLUMN_STATUS} = ? " +
-                    "AND s.${Schema.COLUMN_DESTINATION_ID} IS NOT NULL",
-            listOf(ReviewStatus.CATEGORIZED.storedValue)
+                    "AND s.${Schema.COLUMN_DESTINATION_ID} IS NOT NULL " +
+                    // Said outright rather than left to follow from a photo
+                    // in the bin having no category. Reorganising is what
+                    // stamps names, and nothing in the bin may be renamed:
+                    // the name it arrived with is the name it goes back
+                    // with. A guarantee that rests on a coincidence is not
+                    // a guarantee.
+                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ?",
+            listOf(ReviewStatus.CATEGORIZED.storedValue, stagingPath)
         ).mapNotNull { row ->
             val photoId = row.getLong("photo_id") ?: return@mapNotNull null
             val destinationId = row.getLong("destination_id") ?: return@mapNotNull null
@@ -211,12 +221,17 @@ class PhotoInventory(private val database: Database) {
                     // The record of the move is what says otherwise.
                     "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_PATHS} pp " +
                     "WHERE pp.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
-                    "AND pp.${Schema.COLUMN_KIND} = ? AND pp.${Schema.COLUMN_PATH} = ?)",
+                    "AND ((pp.${Schema.COLUMN_KIND} = ? AND pp.${Schema.COLUMN_PATH} = ?) " +
+                    // Or handed to Android's bin, which the app cannot move
+                    // a photo into and cannot follow it out of. Its own path
+                    // never changes, so only this record says it is done.
+                    "OR pp.${Schema.COLUMN_KIND} = ?))",
             listOf(
                 ReviewStatus.TRASHED.storedValue,
                 stagingPath,
                 PhotoStateRepository.PathKind.MOVED.storedValue,
-                stagingPath
+                stagingPath,
+                PhotoStateRepository.PathKind.SYSTEM_BIN.storedValue
             )
         ).mapNotNull { it.getLong("pid") }
 

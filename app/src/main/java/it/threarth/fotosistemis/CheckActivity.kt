@@ -1,0 +1,408 @@
+package it.threarth.fotosistemis
+
+import android.app.Activity
+import android.os.Bundle
+import android.view.View
+import android.widget.Button
+import android.widget.ListView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.IgnoredRepository
+import it.threarth.fotosistemis.core.data.PhotoInventory
+import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.date.CaptureDateCheck
+import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.ReviewSession
+import kotlin.concurrent.thread
+
+/**
+ * One shape for every check the app performs.
+ *
+ * A check that only reports a number cannot be judged: the reader has no way
+ * to know what was searched, what counted as wrong, or what pressing the
+ * button would do to their photographs. So every check says the same three
+ * things before anything else — where it looked, what it looked for, what
+ * applying would do — and then shows the photographs themselves, as cards,
+ * because a list of paths is checkable only by someone who already knows
+ * what each file looks like.
+ *
+ * And every check can be told to leave something alone. That answer is
+ * remembered: a check that forgets it brings the same photos back at every
+ * scan until the whole list stops being read, and then the one new problem
+ * in it goes unseen.
+ */
+class CheckActivity : AppCompatActivity() {
+
+    companion object {
+
+        /** Which check to run, by [IgnoredRepository.Check] name. */
+        const val EXTRA_CHECK = "it.threarth.fotosistemis.CHECK"
+
+        /** How often to say how far the slow check has got. */
+        private const val PROGRESS_EVERY = 25
+    }
+
+    /** One finding: the photograph, and what would be done about it. */
+    private data class Finding(
+        val photo: PhotoRecord,
+        val destinationPath: String?,
+        val destinationId: Long?,
+        val caption: String
+    )
+
+    private lateinit var inventory: PhotoInventory
+    private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var destinations: DestinationRepository
+    private lateinit var ignored: IgnoredRepository
+    private lateinit var photoSource: MediaStorePhotoSource
+    private lateinit var mover: BatchMover
+    private lateinit var settings: AppSettings
+
+    private lateinit var check: IgnoredRepository.Check
+    private lateinit var listView: ListView
+
+    private var findings: List<Finding> = emptyList()
+    private var examined = 0
+    private var pending: List<ReviewSession.PendingMove> = emptyList()
+
+    private val consentLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) applyMoves() else pending = emptyList()
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContentView(R.layout.activity_check)
+        findViewById<View>(R.id.checkRoot).padForSystemBars()
+
+        val database = AndroidDatabase(this)
+        inventory = PhotoInventory(database)
+        stateRepository = PhotoStateRepository(database)
+        destinations = DestinationRepository(database)
+        ignored = IgnoredRepository(database)
+        photoSource = MediaStorePhotoSource(this)
+        mover = BatchMover(this, photoSource, stateRepository, inventory)
+        settings = AppSettings(this)
+
+        check = IgnoredRepository.Check.entries
+            .firstOrNull { it.storedValue == intent.getStringExtra(EXTRA_CHECK) }
+            ?: IgnoredRepository.Check.STRANGERS
+
+        listView = findViewById(R.id.checkList)
+        title = getString(titleOf(check))
+        findViewById<TextView>(R.id.checkTitle).setText(titleOf(check))
+        findViewById<Button>(R.id.checkUnignoreButton).text =
+            getString(R.string.check_unignore, 0)
+        findViewById<TextView>(R.id.checkWhere).setText(whereOf(check))
+        findViewById<TextView>(R.id.checkWhat).text =
+            getString(whatOf(check)) + "\n\n" + getString(actionOf(check))
+
+        findViewById<Button>(R.id.checkApplyButton).setOnClickListener { apply() }
+        findViewById<Button>(R.id.checkIgnoreButton).setOnClickListener { ignoreAll() }
+        findViewById<Button>(R.id.checkUnignoreButton).setOnClickListener { stopIgnoring() }
+
+        run()
+    }
+
+    private fun titleOf(check: IgnoredRepository.Check): Int = when (check) {
+        IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_title
+        IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_title
+        IgnoredRepository.Check.DATES -> R.string.check_dates_title
+    }
+
+    private fun whereOf(check: IgnoredRepository.Check): Int = when (check) {
+        IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_where
+        IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_where
+        IgnoredRepository.Check.DATES -> R.string.check_dates_where
+    }
+
+    private fun whatOf(check: IgnoredRepository.Check): Int = when (check) {
+        IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_what
+        IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_what
+        IgnoredRepository.Check.DATES -> R.string.check_dates_what
+    }
+
+    private fun actionOf(check: IgnoredRepository.Check): Int = when (check) {
+        IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_action
+        IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_action
+        IgnoredRepository.Check.DATES -> R.string.check_dates_action
+    }
+
+    /** Runs the check off the main thread and draws what it found. */
+    private fun run() {
+        setBusy(true)
+        // Reading a photograph's EXIF means opening the file, and a filed
+        // archive is hundreds of them. Saying so beats an empty screen that
+        // looks broken while it is in fact working.
+        findViewById<TextView>(R.id.checkOutcome).setText(R.string.check_running)
+        listView.adapter = null
+
+        thread {
+            val skip = ignored.idsFor(check).getOrElse { emptySet() }
+            val found = when (check) {
+                IgnoredRepository.Check.STRANGERS -> findStrangers()
+                IgnoredRepository.Check.MISPLACED -> findMisplaced()
+                IgnoredRepository.Check.DATES -> findWrongDates()
+            }.filterNot { it.photo.photoId in skip }
+
+            runOnUiThread {
+                setBusy(false)
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                findings = found
+                redraw()
+            }
+        }
+    }
+
+    /** Photos inside a category folder that nobody ever filed there. */
+    private fun findStrangers(): List<Finding> {
+        val ids = inventory.loadStrangersInDestinations().getOrElse { emptyList() }
+        examined = ids.size
+        val folders = destinations.loadAll().getOrElse { emptyList() }
+
+        return inventory.loadRecords(ids).getOrElse { emptyList() }.mapNotNull { photo ->
+            val folder = holderOf(photo.relativePath, folders) ?: return@mapNotNull null
+            Finding(
+                photo = photo,
+                destinationPath = null,
+                destinationId = folder.id,
+                caption = getString(R.string.check_row_file_under, folder.label)
+            )
+        }
+    }
+
+    /** Filed photos sitting somewhere other than where their category says. */
+    private fun findMisplaced(): List<Finding> {
+        val byId = destinations.loadAll().getOrElse { emptyList() }.associateBy { it.id }
+        val entries = inventory.loadForReorganization().getOrElse { emptyList() }
+        examined = entries.size
+        val records = inventory.loadRecords(entries.map { it.photoId })
+            .getOrElse { emptyList() }
+            .associateBy { it.photoId }
+
+        return entries.mapNotNull { entry ->
+            val destination = byId[entry.destinationId] ?: return@mapNotNull null
+            val target = destination.pathFor(entry.captureMillis, settings.yearFolderPattern)
+            if (entry.relativePath == target) return@mapNotNull null
+
+            val photo = records[entry.photoId] ?: return@mapNotNull null
+            Finding(photo, target, destination.id, getString(R.string.move_to, target))
+        }
+    }
+
+    /** Filed photos whose three carriers do not agree about the date. */
+    private fun findWrongDates(): List<Finding> {
+        val filed = stateRepository.loadAll().getOrElse { emptyMap() }
+            .filterValues { it.status == ReviewStatus.CATEGORIZED }
+            .keys
+        val ours = photoSource.ownPhotos().getOrElse { emptyList() }
+            .map { it.platformId }
+            .toHashSet()
+        val photos = inventory.loadRecords(filed.toList()).getOrElse { emptyList() }
+        examined = photos.size
+
+        return photos.mapIndexedNotNull { index, photo ->
+            if (index % PROGRESS_EVERY == 0) showProgress(index, photos.size)
+            val carriers = photoSource.readCarriers(photo).getOrNull()
+                ?: return@mapIndexedNotNull null
+            val verdict = CaptureDateCheck.check(photo.dateTakenMillis, carriers)
+            if (verdict.settled) return@mapIndexedNotNull null
+
+            val caption =
+                if (photo.platformId in ours) {
+                    getString(R.string.check_row_date, verdict.wrong.joinToString(", "))
+                } else {
+                    getString(R.string.check_row_date_theirs, verdict.wrong.joinToString(", "))
+                }
+            Finding(photo, null, null, caption)
+        }
+    }
+
+    /** Keeps the reader company through a check that opens every file. */
+    private fun showProgress(done: Int, total: Int) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            findViewById<TextView>(R.id.checkOutcome).text =
+                getString(R.string.check_progress, done, total)
+        }
+    }
+
+    /** The declared category folder holding [path], longest match winning. */
+    private fun holderOf(path: String, folders: List<Destination>): Destination? {
+        val cleaned = path.trim('/').lowercase()
+
+        return folders
+            .filter { destination ->
+                val folder = destination.relativePath.trim('/').lowercase()
+                folder.isNotEmpty() && (cleaned == folder || cleaned.startsWith("$folder/"))
+            }
+            .maxByOrNull { it.relativePath.trim('/').length }
+    }
+
+    private fun redraw() {
+        val outcome = findViewById<TextView>(R.id.checkOutcome)
+        outcome.text =
+            if (findings.isEmpty()) getString(R.string.check_nothing, examined)
+            else getString(R.string.check_found, findings.size, examined)
+
+        listView.adapter = MovePreviewAdapter(
+            this,
+            findings.map { finding ->
+                MovePreviewAdapter.Row(
+                    photo = finding.photo,
+                    title = finding.photo.displayName,
+                    first = getString(R.string.move_from, finding.photo.relativePath),
+                    second = finding.caption
+                )
+            },
+            photoSource
+        )
+
+        val any = findings.isNotEmpty()
+        findViewById<Button>(R.id.checkApplyButton).isEnabled = any
+        findViewById<Button>(R.id.checkIgnoreButton).isEnabled = any
+        showIgnoredCount()
+    }
+
+    /** Says how many this check has been told to skip, and offers them back. */
+    private fun showIgnoredCount() {
+        val button = findViewById<Button>(R.id.checkUnignoreButton)
+        thread {
+            val quante = ignored.idsFor(check).getOrElse { emptySet() }.size
+            runOnUiThread {
+                button.text = getString(R.string.check_unignore, quante)
+                button.isEnabled = quante > 0
+            }
+        }
+    }
+
+    private fun apply() {
+        when (check) {
+            IgnoredRepository.Check.STRANGERS -> fileStrangers()
+            IgnoredRepository.Check.MISPLACED -> askConsent()
+            IgnoredRepository.Check.DATES -> healDates()
+        }
+    }
+
+    /** Files each stranger under the category whose folder already holds it. */
+    private fun fileStrangers() {
+        setBusy(true)
+        thread {
+            var filed = 0
+            for (finding in findings) {
+                val destinationId = finding.destinationId ?: continue
+                if (stateRepository
+                        .record(finding.photo, ReviewStatus.CATEGORIZED, destinationId)
+                        .isSuccess
+                ) filed++
+            }
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.check_applied, filed, findings.size - filed))
+                run()
+            }
+        }
+    }
+
+    /** Moving files needs the system's permission, whoever asked for it. */
+    private fun askConsent() {
+        pending = findings.mapNotNull { finding ->
+            val target = finding.destinationPath ?: return@mapNotNull null
+            ReviewSession.PendingMove(
+                finding.photo, target, ReviewStatus.CATEGORIZED, finding.destinationId
+            )
+        }
+        if (pending.isEmpty()) return
+
+        try {
+            consentLauncher.launch(
+                IntentSenderRequest.Builder(mover.buildConsent(pending)).build()
+            )
+        } catch (error: Exception) {
+            pending = emptyList()
+            toast(getString(R.string.message_error, error.message.orEmpty()))
+        }
+    }
+
+    private fun applyMoves() {
+        val moves = pending
+        pending = emptyList()
+        setBusy(true)
+        thread {
+            val result = mover.applyAll(moves)
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.check_applied, result.succeeded, result.failed.size))
+                run()
+            }
+        }
+    }
+
+    /** Writes the date where it is missing, then reads back to check. */
+    private fun healDates() {
+        setBusy(true)
+        thread {
+            val ours = photoSource.ownPhotos().getOrElse { emptyList() }
+                .map { it.platformId }
+                .toHashSet()
+            var healed = 0
+            var left = 0
+
+            for (finding in findings) {
+                if (finding.photo.platformId !in ours) {
+                    left++
+                    continue
+                }
+                val verdict = photoSource
+                    .healCaptureDate(finding.photo, finding.photo.dateTakenMillis)
+                    .getOrNull()
+                if (verdict != null && verdict.settled) healed++ else left++
+            }
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.check_applied, healed, left))
+                run()
+            }
+        }
+    }
+
+    /** Remembers that these are not to be reported again. */
+    private fun ignoreAll() {
+        val ids = findings.map { it.photo.photoId }
+        ignored.ignore(check, ids).fold(
+            onSuccess = {
+                toast(getString(R.string.check_ignored, it))
+                run()
+            },
+            onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }
+        )
+    }
+
+    /** Takes back every answer given to this check, so it may ask again. */
+    private fun stopIgnoring() {
+        ignored.clear(check).fold(
+            onSuccess = {
+                toast(getString(R.string.check_unignored, it))
+                run()
+            },
+            onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }
+        )
+    }
+
+    private fun setBusy(busy: Boolean) {
+        findViewById<Button>(R.id.checkApplyButton).isEnabled = !busy && findings.isNotEmpty()
+        findViewById<Button>(R.id.checkIgnoreButton).isEnabled = !busy && findings.isNotEmpty()
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+}

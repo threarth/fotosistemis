@@ -28,11 +28,13 @@ import android.widget.ImageView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.DestinationRepository
+import it.threarth.fotosistemis.core.data.IgnoredRepository
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
@@ -158,9 +160,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dateButton: Button
     private lateinit var stateBadge: TextView
     private lateinit var photoFolder: TextView
+    private lateinit var swipeLegend: TextView
 
     /** The category folders are checked once each time the app opens. */
     private var filedFoldersChecked = false
+
+    /** True while the photograph has the screen to itself. */
+    private var fullScreen = false
+
+    /** Back leaves full screen before it leaves the app. */
+    private val exitFullScreen = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = setFullScreen(false)
+    }
 
     /** Photos the user has said carry a wrong date. */
     private var suspectDates: Set<Long> = emptySet()
@@ -314,6 +325,40 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    /** Photos Android must be asked to bin, because we cannot move them. */
+    private var forSystemBin: List<ReviewSession.PendingMove> = emptyList()
+
+    /**
+     * Android's own bin accepts them, or it does not; either way we say so.
+     *
+     * On acceptance the handover is written down. Their own paths do not
+     * change — the app cannot move these files, which is why Android was
+     * asked in the first place — so without a record of it the decision
+     * would look unfinished for ever, and every check would offer the same
+     * photos again.
+     */
+    private val requestSystemBin =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            val handed = forSystemBin
+            forSystemBin = emptyList()
+            val accepted = result.resultCode == Activity.RESULT_OK
+
+            if (accepted) {
+                for (move in handed) {
+                    stateRepository.recordSystemBin(
+                        move.photo.photoId, move.photo.relativePath, move.photo.displayName
+                    )
+                }
+            }
+            toast(
+                getString(
+                    if (accepted) R.string.system_bin_done else R.string.system_bin_refused,
+                    handed.size
+                )
+            )
+            refreshFolders()
+        }
+
     private val requestTrashConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             val moves = pendingTrash
@@ -432,6 +477,7 @@ class MainActivity : AppCompatActivity() {
         dateButton = findViewById(R.id.dateButton)
         stateBadge = findViewById(R.id.stateBadge)
         photoFolder = findViewById(R.id.photoFolder)
+        swipeLegend = findViewById(R.id.swipeLegend)
         photoFolder.setOnClickListener { offerFolderAsCategory() }
         printButton = findViewById(R.id.printButton)
         starBar = findViewById(R.id.starBar)
@@ -471,7 +517,9 @@ class MainActivity : AppCompatActivity() {
             placementLauncher.launch(Intent(this, PlacementActivity::class.java))
         }
         voce(R.id.drawerTrashButton) { showStagingFolder() }
-        voce(R.id.drawerCheckFoldersButton) { checkFiledFolders(asked = true) }
+        voce(R.id.drawerSystemBinButton) { showSystemBin() }
+        voce(R.id.drawerCheckFoldersButton) { openCheck(IgnoredRepository.Check.STRANGERS) }
+        voce(R.id.drawerCheckPlacementButton) { openCheck(IgnoredRepository.Check.MISPLACED) }
         voce(R.id.drawerAdoptButton) { openOutput(DestinationsActivity.ACTION_ADOPT) }
         voce(R.id.drawerReorganizeButton) {
             startActivity(Intent(this, ReorganizeActivity::class.java))
@@ -482,7 +530,7 @@ class MainActivity : AppCompatActivity() {
         voce(R.id.drawerExportButton) { openOutput(DestinationsActivity.ACTION_EXPORT) }
         voce(R.id.drawerImportButton) { openOutput(DestinationsActivity.ACTION_IMPORT) }
         voce(R.id.drawerBackupButton) { openOutput(DestinationsActivity.ACTION_BACKUP) }
-        voce(R.id.drawerRepairDatesButton) { offerDateRepair() }
+        voce(R.id.drawerRepairDatesButton) { openCheck(IgnoredRepository.Check.DATES) }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
     }
@@ -510,6 +558,10 @@ class MainActivity : AppCompatActivity() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
         dateButton.setOnClickListener { toggleDateVerdict() }
+        findViewById<Button>(R.id.fullScreenButton).setOnClickListener {
+            setFullScreen(!fullScreen)
+        }
+        onBackPressedDispatcher.addCallback(this, exitFullScreen)
         printButton.setOnClickListener { togglePrintTag() }
         bindDrawer()
 
@@ -713,13 +765,35 @@ class MainActivity : AppCompatActivity() {
         render()
     }
 
+    /**
+     * Keeping a photo, wherever it is being kept from.
+     *
+     * In the bin the gesture keeps its meaning and changes its work: what
+     * "keep" asks for there is that the photo not be thrown away, which
+     * means putting it back where it came from. No second control is needed
+     * to say the same thing, and the hand already knows this one.
+     */
     private fun keepCurrent() {
         if (!canDecide()) return
-        applyDecision { session.keepCurrent() }
+        applyDecision {
+            if (preferredSubtree == stagingPath()) session.restoreCurrent()
+            else session.keepCurrent()
+        }
         flashAction(getString(R.string.flash_keep))
     }
 
+    /**
+     * Sends the current photo to the bin, unless it is already in it.
+     *
+     * There, the gesture would queue a move to the folder the photo is
+     * standing in: work that changes nothing, counted in the queue and
+     * applied for no result. The bin has one act, and this is not it.
+     */
     private fun trashCurrent() {
+        if (preferredSubtree == stagingPath()) {
+            return toast(getString(R.string.trash_already_here))
+        }
+
         if (!canDecide()) return
         applyDecision { session.trashCurrent() }
         flashAction(getString(R.string.flash_trash))
@@ -841,139 +915,6 @@ class MainActivity : AppCompatActivity() {
             Intent(this, DestinationsActivity::class.java)
                 .putExtra(DestinationsActivity.EXTRA_ACTION, action)
         )
-    }
-
-    /**
-     * Checks every carrier of the capture date, on every photo the app owns
-     * and has filed, and offers to put right what disagrees.
-     *
-     * A photograph's date lives in three places — inside the file, on the
-     * file, and in the archive's index — and mending one of them says
-     * nothing about the other two. Checking one carrier and reporting the
-     * photo as sound is how twenty-five copies came to be called repaired
-     * while the gallery still filed them under the day they were copied.
-     * So all three are read, and a photo counts as right only when all
-     * three agree.
-     */
-    private fun offerDateRepair() {
-        setBusy(true)
-        thread {
-            val da = photosToCheck()
-            val rotte = da.mapNotNull { voce ->
-                val carriers = photoSource.readCarriers(voce.photo).getOrNull()
-                    ?: return@mapNotNull null
-                val verdict = CaptureDateCheck.check(voce.expectedMillis, carriers)
-                if (verdict.settled) null else voce to verdict
-            }
-
-            runOnUiThread {
-                setBusy(false)
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (rotte.isEmpty()) return@runOnUiThread toast(
-                    getString(R.string.repair_dates_none, da.size)
-                )
-                askDateRepair(da.size, rotte)
-            }
-        }
-    }
-
-    /** One photo to check: what it is, when it was taken, and whose it is. */
-    private data class Checkable(
-        val photo: PhotoRecord,
-        val expectedMillis: Long,
-
-        /** Made by this app, and so the only kind it may write into. */
-        val ours: Boolean
-    )
-
-    /**
-     * Every filed photo, whoever made it.
-     *
-     * Reading is not writing. A photo the app did not create can still be
-     * looked at, and knowing how many of them carry a date that does not
-     * hold is worth having before deciding whether to ask for permission to
-     * touch them. Only the app's own files are ever written to.
-     *
-     * Undecided photos are left out: a photo nobody has filed is not yet
-     * anybody's to tidy.
-     */
-    private fun photosToCheck(): List<Checkable> {
-        val filed = stateRepository.loadAll().getOrElse { emptyMap() }
-            .filterValues { it.status == ReviewStatus.CATEGORIZED }
-            .keys
-        val nostre = photoSource.ownPhotos().getOrElse { emptyList() }
-            .map { it.platformId }
-            .toHashSet()
-
-        return inventory.loadRecords(filed.toList()).getOrElse { emptyList() }
-            .map { Checkable(it, it.dateTakenMillis, it.platformId in nostre) }
-    }
-
-    /**
-     * Says which carriers are wrong, on how many photos, before writing.
-     *
-     * The two groups are told apart because only one of them can be acted
-     * on. Photos the app did not make are counted and named, so the size of
-     * that half is known, and then left exactly as they are.
-     */
-    private fun askDateRepair(
-        checked: Int,
-        broken: List<Pair<Checkable, CaptureDateCheck.Verdict>>
-    ) {
-        val nostre = broken.filter { it.first.ours }
-        val altrui = broken.size - nostre.size
-        val perPortatore = broken
-            .flatMap { it.second.wrong }
-            .groupingBy { it }
-            .eachCount()
-            .entries
-            .joinToString("\n") { "· ${it.key}: ${it.value}" }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.repair_dates_title)
-            .setMessage(
-                getString(
-                    R.string.repair_dates_message,
-                    checked, broken.size, perPortatore, nostre.size, altrui
-                )
-            )
-            .setPositiveButton(R.string.repair_dates_do) { _, _ ->
-                runDateRepair(nostre.map { it.first })
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    /**
-     * Heals each photo and reports what is still wrong afterwards.
-     *
-     * The count that matters is the one read back from the files and the
-     * archive, not the number of writes attempted. A photo whose EXIF says
-     * something else is left alone and counted as unresolved: the photograph
-     * disagreeing with the app about its own date is the user's to judge, so
-     * it is marked as having a doubtful date rather than quietly overwritten.
-     */
-    private fun runDateRepair(photos: List<Checkable>) {
-        setBusy(true)
-        thread {
-            var sanate = 0
-            val irrisolte = ArrayList<Long>()
-
-            for (voce in photos) {
-                val verdict = photoSource
-                    .healCaptureDate(voce.photo, voce.expectedMillis).getOrNull()
-                if (verdict != null && verdict.settled) sanate++
-                else irrisolte.add(voce.photo.photoId)
-            }
-            for (photoId in irrisolte) inventory.markDateSuspect(photoId, true)
-
-            runOnUiThread {
-                setBusy(false)
-                toast(getString(R.string.repair_dates_done, sanate, irrisolte.size))
-                refreshSuspectDates()
-                reload()
-            }
-        }
     }
 
     /**
@@ -1123,21 +1064,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Offers the two ways out: file the strangers, or open the queue. */
+    /**
+     * Points at the check that can answer, rather than answering here.
+     *
+     * A dialog can say how many; only the check itself can say where it
+     * looked, what it looked for, and what applying would do to which
+     * photographs. Sending the user there is the whole of this dialog's job.
+     */
     private fun showFiledFolderProblems(strangers: Int, misplaced: Int) {
         AlertDialog.Builder(this)
             .setTitle(R.string.filed_check_title)
             .setMessage(getString(R.string.filed_check_message, strangers, misplaced))
-            .setPositiveButton(R.string.filed_check_open) { _, _ ->
-                queueLauncher.launch(Intent(this, QueueActivity::class.java))
-            }
             .apply {
-                if (strangers > 0) setNeutralButton(R.string.filed_check_adopt) { _, _ ->
-                    openOutput(DestinationsActivity.ACTION_ADOPT)
+                if (strangers > 0) setPositiveButton(R.string.filed_check_strangers) { _, _ ->
+                    openCheck(IgnoredRepository.Check.STRANGERS)
+                }
+                if (misplaced > 0) setNeutralButton(R.string.filed_check_misplaced) { _, _ ->
+                    openCheck(IgnoredRepository.Check.MISPLACED)
                 }
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
+    }
+
+    /** Opens the screen for one check, which is the same screen for all. */
+    private fun openCheck(check: IgnoredRepository.Check) {
+        queueLauncher.launch(
+            Intent(this, CheckActivity::class.java)
+                .putExtra(CheckActivity.EXTRA_CHECK, check.storedValue)
+        )
     }
 
     /** Re-reads the marked dates, so the badge agrees with the database. */
@@ -1332,15 +1287,35 @@ class MainActivity : AppCompatActivity() {
      * only about the folder above them, and about [photoCount] photos.
      */
     private fun showCascadeCaption(photoCount: Int?) {
-        val branch = preferredSubtree
-        val dove = branch?.substringAfterLast('/')
+        val dove = preferredSubtree?.substringAfterLast('/')
+            ?: getString(R.string.cascade_everything)
         // Null while the folder has changed and nothing has been counted yet:
         // announcing zero photos would be stating a number nobody measured.
         val quante = photoCount?.toString() ?: getString(R.string.cascade_counting)
 
         findViewById<TextView>(R.id.cascadeCaption).text =
-            if (dove == null) getString(R.string.cascade_all, quante)
-            else getString(R.string.cascade_within, dove, quante)
+            getString(R.string.cascade_caption, dove, quante)
+    }
+
+    /**
+     * Gives the photograph the screen, or gives the selector back.
+     *
+     * The controls that choose what to look at are read once and are then in
+     * the way of the thing they chose. Leaving is the back gesture, because
+     * that is what the hand reaches for.
+     */
+    private fun setFullScreen(on: Boolean) {
+        fullScreen = on
+        findViewById<View>(R.id.selectorBlock).visibility =
+            if (on) View.GONE else View.VISIBLE
+        findViewById<Button>(R.id.fullScreenButton).setText(
+            if (on) R.string.action_full_screen_exit else R.string.action_full_screen
+        )
+        exitFullScreen.isEnabled = on
+
+        // The button that got us here goes away with the block it sits in,
+        // so the way out has to be said out loud once.
+        if (on) toast(getString(R.string.full_screen_hint))
     }
 
     /**
@@ -1361,15 +1336,34 @@ class MainActivity : AppCompatActivity() {
 
         val chosen = LinkedHashSet<String>()
         preferredSubtree?.let(chosen::add)
-        val adapter = FolderTreeAdapter(this, candidates, chosen, singleChoice = true)
+
+        // The two are alternatives and must behave like it in both
+        // directions. Picking a folder while "everything" stayed ticked
+        // looked like it had worked and was thrown away on save: the
+        // checkbox won, silently, and the whole device was loaded instead.
+        val adapter = FolderTreeAdapter(
+            this, candidates, chosen, singleChoice = true,
+            onPicked = { everything.isChecked = chosen.isEmpty() }
+        )
         form.findViewById<ListView>(R.id.folderTree).adapter = adapter
         adapter.revealSelection()
+
+        adapter.setEnabled(!everything.isChecked)
+        everything.setOnCheckedChangeListener { _, checked ->
+            adapter.setEnabled(!checked)
+            if (checked && chosen.isNotEmpty()) {
+                chosen.clear()
+                adapter.notifyDataSetChanged()
+            }
+        }
 
         AlertDialog.Builder(this)
             .setTitle(R.string.folder_title)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
-                val scelta = if (everything.isChecked) null else chosen.firstOrNull()
+                // The folder wins when there is one: a tick left over from
+                // before must never discard a choice just made.
+                val scelta = chosen.firstOrNull()
                 if (scelta != preferredSubtree) changeFilter { preferredSubtree = scelta }
                 showWorkingFolder()
             }
@@ -1522,6 +1516,16 @@ class MainActivity : AppCompatActivity() {
             emptyList()
         }
         destinationActions.removeAllViews()
+
+        // Working in the bin, filing into a category is not what is wanted,
+        // and nothing else is either: the one act there is the keep gesture,
+        // which puts the photo back where it came from. Twelve category
+        // buttons beside it would only invite a mis-tap.
+        if (preferredSubtree == stagingPath()) {
+            updateButtonState()
+            return
+        }
+
         for (destination in destinations) {
             val button = Button(this)
             button.text = destination.label
@@ -1572,6 +1576,7 @@ class MainActivity : AppCompatActivity() {
     private fun changeFilter(change: () -> Unit) {
         if (session.pendingCount == 0) {
             change()
+            buildDestinationButtons()
             reload()
             return
         }
@@ -1582,11 +1587,13 @@ class MainActivity : AppCompatActivity() {
             .setCancelable(false)
             .setPositiveButton(R.string.pending_apply) { _, _ ->
                 change()
+                buildDestinationButtons()
                 startApply()
             }
             .setNegativeButton(R.string.pending_drop_all) { _, _ ->
                 session.discardQueue().onFailure { showError(it) }
                 change()
+                buildDestinationButtons()
                 reload()
             }
             .show()
@@ -1642,7 +1649,12 @@ class MainActivity : AppCompatActivity() {
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
-        val visible = inPeriod.filter { filter.accepts(loadedStates[it.photoId]?.status) }
+        // The bin is exempt from the state filter. Everything in it was
+        // decided against by definition, so filtering by "not yet decided"
+        // empties the screen and leaves no way to take anything back out.
+        val visible =
+            if (branch == stagingPath()) inPeriod
+            else inPeriod.filter { filter.accepts(loadedStates[it.photoId]?.status) }
 
         ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
         takeFingerprints()
@@ -1889,8 +1901,7 @@ class MainActivity : AppCompatActivity() {
      * deleting it anywhere else would leave the cloud copy behind.
      */
     private fun showStagingFolder() {
-        val arretrate = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
-            .getOrElse { emptyList() }
+        val arretrate = pendingTrashStillWaiting()
         if (arretrate.isNotEmpty()) return offerPendingTrash(arretrate)
 
         setBusy(true)
@@ -1902,6 +1913,30 @@ class MainActivity : AppCompatActivity() {
                 showBinContents(contenuto)
             }
         }
+    }
+
+    /**
+     * The photos decided against that really are still waiting.
+     *
+     * One that Android is already holding in its own bin has been dealt
+     * with, however it got there — by this app before it learned to write
+     * the handover down, or by the user from the gallery. Those are marked
+     * as done rather than offered again, which is the difference between a
+     * check that can be trusted and one that repeats itself.
+     */
+    private fun pendingTrashStillWaiting(): List<PhotoRecord> {
+        val waiting = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+            .getOrElse { emptyList() }
+        if (waiting.isEmpty()) return waiting
+
+        val inAndroidBin = photoSource.systemBinIds().getOrElse { emptySet() }
+        if (inAndroidBin.isEmpty()) return waiting
+
+        val (consegnate, resto) = waiting.partition { it.platformId in inAndroidBin }
+        for (photo in consegnate) {
+            stateRepository.recordSystemBin(photo.photoId, photo.relativePath, photo.displayName)
+        }
+        return resto
     }
 
     /**
@@ -2031,6 +2066,10 @@ class MainActivity : AppCompatActivity() {
             showStars()
             return
         }
+        swipeLegend.setText(
+            if (preferredSubtree == stagingPath()) R.string.swipe_legend_bin
+            else R.string.swipe_legend
+        )
         applyStateFrame(session.currentStatus())
         showStateBadge(session.currentStatus(), photo)
         photoFolder.text = getString(R.string.photo_folder, photo.relativePath.trim('/'))
@@ -2349,14 +2388,87 @@ class MainActivity : AppCompatActivity() {
         }
 
         session.retainFailedMoves(result.failed)
-        // The originals are deliberately left alone. Deleting in this app
-        // means moving into its own bin, never asking the system to destroy
-        // anything: the system delete goes to Android's own trash, which is
-        // outside the app's control and empties itself on a timer.
+        // Originals of photos that were filed, not binned: they stay where
+        // they are, because this app never destroys a file.
         if (result.copiedOriginals.isNotEmpty()) {
             toast(getString(R.string.originals_left, result.copiedOriginals.size))
         }
+        if (result.forSystemBin.isNotEmpty()) offerSystemBin(result.forSystemBin)
         refreshFolders()
+    }
+
+    /**
+     * Offers Android's bin to the photos this app cannot move.
+     *
+     * Named for what it is, because it is not the app's bin and does not
+     * behave like it: what goes in there is out of the app's hands, empties
+     * itself after thirty days, and is recovered from the gallery rather
+     * than from here. The alternative — copying into the app's own bin —
+     * would leave the picture on the phone twice, with the original taking
+     * the room, which for a WhatsApp archive is most of the room there is.
+     */
+    private fun offerSystemBin(photos: List<ReviewSession.PendingMove>) {
+        forSystemBin = photos
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.system_bin_title)
+            .setMessage(getString(R.string.system_bin_message, photos.size))
+            .setPositiveButton(R.string.system_bin_do) { _, _ -> requestSystemBinConsent() }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> forSystemBin = emptyList() }
+            .show()
+    }
+
+    /** Android asks; the app only proposes, and never destroys. */
+    private fun requestSystemBinConsent() {
+        if (forSystemBin.isEmpty()) return
+        try {
+            requestSystemBin.launch(
+                IntentSenderRequest.Builder(
+                    MediaStore.createTrashRequest(
+                        contentResolver,
+                        forSystemBin.map { photoSource.uriFor(it.photo) },
+                        true
+                    ).intentSender
+                ).build()
+            )
+        } catch (error: Exception) {
+            forSystemBin = emptyList()
+            showError(error)
+        }
+    }
+
+    /**
+     * Shows what is in Android's bin, and says whose bin it is.
+     *
+     * Read-only on purpose: the app puts photos in there when it has no
+     * other way, and can count what is inside, but emptying or restoring it
+     * belongs to the gallery. Saying that plainly is the point of the
+     * screen — two bins that behaved differently and looked the same would
+     * be worse than one.
+     */
+    private fun showSystemBin() {
+        setBusy(true)
+        thread {
+            val contenuto = photoSource.systemBinContents().getOrNull()
+            runOnUiThread {
+                setBusy(false)
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (contenuto == null || contenuto.trashed == 0) {
+                    return@runOnUiThread toast(getString(R.string.system_bin_empty))
+                }
+
+                val quando = contenuto.earliestExpiryMillis
+                    ?.let { SimpleDateFormat(DATE_PATTERN, Locale.ITALY).format(Date(it)) }
+                    ?: getString(R.string.bin_expiry_unknown)
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.action_system_bin_plain)
+                    .setMessage(
+                        getString(R.string.system_bin_report, contenuto.trashed, quando)
+                    )
+                    .setPositiveButton(R.string.action_ok, null)
+                    .show()
+            }
+        }
     }
 
     private fun refuseConsent() {

@@ -6,6 +6,7 @@ import android.provider.MediaStore
 import android.net.Uri
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.port.PhotoSource
 import it.threarth.fotosistemis.core.review.ReviewSession
 
@@ -48,7 +49,18 @@ class BatchMover(
          * a deletion, which is the user's to allow, so they are handed back
          * rather than dealt with here.
          */
-        val copiedOriginals: List<Uri> = emptyList()
+        val copiedOriginals: List<Uri> = emptyList(),
+
+        /**
+         * Photos the platform will not let us move, decided against.
+         *
+         * They cannot go into the app's own bin without being duplicated,
+         * so they are offered to Android's, which is a different thing with
+         * a different rule: it is not ours, and it empties itself after
+         * thirty days. Handing them over needs the user's consent, and
+         * saying which bin it is needs saying plainly.
+         */
+        val forSystemBin: List<ReviewSession.PendingMove> = emptyList()
     )
 
     /**
@@ -82,9 +94,24 @@ class BatchMover(
 
         val startedAt = System.currentTimeMillis()
         val originals = ArrayList<Uri>()
+        val toSystemBin = ArrayList<ReviewSession.PendingMove>()
         for (move in moves) {
-            // Where the platform forbids a move, copy: the boundary is not
-            // crossed, a new file is simply written on this side of it.
+            // A photo the platform will not let us move, decided against:
+            // copying it into our own bin would leave the picture on the
+            // phone twice, and the original is the one that takes the room.
+            // Android's own bin is the only place it can go, so it is handed
+            // over — and the user is told it is a different bin, with a
+            // different rule, that empties itself.
+            if (PhotoSource.isImmovable(move.photo.relativePath) &&
+                move.status == ReviewStatus.TRASHED
+            ) {
+                toSystemBin.add(move)
+                continue
+            }
+
+            // Where the platform forbids a move and the photo is being
+            // filed, copy: the boundary is not crossed, a new file is
+            // simply written on this side of it.
             if (PhotoSource.isImmovable(move.photo.relativePath)) {
                 copyOne(move).fold(
                     onSuccess = { succeeded++; originals.add(photoSource.uriFor(move.photo)) },
@@ -128,7 +155,8 @@ class BatchMover(
             failed = failed,
             totalMillis = System.currentTimeMillis() - startedAt,
             firstError = firstError,
-            copiedOriginals = originals
+            copiedOriginals = originals,
+            forSystemBin = toSystemBin
         )
     }
 

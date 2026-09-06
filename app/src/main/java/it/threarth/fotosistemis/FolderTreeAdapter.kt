@@ -22,7 +22,16 @@ class FolderTreeAdapter(
     private val selected: MutableSet<String>,
 
     /** True when picking one folder unpicks whatever was picked before. */
-    private val singleChoice: Boolean = false
+    private val singleChoice: Boolean = false,
+
+    /**
+     * Told whenever the picked set changes.
+     *
+     * A tree offered beside a "everything" checkbox has to be able to say
+     * it was used, or the two go on disagreeing in silence and one of them
+     * quietly wins at save time.
+     */
+    private val onPicked: (() -> Unit)? = null
 ) : BaseAdapter() {
 
     private companion object {
@@ -110,11 +119,23 @@ class FolderTreeAdapter(
             node.label,
             node.photoCount
         )
+
+        // Choosing a folder takes everything under it, so the row has to say
+        // how much of that total is actually here and how much is below —
+        // and where the folder really sits, since a collapsed run hides the
+        // levels in between and two folders can end in the same word.
+        view.findViewById<TextView>(R.id.nodePath).text = view.context.getString(
+            R.string.roots_entry_detail,
+            node.relativePath,
+            node.ownPhotoCount,
+            node.photoCount - node.ownPhotoCount
+        )
         val pick = View.OnClickListener {
             if (!enabled) return@OnClickListener
             val era = selected.remove(node.relativePath)
             if (singleChoice) selected.clear()
             if (!era) selected.add(node.relativePath)
+            onPicked?.invoke()
             notifyDataSetChanged()
         }
         check.setOnClickListener(pick)

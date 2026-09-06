@@ -225,6 +225,64 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
         false
     }
 
+    /**
+     * What sits in Android's own bin, across the whole device.
+     *
+     * A different bin from this app's, with a different rule: the app can
+     * see into it but does not govern it, and after thirty days Android
+     * empties it without asking anybody. Keeping the two apart in the
+     * interface matters more than the counts do — one of them is a decision
+     * that can still be undone here, the other is a countdown.
+     */
+    fun systemBinContents(): Result<BinContents> = runCatching {
+        val queryArgs = Bundle().apply {
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+        }
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DATE_EXPIRES
+        )
+        val cursor = resolver.query(COLLECTION, projection, queryArgs, null)
+            ?: throw IllegalStateException("MediaStore non ha restituito risultati")
+
+        cursor.use { rows ->
+            val expiryColumn = rows.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_EXPIRES)
+            var trashed = 0
+            var earliest: Long? = null
+
+            while (rows.moveToNext()) {
+                trashed++
+                if (rows.isNull(expiryColumn)) continue
+
+                val expiry = rows.getLong(expiryColumn) * MILLIS_PER_SECOND
+                if (earliest == null || expiry < earliest) earliest = expiry
+            }
+            BinContents(visible = 0, trashed = trashed, earliestExpiryMillis = earliest)
+        }
+    }
+
+    /**
+     * Platform ids of everything sitting in Android's bin.
+     *
+     * A photo can get there without this app: from the gallery, from Google
+     * Photos, or from a handover the app made before it thought to write the
+     * fact down. Either way the decision about it has been carried out, and
+     * offering it again as unfinished work would be wrong.
+     */
+    fun systemBinIds(): Result<Set<Long>> = runCatching {
+        val queryArgs = Bundle().apply {
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+        }
+        val cursor = resolver.query(
+            COLLECTION, arrayOf(MediaStore.MediaColumns._ID), queryArgs, null
+        ) ?: throw IllegalStateException("MediaStore non ha restituito risultati")
+
+        cursor.use { rows ->
+            val index = rows.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            generateSequence { if (rows.moveToNext()) rows.getLong(index) else null }.toSet()
+        }
+    }
+
     /** What a folder holds, counting what Android has hidden inside it. */
     data class BinContents(
         val visible: Int,
