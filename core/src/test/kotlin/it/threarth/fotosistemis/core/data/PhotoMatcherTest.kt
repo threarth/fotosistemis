@@ -129,4 +129,60 @@ class PhotoMatcherTest {
         assertEquals(PhotoMatcher.MatchKind.FINGERPRINT, plan.matches.single().kind)
         assertEquals(7L, plan.matches.single().photoId)
     }
+
+    @Test
+    fun `a fingerprint survives what every other criterion does not`() {
+        // Renamed, moved, and re-indexed with a new platform id: name, size
+        // and date all fail, and the photograph is still the same one.
+        val stored = PhotoMatcher.Stored(
+            photoId = 7,
+            mediaId = 100,
+            displayName = "IMG_20200101_120000.jpg",
+            sizeBytes = 3_000_000,
+            dateTakenMillis = 1_577_880_000_000,
+            contentHash = "abc123"
+        )
+        val ritrovata = PhotoRecord(
+            photoId = 0,
+            platformId = 999,
+            volumeName = "external_primary",
+            displayName = "__20200101_120000__IMG_20200101_120000.jpg",
+            relativePath = "Pictures/Famiglia/",
+            sizeBytes = 3_000_000,
+            dateTakenMillis = 1_577_880_000_000,
+            dateSource = CaptureDateResolver.Source.EXIF,
+            contentHash = "abc123"
+        )
+
+        val piano = PhotoMatcher.match(listOf(stored), listOf(ritrovata))
+        val esito = piano.matches.single()
+
+        assertEquals(7L, esito.photoId)
+        assertEquals(PhotoMatcher.MatchKind.CONTENT_HASH, esito.kind)
+    }
+
+    @Test
+    fun `a photo with a different fingerprint is a different photo`() {
+        val stored = PhotoMatcher.Stored(
+            photoId = 7,
+            mediaId = 100,
+            displayName = "IMG.jpg",
+            sizeBytes = 3_000_000,
+            dateTakenMillis = 1_577_880_000_000,
+            contentHash = "abc123"
+        )
+        val altra = PhotoRecord(
+            photoId = 0,
+            platformId = 999,
+            volumeName = "external_primary",
+            displayName = "ALTRA.jpg",
+            relativePath = "Pictures/",
+            sizeBytes = 4_000_000,
+            dateTakenMillis = 1_600_000_000_000,
+            dateSource = CaptureDateResolver.Source.EXIF,
+            contentHash = "zzz999"
+        )
+
+        assertEquals(null, PhotoMatcher.match(listOf(stored), listOf(altra)).matches.single().photoId)
+    }
 }

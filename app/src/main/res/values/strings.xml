@@ -15,6 +15,34 @@
     <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
     <string name="message_applied_blocked">%1$d foto spostate. %2$d restano dove sono: stanno nella cartella di un\'altra app e Android non lascia portarle fuori. Sono comunque catalogate, ed escono dalla coda.</string>
     <string name="action_queue">Coda (%1$d)</string>
+    <string name="action_staging_plain">Cestino</string>
+    <string name="menu_dangerous">Con cautela</string>
+    <string name="action_suspect_dates_plain">Date sbagliate</string>
+    <string name="action_suspect_dates">Date sbagliate (%1$d)</string>
+    <string name="action_date_wrong">Data sbagliata</string>
+    <string name="action_date_right">Data giusta</string>
+    <string name="date_marked_wrong">Segnata: la data di questa foto e\' sbagliata.</string>
+    <string name="date_marked_right">Segno tolto: la data torna buona.</string>
+    <string name="badge_date_suspect">data sbagliata</string>
+    <string name="badge_with_date">%1$s · data sbagliata</string>
+    <string name="suspect_title">Date sbagliate</string>
+    <string name="suspect_empty">Nessuna foto segnata. Quando ti accorgi che la data di una foto non e\' quella vera, segnala dalla schermata principale: resta qui finche\' non c\'e\' modo di correggerla.</string>
+    <string name="suspect_summary">%1$d foto con data sbagliata. Il file non e\' stato toccato: restano dove sono, con la data che hanno.</string>
+    <string name="suspect_clear_title">Togliere il segno?</string>
+    <string name="suspect_clear_message">%1$s\n\nLa foto smette di risultare fra quelle con data sbagliata. Nessun file viene toccato.</string>
+    <string name="suspect_row_taken">scattata (secondo il file) %1$s</string>
+    <string name="queue_screen_title">Coda</string>
+    <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
+    <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
+    <string name="queue_showing_sorted">Da spostare (%1$d) — tocca per vedere le altre</string>
+    <string name="queue_carried_out">%1$d sistemate, %2$d non riuscite.</string>
+    <string name="queue_action_title">%1$d foto in attesa</string>
+    <string name="queue_action_trash">Le hai segnate da eliminare, ma non sono mai arrivate nel cestino.</string>
+    <string name="queue_action_sorted">Le hai archiviate in una categoria, ma i file non sono ancora nella sua cartella.</string>
+    <string name="queue_carry_out">Sistemale ora</string>
+    <string name="queue_call_off">Annulla le decisioni</string>
+    <string name="queue_call_off_message">Annullare fa tornare %1$d foto NON CATALOGATE: le decisioni prese su di loro vengono dimenticate e le foto ricompaiono fra quelle da catalogare.\n\nNessun file viene toccato: quelle foto non sono mai state spostate, ed e\' questo il motivo per cui sono ancora in attesa.</string>
+    <string name="queue_called_off">%1$d decisioni annullate: le foto tornano da catalogare.</string>
     <string name="queue_title">Cosa aspetta di essere sistemato</string>
     <string name="queue_trash">Da eliminare — %1$d foto</string>
     <string name="queue_categorised">Da spostare nella loro categoria — %1$d foto</string>
@@ -45,9 +73,9 @@
     <string name="flash_trash">Da eliminare</string>
     <string name="period_any_plain">qualsiasi periodo</string>
     <string name="period_custom_range">Intervallo scelto</string>
-    <string name="scope_all">Filter: all</string>
-    <string name="scope_unseen">Not viewed</string>
-    <string name="scope_uncategorized">Not organised</string>
+    <string name="scope_to_sort">Da catalogare</string>
+    <string name="scope_sorted">Gia\' catalogate</string>
+    <string name="scope_every">Tutte</string>
 
     <!-- Decisions -->
     <string name="action_undo">Annulla</string>

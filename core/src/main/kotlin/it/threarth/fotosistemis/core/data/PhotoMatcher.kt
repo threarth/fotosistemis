@@ -23,11 +23,28 @@ object PhotoMatcher {
         val mediaId: Long?,
         val displayName: String,
         val sizeBytes: Long,
-        val dateTakenMillis: Long
+        val dateTakenMillis: Long,
+
+        /**
+         * Taken from the bytes, when it has been taken at all.
+         *
+         * Every other criterion describes the photo from outside — what it is
+         * called, how big it is, when it was taken — and all three can change
+         * without the photograph changing. This one cannot: it is the only
+         * thing here that a rename, a move and a rescan all leave alone.
+         *
+         * Held only for photos a decision has been made about: computing it
+         * for an entire device would read every byte on it to protect work
+         * that has not been done yet.
+         */
+        val contentHash: String? = null
     )
 
     /** How a record was recognised, worst case last. */
     enum class MatchKind {
+
+        /** Recognised by its own bytes. */
+        CONTENT_HASH,
 
         /** The platform identifier still points at the right photo. */
         PLATFORM_ID,
@@ -87,8 +104,10 @@ object PhotoMatcher {
         val byMediaId = HashMap<Long, Stored>(stored.size)
         val byFingerprint = HashMap<String, Stored>(stored.size)
         val bySizeAndDate = HashMap<String, MutableList<Stored>>()
+        val byHash = HashMap<String, Stored>()
 
         for (entry in stored) {
+            entry.contentHash?.let { byHash[it] = entry }
             entry.mediaId?.let { byMediaId[it] = entry }
             byFingerprint[fingerprintOf(entry)] = entry
             bySizeAndDate.getOrPut(sizeAndDateOf(entry)) { ArrayList() }.add(entry)
@@ -98,7 +117,9 @@ object PhotoMatcher {
         val claimed = HashSet<Long>(records.size)
 
         for (record in records) {
-            val found = findMatch(record, byMediaId, byFingerprint, bySizeAndDate, claimed)
+            val found = findMatch(
+                record, byMediaId, byFingerprint, bySizeAndDate, byHash, claimed
+            )
             found.photoId?.let { claimed.add(it) }
             matches.add(found)
         }
@@ -115,8 +136,17 @@ object PhotoMatcher {
         byMediaId: Map<Long, Stored>,
         byFingerprint: Map<String, Stored>,
         bySizeAndDate: Map<String, List<Stored>>,
+        byHash: Map<String, Stored>,
         claimed: Set<Long>
     ): Match {
+        // First, because it is the only criterion that cannot be wrong: a
+        // photo renamed, moved and re-indexed still hashes to itself.
+        record.contentHash?.let { hash ->
+            byHash[hash]
+                ?.takeIf { it.photoId !in claimed }
+                ?.let { return Match(record, it.photoId, MatchKind.CONTENT_HASH) }
+        }
+
         byMediaId[record.platformId]
             ?.takeIf { it.photoId !in claimed }
             ?.let { return Match(record, it.photoId, MatchKind.PLATFORM_ID) }

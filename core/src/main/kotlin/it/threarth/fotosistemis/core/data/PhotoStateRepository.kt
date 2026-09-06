@@ -180,6 +180,27 @@ class PhotoStateRepository(private val database: Database) {
         }
     }
 
+    /**
+     * Forgets the decisions about [photoIds], making them unseen again.
+     *
+     * Emptying a queue has to reach the decisions themselves: they are
+     * written the instant they are taken, so a queue discarded without being
+     * applied would otherwise leave every one of them standing.
+     */
+    fun forgetAll(photoIds: List<Long>): Result<Int> = runCatching {
+        database.transaction {
+            var forgotten = 0
+            for (photoId in photoIds) {
+                forgotten += database.execute(
+                    "DELETE FROM ${Schema.TABLE_PHOTO_STATE} " +
+                            "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+                    listOf(photoId)
+                )
+            }
+            forgotten
+        }
+    }
+
     /** Removes the decision for one photo, making it unseen again. */
     fun forget(photoId: Long): Result<Unit> = runCatching {
         database.transaction {

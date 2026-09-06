@@ -8,50 +8,85 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.TextView
+import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
 /**
- * Shows what a batch would write: the photo itself, and both its addresses.
+ * A photograph as a card: the picture, its name, and where it stands.
  *
  * A list of paths is checkable only by someone who remembers what each file
- * looks like. The picture is what makes a wrong destination obvious, and this
- * is the last moment before the writing.
+ * looks like. The picture is what makes a wrong destination obvious, and in
+ * the previews this is the last moment before the writing.
  */
 class MovePreviewAdapter(
     context: Context,
-    private val moves: List<ReviewSession.PendingMove>,
+    private val rows: List<Row>,
     private val photoSource: MediaStorePhotoSource
 ) : BaseAdapter() {
 
-    private companion object {
+    /**
+     * One card. [second] is optional because not every list is about a move:
+     * where a photo is going only makes sense when it is going somewhere.
+     */
+    data class Row(
+        val photo: PhotoRecord,
+        val title: String,
+        val first: String,
+        val second: String? = null
+    )
+
+    companion object {
 
         /** Small enough to decode quickly while a list is being scrolled. */
-        const val THUMBNAIL_EDGE_PIXELS = 128
+        private const val THUMBNAIL_EDGE_PIXELS = 128
+
+        /** Cards for a batch about to be written: from here, to there. */
+        fun forMoves(
+            context: Context,
+            moves: List<ReviewSession.PendingMove>,
+            photoSource: MediaStorePhotoSource
+        ): MovePreviewAdapter {
+            val rows = moves.map { move ->
+                val name = move.newDisplayName ?: move.photo.displayName
+                Row(
+                    photo = move.photo,
+                    title = name,
+                    first = context.getString(
+                        R.string.move_from,
+                        move.photo.relativePath + move.photo.displayName
+                    ),
+                    second = context.getString(
+                        R.string.move_to,
+                        move.destinationRelativePath + name
+                    )
+                )
+            }
+            return MovePreviewAdapter(context, rows, photoSource)
+        }
     }
 
     private val inflater = LayoutInflater.from(context)
     private val cache = HashMap<Long, Bitmap>()
 
-    override fun getCount(): Int = moves.size
+    override fun getCount(): Int = rows.size
 
-    override fun getItem(position: Int): ReviewSession.PendingMove = moves[position]
+    override fun getItem(position: Int): Row = rows[position]
 
-    override fun getItemId(position: Int): Long = moves[position].photo.photoId
+    override fun getItemId(position: Int): Long = rows[position].photo.photoId
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
         val view = convertView ?: inflater.inflate(R.layout.item_move_preview, parent, false)
-        val move = moves[position]
-        val photo = move.photo
-        val name = move.newDisplayName ?: photo.displayName
+        val row = rows[position]
 
-        view.findViewById<TextView>(R.id.moveName).text = name
-        view.findViewById<TextView>(R.id.moveFrom).text =
-            view.context.getString(R.string.move_from, photo.relativePath + photo.displayName)
-        view.findViewById<TextView>(R.id.moveTo).text =
-            view.context.getString(R.string.move_to, move.destinationRelativePath + name)
+        view.findViewById<TextView>(R.id.moveName).text = row.title
+        view.findViewById<TextView>(R.id.moveFrom).text = row.first
+        view.findViewById<TextView>(R.id.moveTo).apply {
+            text = row.second.orEmpty()
+            visibility = if (row.second == null) View.GONE else View.VISIBLE
+        }
 
-        bindThumbnail(view.findViewById(R.id.moveThumb), move)
+        bindThumbnail(view.findViewById(R.id.moveThumb), row.photo)
         return view
     }
 
@@ -62,14 +97,14 @@ class MovePreviewAdapter(
      * moment to decode can come back to a view showing something else. The
      * tag says which photo the view is currently for.
      */
-    private fun bindThumbnail(image: ImageView, move: ReviewSession.PendingMove) {
-        val photoId = move.photo.photoId
+    private fun bindThumbnail(image: ImageView, photo: PhotoRecord) {
+        val photoId = photo.photoId
         image.tag = photoId
         image.setImageBitmap(cache[photoId])
         if (cache.containsKey(photoId)) return
 
         thread {
-            val bitmap = photoSource.loadThumbnail(move.photo, THUMBNAIL_EDGE_PIXELS).getOrNull()
+            val bitmap = photoSource.loadThumbnail(photo, THUMBNAIL_EDGE_PIXELS).getOrNull()
             image.post {
                 if (bitmap != null) cache[photoId] = bitmap
                 if (image.tag == photoId) image.setImageBitmap(bitmap)

@@ -64,15 +64,24 @@ class PhotoFilterTest {
     }
 
     @Test
-    fun `review scope filters on stored status`() {
-        val unseenOnly = PhotoFilter(reviewScope = PhotoFilter.ReviewScope.UNSEEN)
-        assertTrue(unseenOnly.accepts(null))
-        assertTrue(!unseenOnly.accepts(ReviewStatus.KEPT))
+    fun `work to do means nothing decided yet`() {
+        val daFare = PhotoFilter(reviewScope = PhotoFilter.ReviewScope.TO_SORT)
 
-        val uncategorized = PhotoFilter(reviewScope = PhotoFilter.ReviewScope.UNCATEGORIZED)
-        assertTrue(uncategorized.accepts(null))
-        assertTrue(uncategorized.accepts(ReviewStatus.KEPT))
-        assertTrue(!uncategorized.accepts(ReviewStatus.CATEGORIZED))
+        assertTrue("Mai vista", daFare.accepts(null))
+        assertTrue("Archiviata: decisa", !daFare.accepts(ReviewStatus.CATEGORIZED))
+        assertTrue("Da eliminare: decisa", !daFare.accepts(ReviewStatus.TRASHED))
+        assertTrue("Mantenuta: decisa", !daFare.accepts(ReviewStatus.KEPT))
+    }
+
+    @Test
+    fun `looking back is a deliberate choice`() {
+        val archiviate = PhotoFilter(reviewScope = PhotoFilter.ReviewScope.SORTED)
+        assertTrue(archiviate.accepts(ReviewStatus.CATEGORIZED))
+        assertTrue(!archiviate.accepts(null))
+
+        val tutte = PhotoFilter(reviewScope = PhotoFilter.ReviewScope.ALL)
+        assertTrue(tutte.accepts(null))
+        assertTrue(tutte.accepts(ReviewStatus.TRASHED))
     }
 
     @Test
@@ -117,4 +126,5 @@ class PhotoFilterTest {
         assertNull(CaptureDateResolver.parseFileName("IMG_0001.jpg"))
         assertNotNull(CaptureDateResolver.parseFileName("IMG-20260728-WA0001.jpg"))
     }
+
 }

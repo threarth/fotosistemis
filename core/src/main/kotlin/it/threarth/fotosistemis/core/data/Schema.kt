@@ -25,7 +25,7 @@ object Schema {
      * v6 records the file name beside every path, so a move can be undone.
      * v7 lets a photo be rated without deciding anything else about it.
      */
-    const val VERSION = 7
+    const val VERSION = 8
 
     const val TABLE_PHOTOS = "photos"
     const val TABLE_DESTINATIONS = "destinations"
@@ -67,6 +67,17 @@ object Schema {
 
     /** Reserved for telling apart photos the cheap columns cannot separate. */
     const val COLUMN_CONTENT_HASH = "content_hash"
+
+    /**
+     * Set when the user has seen the photograph and says its date is wrong.
+     *
+     * No amount of reading metadata can establish this: a date that is
+     * internally consistent and simply untrue — a photo passed through
+     * WhatsApp carries the date it was sent — looks exactly like a right one.
+     * Only someone who recognises what is in the picture can tell, and this
+     * is where that judgement is kept.
+     */
+    const val COLUMN_DATE_SUSPECT = "date_suspect"
 
     /** Stars, one to five. Absent means never rated, which is not zero. */
     const val COLUMN_STARS = "stars"
@@ -125,6 +136,7 @@ object Schema {
             $COLUMN_HEIGHT INTEGER,
             $COLUMN_DURATION_MILLIS INTEGER,
             $COLUMN_CONTENT_HASH TEXT,
+            $COLUMN_DATE_SUSPECT INTEGER NOT NULL DEFAULT 0,
             $COLUMN_FIRST_SEEN_AT INTEGER NOT NULL DEFAULT 0,
             $COLUMN_LAST_SEEN_AT INTEGER NOT NULL DEFAULT 0,
             $COLUMN_MISSING_SINCE INTEGER
@@ -248,6 +260,16 @@ object Schema {
         if (oldVersion < 4) migrateToVersion4(database)
         if (oldVersion < 6) migrateToVersion6(database)
         // v7 added a table, and createTables above has already made it.
+        if (oldVersion < 8) migrateToVersion8(database)
+    }
+
+    /** v8 lets the user contradict a photo's recorded date. */
+    private fun migrateToVersion8(database: Database) {
+        if (hasColumn(database, TABLE_PHOTOS, COLUMN_DATE_SUSPECT)) return
+        database.execute(
+            "ALTER TABLE $TABLE_PHOTOS ADD COLUMN $COLUMN_DATE_SUSPECT " +
+                    "INTEGER NOT NULL DEFAULT 0"
+        )
     }
 
     private fun createTables(database: Database) {

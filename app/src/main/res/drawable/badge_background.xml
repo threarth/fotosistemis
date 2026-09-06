@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sits on top of the photograph, so it needs its own ground to stay
+     readable whatever the picture underneath happens to be. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#CC12233B" />
+    <corners android:radius="6dp" />
+</shape>

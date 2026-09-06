@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="18dp">
 
     <!-- The parent folder first: every category is created inside it, so it
          is the thing to settle before adding any. -->
@@ -12,6 +12,7 @@
         android:id="@+id/destinationRootButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_margin="3dp"
         android:text="@string/action_destination_root" />
 
     <TextView
@@ -25,6 +26,7 @@
         android:id="@+id/addDestinationButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_margin="3dp"
         android:text="@string/destination_new" />
 
     <TextView
@@ -44,5 +46,6 @@
         android:id="@+id/advancedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_margin="3dp"
         android:text="@string/action_advanced" />
 </LinearLayout>

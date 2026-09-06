@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Size
+import java.security.MessageDigest
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
@@ -52,6 +53,13 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
         const val MILLIS_PER_SECOND = 1000L
 
         const val EXPECTED_UPDATED_ROWS = 1
+
+        const val HASH_ALGORITHM = "SHA-256"
+
+        /** How much of the file the fingerprint is taken from. */
+        const val HASH_HEAD_BYTES = 256 * 1024
+
+        const val HASH_CHUNK_BYTES = 32 * 1024
 
         /** Enough of a photo to tell it from whichever one took its id. */
         val IDENTITY_PROJECTION = arrayOf(
@@ -118,6 +126,33 @@ class MediaStorePhotoSource(context: Context) : PhotoSource {
             null
         )
         ContentUris.parseId(target)
+    }
+
+    /**
+     * Hashes the head of the file, salted with its length.
+     *
+     * The head carries the markers, the metadata and the first rows of the
+     * image: two distinct photographs matching in all of that and in size as
+     * well is not something that happens. Reading the whole of a three
+     * megabyte file, for seven hundred photos, would cost two gigabytes of
+     * reading to rule out a coincidence nobody has met.
+     */
+    override fun contentHash(photo: PhotoRecord): Result<String> = runCatching {
+        val digest = MessageDigest.getInstance(HASH_ALGORITHM)
+        digest.update(photo.sizeBytes.toString().toByteArray())
+
+        resolver.openInputStream(uriFor(photo)).use { input ->
+            val stream = requireNotNull(input) { "${photo.displayName}: illeggibile" }
+            val buffer = ByteArray(HASH_CHUNK_BYTES)
+            var read = 0
+            while (read < HASH_HEAD_BYTES) {
+                val got = stream.read(buffer)
+                if (got <= 0) break
+                digest.update(buffer, 0, got)
+                read += got
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** JPEG unless the name says otherwise; nothing else is written here. */

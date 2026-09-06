@@ -37,9 +37,24 @@ import java.util.Locale
  */
 class DestinationsActivity : AppCompatActivity() {
 
-    private companion object {
-        const val BACKUP_MIME_TYPE = "application/json"
-        const val BACKUP_STAMP_PATTERN = "yyyyMMdd-HHmm"
+    companion object {
+        private const val BACKUP_MIME_TYPE = "application/json"
+        private const val BACKUP_STAMP_PATTERN = "yyyyMMdd-HHmm"
+
+        /** Which function to run on opening, when the menu asked for one. */
+        const val EXTRA_ACTION = "it.threarth.fotosistemis.ACTION"
+
+        /** Read the classification already on disk. */
+        const val ACTION_ADOPT = "adopt"
+
+        /** Write the database out to a file the user chooses. */
+        const val ACTION_EXPORT = "export"
+
+        /** Read a database back in from a file. */
+        const val ACTION_IMPORT = "import"
+
+        /** Decide what Android is allowed to back up. */
+        const val ACTION_BACKUP = "backup"
     }
 
     private lateinit var repository: DestinationRepository
@@ -79,6 +94,14 @@ class DestinationsActivity : AppCompatActivity() {
             editDestinationRoot()
         }
         findViewById<Button>(R.id.advancedButton).setOnClickListener { showAdvanced() }
+
+        // Opened from the menu to run one function: go straight to it.
+        when (intent.getStringExtra(EXTRA_ACTION)) {
+            ACTION_ADOPT -> previewAdoption()
+            ACTION_EXPORT -> startExport()
+            ACTION_IMPORT -> confirmImport()
+            ACTION_BACKUP -> editCloudBackup()
+        }
 
         refresh()
     }

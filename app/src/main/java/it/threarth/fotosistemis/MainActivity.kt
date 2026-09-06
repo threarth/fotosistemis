@@ -71,6 +71,15 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
 
+        /**
+         * How many fingerprints one load takes.
+         *
+         * Small enough to finish while the screen is being looked at, and
+         * enough that a few hundred catalogued photos are covered in a
+         * handful of sessions.
+         */
+        const val FINGERPRINTS_PER_LOAD = 40
+
         /** The volume every phone has, and the only one these photos use. */
         const val PRIMARY_VOLUME = "external_primary"
 
@@ -145,6 +154,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewAdjacent: ImageView
     private lateinit var actionFlash: TextView
     private lateinit var tagButton: Button
+    private lateinit var dateButton: Button
+    private lateinit var stateBadge: TextView
+
+    /** Photos the user has said carry a wrong date. */
+    private var suspectDates: Set<Long> = emptySet()
     private lateinit var printButton: Button
     private lateinit var starBar: LinearLayout
     private lateinit var ratings: RatingRepository
@@ -294,6 +308,12 @@ class MainActivity : AppCompatActivity() {
     private var pendingTrash: List<ReviewSession.PendingMove> = emptyList()
 
     /** Posizioni can ask for the bin to be gathered; only this screen can. */
+    /** The queue can change what is waiting, so the counts are re-read. */
+    private val queueLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            refreshFolders()
+        }
+
     private val placementLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val chiesto = result.data?.getBooleanExtra(
@@ -392,6 +412,8 @@ class MainActivity : AppCompatActivity() {
         if (counted == stagingCount) return
         stagingCount = counted
         stagingButton.text = getString(R.string.action_staging, stagingCount)
+        findViewById<Button>(R.id.drawerTrashButton).text =
+            getString(R.string.action_staging, stagingCount)
         refreshWaitingCount()
         updateButtonState()
 
@@ -415,6 +437,8 @@ class MainActivity : AppCompatActivity() {
         previewAdjacent = findViewById(R.id.previewAdjacent)
         actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
+        dateButton = findViewById(R.id.dateButton)
+        stateBadge = findViewById(R.id.stateBadge)
         printButton = findViewById(R.id.printButton)
         starBar = findViewById(R.id.starBar)
         buildStarBar()
@@ -446,10 +470,23 @@ class MainActivity : AppCompatActivity() {
         voce(R.id.drawerOutputButton) {
             startActivity(Intent(this, DestinationsActivity::class.java))
         }
-        voce(R.id.drawerQueueButton) { showWaitingWork() }
+        voce(R.id.drawerQueueButton) {
+            queueLauncher.launch(Intent(this, QueueActivity::class.java))
+        }
         voce(R.id.drawerPlacementButton) {
             placementLauncher.launch(Intent(this, PlacementActivity::class.java))
         }
+        voce(R.id.drawerTrashButton) { showStagingFolder() }
+        voce(R.id.drawerAdoptButton) { openOutput(DestinationsActivity.ACTION_ADOPT) }
+        voce(R.id.drawerReorganizeButton) {
+            startActivity(Intent(this, ReorganizeActivity::class.java))
+        }
+        voce(R.id.drawerSuspectButton) {
+            startActivity(Intent(this, SuspectDatesActivity::class.java))
+        }
+        voce(R.id.drawerExportButton) { openOutput(DestinationsActivity.ACTION_EXPORT) }
+        voce(R.id.drawerImportButton) { openOutput(DestinationsActivity.ACTION_IMPORT) }
+        voce(R.id.drawerBackupButton) { openOutput(DestinationsActivity.ACTION_BACKUP) }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
     }
@@ -484,6 +521,7 @@ class MainActivity : AppCompatActivity() {
     private fun wireActions() {
         wireStageGestures()
         tagButton.setOnClickListener { showTagDialog() }
+        dateButton.setOnClickListener { toggleDateVerdict() }
         printButton.setOnClickListener { togglePrintTag() }
         bindDrawer()
 
@@ -797,47 +835,62 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * What has been decided and not yet carried out, of both kinds.
+     * Fingerprints a few of the decided photos that have none yet.
      *
-     * A decision is written the instant it is made; carrying it out can fail,
-     * be refused, or be lost when the session ends. The two drift, and this
-     * is where the drift is shown and closed.
+     * A handful per load rather than all at once: the work is only worth
+     * doing for photos a decision has been made about, and even then it is
+     * reading files, which has no business holding up a screen. Over a few
+     * sessions the whole catalogued set ends up covered.
+     *
+     * What it buys: a photo renamed and moved outside the app is still
+     * recognised, so the decision taken about it is not orphaned. Every
+     * other criterion — name, size, date — describes the photo from outside
+     * and can change while the photograph does not.
      */
-    /** Keeps the queue button honest about how much is waiting. */
+    /** Opens the folders screen straight on one of its functions. */
+    private fun openOutput(action: String) {
+        startActivity(
+            Intent(this, DestinationsActivity::class.java)
+                .putExtra(DestinationsActivity.EXTRA_ACTION, action)
+        )
+    }
+
+    /** Re-reads the marked dates, so the badge agrees with the database. */
+    private fun refreshSuspectDates() {
+        thread {
+            val segnate = inventory.loadDateSuspect().getOrElse { return@thread }
+            runOnUiThread {
+                suspectDates = segnate
+                findViewById<Button>(R.id.drawerSuspectButton).text =
+                    getString(R.string.action_suspect_dates, segnate.size)
+                render()
+            }
+        }
+    }
+
+    private fun takeFingerprints() {
+        thread {
+            val senza = inventory.loadNeedingHash(FINGERPRINTS_PER_LOAD)
+                .getOrElse { return@thread }
+
+            for (photo in senza) {
+                val hash = photoSource.contentHash(photo).getOrNull() ?: continue
+                inventory.recordHash(photo.photoId, hash)
+            }
+        }
+    }
+
+    /** Keeps the queue entry in the drawer honest about how much is waiting. */
     private fun refreshWaitingCount() {
         thread {
             val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
                 .getOrElse { emptyList() }.size
-            val fuoriPosto = inventory.countByDestination().getOrElse { emptyList() }
-                .sumOf { it.elsewhereCount }
+            val fuoriPosto = inventory.loadMisplaced().getOrElse { emptyList() }.size
             runOnUiThread {
                 findViewById<Button>(R.id.drawerQueueButton).text =
                     getString(R.string.action_queue, cestino + fuoriPosto)
             }
         }
-    }
-
-    private fun showWaitingWork() {
-        val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
-            .getOrElse { emptyList() }
-        val fuoriPosto = inventory.countByDestination().getOrElse { emptyList() }
-            .sumOf { it.elsewhereCount }
-
-        if (cestino.isEmpty() && fuoriPosto == 0) return toast(getString(R.string.queue_empty))
-
-        val voci = listOfNotNull(
-            cestino.size.takeIf { it > 0 }?.let { getString(R.string.queue_trash, it) },
-            fuoriPosto.takeIf { it > 0 }?.let { getString(R.string.queue_categorised, it) }
-        ).toTypedArray<CharSequence>()
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.queue_title)
-            .setItems(voci) { _, which ->
-                if (which == 0 && cestino.isNotEmpty()) offerPendingTrash(cestino)
-                else placementLauncher.launch(Intent(this, PlacementActivity::class.java))
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
     }
 
     /** Says what the reconciliation actually changed, not just that it ran. */
@@ -868,8 +921,12 @@ class MainActivity : AppCompatActivity() {
 
         return items.filter { item ->
             val relative = path(item).trim('/')
-            relative.startsWith(ReviewSession.DELETION_STAGING_PATH.trim('/')) ||
-                    roots.any { relative.startsWith(it, ignoreCase = true) }
+            // The bin is never part of the work: a photo waiting there has
+            // been decided, and offering it again as something to sort is
+            // asking a question that already has an answer.
+            if (relative.startsWith(stagingPath(), ignoreCase = true)) return@filter false
+
+            roots.any { relative.startsWith(it, ignoreCase = true) }
         }
     }
 
@@ -1041,7 +1098,10 @@ class MainActivity : AppCompatActivity() {
                 calendar.get(Calendar.YEAR)
             )
             counts[month] = (counts[month] ?: 0) + 1
-            if (states.containsKey(photo.platformId)) {
+            // Keyed by our own id, not the platform's: they stopped being
+            // the same number in v5, and looking one up by the other found
+            // nothing, so a month stayed red however much had been done.
+            if (states.containsKey(photo.photoId)) {
                 reviewed[month] = (reviewed[month] ?: 0) + 1
             }
         }
@@ -1136,9 +1196,9 @@ class MainActivity : AppCompatActivity() {
     private fun buildScopeSpinner() {
         scopeSpinner.adapter = simpleAdapter(
             listOf(
-                getString(R.string.scope_all),
-                getString(R.string.scope_unseen),
-                getString(R.string.scope_uncategorized)
+                getString(R.string.scope_to_sort),
+                getString(R.string.scope_sorted),
+                getString(R.string.scope_every)
             )
         )
         scopeSpinner.onItemSelectedListener = reloadOnSelection()
@@ -1263,7 +1323,10 @@ class MainActivity : AppCompatActivity() {
         setBusy(false)
         val loaded = photos.getOrElse { return showError(it) }
         val branch = preferredSubtree
-        val loadedPhotos = if (branch != null) {
+        val loadedPhotos = if (branch == stagingPath()) {
+            // Chosen on purpose: then it is exactly what should be shown.
+            loaded.filter { FolderTree.isWithin(it.relativePath, branch) }
+        } else if (branch != null) {
             loaded.filter { FolderTree.isWithin(it.relativePath, branch) }
         } else {
             withinSourceRoots(loaded)
@@ -1276,9 +1339,11 @@ class MainActivity : AppCompatActivity() {
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
-        val visible = inPeriod.filter { filter.accepts(loadedStates[it.platformId]?.status) }
+        val visible = inPeriod.filter { filter.accepts(loadedStates[it.photoId]?.status) }
 
         ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
+        takeFingerprints()
+        refreshSuspectDates()
         session.load(visible, loadedStates, loadedTags, loadedOrigins)
         render()
         if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
@@ -1464,7 +1529,7 @@ class MainActivity : AppCompatActivity() {
         if (plan.isEmpty()) return toast(getString(R.string.restore_none))
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.restore_confirm_title, plan.size))
-            .setAdapter(MovePreviewAdapter(this, plan, photoSource), null)
+            .setAdapter(MovePreviewAdapter.forMoves(this, plan, photoSource), null)
             .setPositiveButton(R.string.restore_do) { _, _ -> startRestore(plan) }
             .setNeutralButton(R.string.restore_explain) { _, _ -> explainRestore(plan.size) }
             .setNegativeButton(R.string.action_cancel, null)
@@ -1602,12 +1667,14 @@ class MainActivity : AppCompatActivity() {
         if (photo == null) {
             preview.setImageDrawable(null)
             applyStateFrame(null)
+            stateBadge.visibility = View.GONE
             photoInfo.setText(R.string.status_empty)
             photoTags.text = ""
             showStars()
             return
         }
         applyStateFrame(session.currentStatus())
+        showStateBadge(session.currentStatus(), photo)
         photoInfo.text = describe(photo)
         showStars()
         printButton.isEnabled = !busy && session.current() != null
@@ -1623,6 +1690,11 @@ class MainActivity : AppCompatActivity() {
 
         val canDecide = canDecide()
         tagButton.isEnabled = !busy && hasPhoto
+        dateButton.isEnabled = !busy && hasPhoto
+        dateButton.setText(
+            if (session.current()?.photoId in suspectDates) R.string.action_date_right
+            else R.string.action_date_wrong
+        )
         openExternalButton.isEnabled = !busy && hasPhoto
         stagingButton.isEnabled = !busy && stagingCount > 0
         undoButton.isEnabled = !busy && session.pendingCount > 0
@@ -1630,6 +1702,59 @@ class MainActivity : AppCompatActivity() {
         for (index in 0 until destinationActions.childCount) {
             destinationActions.getChildAt(index).isEnabled = canDecide
         }
+    }
+
+    /**
+     * Records, or withdraws, that this photograph's date is wrong.
+     *
+     * Nothing is renamed and nothing is moved. A date can be well formed and
+     * still untrue — a photo received through WhatsApp is stamped with the
+     * day it was sent — and no amount of reading the file will show it. Only
+     * the person looking at the picture knows, so the verdict is stored and
+     * the photo can be found again when there is a way to put it right.
+     */
+    private fun toggleDateVerdict() {
+        val photo = session.current() ?: return
+        val wrong = photo.photoId !in suspectDates
+
+        inventory.markDateSuspect(photo.photoId, wrong).fold(
+            onSuccess = {
+                suspectDates =
+                    if (wrong) suspectDates + photo.photoId else suspectDates - photo.photoId
+                toast(
+                    getString(
+                        if (wrong) R.string.date_marked_wrong else R.string.date_marked_right
+                    )
+                )
+                render()
+            },
+            onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }
+        )
+    }
+
+    /**
+     * Writes the decision onto the photograph itself.
+     *
+     * The coloured frame says a decision exists; it cannot say which one,
+     * and the category is exactly what the user needs to read while leafing
+     * through. Colour is never left to carry the meaning by itself.
+     */
+    private fun showStateBadge(status: ReviewStatus?, photo: PhotoRecord) {
+        val stato = when (status) {
+            ReviewStatus.CATEGORIZED -> currentDestinationLabel()
+            ReviewStatus.KEPT -> getString(R.string.photo_state_kept)
+            ReviewStatus.TRASHED -> getString(R.string.photo_state_trashed)
+            null -> null
+        }
+        val dubbia = photo.photoId in suspectDates
+        val testo = when {
+            stato != null && dubbia -> getString(R.string.badge_with_date, stato)
+            stato != null -> stato
+            dubbia -> getString(R.string.badge_date_suspect)
+            else -> null
+        }
+        stateBadge.text = testo.orEmpty()
+        stateBadge.visibility = if (testo == null) View.GONE else View.VISIBLE
     }
 
     /** Name, size, capture date and recorded decision for one photo. */
@@ -1771,7 +1896,7 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle(titolo)
-            .setAdapter(MovePreviewAdapter(this, moves, photoSource), null)
+            .setAdapter(MovePreviewAdapter.forMoves(this, moves, photoSource), null)
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> requestMoveConsent() }
             // Discarding belonged only to the dialog that interrupts a
             // filter change, which meant the queue could be emptied by

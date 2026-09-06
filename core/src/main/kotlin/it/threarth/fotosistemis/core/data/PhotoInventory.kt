@@ -211,6 +211,94 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
+     * Photos a decision has been made about that carry no fingerprint yet.
+     *
+     * Only those: a fingerprint protects work already done, and computing
+     * one for every photo on the device would read every byte on it to
+     * protect nothing.
+     */
+    fun loadNeedingHash(limit: Int): Result<List<PhotoRecord>> = runCatching {
+        val ids = database.query(
+            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_PHOTO_ID} " +
+                    "WHERE p.${Schema.COLUMN_CONTENT_HASH} IS NULL " +
+                    "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL LIMIT ?",
+            listOf(limit)
+        ).mapNotNull { it.getLong("pid") }
+
+        if (ids.isEmpty()) emptyList() else loadRecords(ids).getOrThrow()
+    }
+
+    /** Stores the fingerprint taken from a photo's bytes. */
+    fun recordHash(photoId: Long, contentHash: String): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_CONTENT_HASH} = ? " +
+                        "WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(contentHash, photoId)
+            )
+            Unit
+        }
+    }
+
+    /**
+     * Records, or withdraws, the user's judgement that a date is wrong.
+     *
+     * Nothing is corrected here and no file is touched: the photo keeps the
+     * date it has, and keeps being filed by it. What is written is that the
+     * date is not to be trusted, so the photograph can be found again when
+     * there is a way to establish the right one.
+     */
+    fun markDateSuspect(photoId: Long, suspect: Boolean): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_DATE_SUSPECT} = ? " +
+                        "WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(if (suspect) 1 else 0, photoId)
+            )
+            Unit
+        }
+    }
+
+    /** Ids of every photo whose date the user has contradicted. */
+    fun loadDateSuspect(): Result<Set<Long>> = runCatching {
+        database.query(
+            "SELECT ${Schema.COLUMN_ID} AS pid FROM ${Schema.TABLE_PHOTOS} " +
+                    "WHERE ${Schema.COLUMN_DATE_SUSPECT} = 1 " +
+                    "AND ${Schema.COLUMN_MISSING_SINCE} IS NULL"
+        ).mapNotNull { it.getLong("pid") }.toSet()
+    }
+
+    /** Those same photos in full, newest first, for showing them. */
+    fun loadDateSuspectRecords(): Result<List<PhotoRecord>> = runCatching {
+        val ids = loadDateSuspect().getOrThrow()
+        if (ids.isEmpty()) return@runCatching emptyList()
+
+        loadRecords(ids.toList()).getOrThrow().sortedByDescending { it.dateTakenMillis }
+    }
+
+    /**
+     * Filed photos that are not in the folder their category names.
+     *
+     * The decision was taken and the move was not: they are the other half
+     * of the waiting work, beside the ones marked for deletion that never
+     * reached the bin.
+     */
+    fun loadMisplaced(): Result<List<Long>> = runCatching {
+        database.query(
+            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_PHOTO_ID} " +
+                    "JOIN ${Schema.TABLE_DESTINATIONS} d ON d.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_DESTINATION_ID} " +
+                    "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    "AND p.${Schema.COLUMN_RELATIVE_PATH} NOT LIKE " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%'"
+        ).mapNotNull { it.getLong("pid") }
+    }
+
+    /**
      * Points a photo at the copy that now stands for it.
      *
      * The copy is a different file to the platform, with a new id, but the
@@ -396,8 +484,8 @@ class PhotoInventory(private val database: Database) {
     /** The whole inventory, in the shape the matcher needs. */
     private fun loadStored(): List<PhotoMatcher.Stored> = database.query(
         "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, ${Schema.COLUMN_DISPLAY_NAME}, " +
-                "${Schema.COLUMN_SIZE_BYTES}, ${Schema.COLUMN_DATE_TAKEN} " +
-                "FROM ${Schema.TABLE_PHOTOS}"
+                "${Schema.COLUMN_SIZE_BYTES}, ${Schema.COLUMN_DATE_TAKEN}, " +
+                "${Schema.COLUMN_CONTENT_HASH} FROM ${Schema.TABLE_PHOTOS}"
     ).mapNotNull { row ->
         val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
         PhotoMatcher.Stored(
@@ -405,7 +493,8 @@ class PhotoInventory(private val database: Database) {
             mediaId = row.getLong(Schema.COLUMN_MEDIA_ID),
             displayName = row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty(),
             sizeBytes = row.getLong(Schema.COLUMN_SIZE_BYTES) ?: 0L,
-            dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L
+            dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
+            contentHash = row.getString(Schema.COLUMN_CONTENT_HASH)
         )
     }
 

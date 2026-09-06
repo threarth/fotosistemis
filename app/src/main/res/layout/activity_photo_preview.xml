@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="18dp">
 
     <TextView
         android:id="@+id/previewSummary"
@@ -43,6 +43,7 @@
             android:id="@+id/previewPlayButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:text="@string/preview_play" />
 
         <SeekBar
@@ -70,6 +71,7 @@
             android:id="@+id/previewCancelButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:layout_weight="1"
             android:text="@string/action_cancel" />
 
@@ -77,6 +79,7 @@
             android:id="@+id/previewConfirmButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:layout_weight="1"
             android:text="@string/adopt_confirm" />
     </LinearLayout>

@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="18dp">
 
     <TextView
         android:layout_width="match_parent"
@@ -30,12 +30,14 @@
         android:id="@+id/reorganizeRebaseButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_margin="3dp"
         android:text="@string/reorganize_rebase" />
 
     <Button
         android:id="@+id/reorganizeShowAllButton"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_margin="3dp" />
 
     <ListView
         android:id="@+id/reorganizeList"
@@ -54,5 +56,6 @@
         android:id="@+id/reorganizeApplyButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_margin="3dp"
         android:text="@string/reorganize_preview" />
 </LinearLayout>

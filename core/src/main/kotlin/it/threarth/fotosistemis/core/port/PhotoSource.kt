@@ -82,4 +82,18 @@ interface PhotoSource {
         destinationRelativePath: String,
         newDisplayName: String
     ): Result<Long>
+
+    /**
+     * A fingerprint of a photo's own bytes.
+     *
+     * Every other way of recognising a photo describes it from outside — its
+     * name, its size, its date — and all of those can change while the
+     * photograph stays the same. This cannot.
+     *
+     * Only the head of the file is read, together with its length: two
+     * different photographs sharing both would be a coincidence nobody has
+     * met, and reading gigabytes to rule it out would cost more than it is
+     * worth.
+     */
+    fun contentHash(photo: PhotoRecord): Result<String>
 }

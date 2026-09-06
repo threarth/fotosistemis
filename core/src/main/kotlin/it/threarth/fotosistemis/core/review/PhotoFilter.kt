@@ -13,7 +13,7 @@ import java.util.Calendar
  */
 data class PhotoFilter(
     val period: Period = Period.Any,
-    val reviewScope: ReviewScope = ReviewScope.ALL
+    val reviewScope: ReviewScope = ReviewScope.TO_SORT
 ) {
 
     /** Time window, expressed as a closed range over DATE_TAKEN. */
@@ -29,17 +29,29 @@ data class PhotoFilter(
         data class Range(val fromMillis: Long, val toMillis: Long) : Period
     }
 
-    /** Which review states are of interest. */
+    /**
+     * Which review states are of interest.
+     *
+     * Declaration order is the order offered, and the first is the default:
+     * a photo already dealt with has no business being offered again, so
+     * work to do comes first and everything else is a deliberate look back.
+     */
     enum class ReviewScope {
 
-        /** Everything in the period, reviewed or not. */
-        ALL,
+        /**
+         * Nothing decided about it yet.
+         *
+         * Any decision counts, filing or discarding or keeping: they are all
+         * answers, and re-asking a question already answered is how an
+         * archive stops shrinking.
+         */
+        TO_SORT,
 
-        /** Only photos with no decision recorded yet. */
-        UNSEEN,
+        /** Filed into a category. */
+        SORTED,
 
-        /** Everything except photos that already carry a tag. */
-        UNCATEGORIZED
+        /** Everything in the period, decided or not. */
+        ALL
     }
 
     /**
@@ -54,9 +66,9 @@ data class PhotoFilter(
 
     /** True when [status] passes the review axis of this filter. */
     fun accepts(status: ReviewStatus?): Boolean = when (reviewScope) {
+        ReviewScope.TO_SORT -> status == null
+        ReviewScope.SORTED -> status == ReviewStatus.CATEGORIZED
         ReviewScope.ALL -> true
-        ReviewScope.UNSEEN -> status == null
-        ReviewScope.UNCATEGORIZED -> status != ReviewStatus.CATEGORIZED
     }
 
     private companion object {

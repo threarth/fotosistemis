@@ -2,7 +2,9 @@ package it.threarth.fotosistemis
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -80,11 +82,36 @@ class ReorganizeActivity : AppCompatActivity() {
     private var batchIndex = 0
     private var succeeded = 0
     private var failed = 0
+
+    /**
+     * Originals of photos copied rather than moved, gathered across batches.
+     *
+     * Asked about once at the end: a consent dialog per batch would put the
+     * same question five times for one decision.
+     */
+    private var copiedOriginals: List<Uri> = emptyList()
     private var firstError: String? = null
 
     private val reviewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) startApply() else pendingPlan = null
+        }
+
+    /** Originals waiting for permission to go. */
+    private var pendingCleanup: List<Uri> = emptyList()
+
+    private val cleanupLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            val count = pendingCleanup.size
+            pendingCleanup = emptyList()
+            toast(
+                getString(
+                    if (result.resultCode == RESULT_OK) R.string.cleanup_done
+                    else R.string.cleanup_kept,
+                    count
+                )
+            )
+            refresh()
         }
 
     private val consentLauncher =
@@ -351,7 +378,7 @@ class ReorganizeActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.reorganize_list_title, plan.total))
-            .setAdapter(MovePreviewAdapter(this, moves, photoSource), null)
+            .setAdapter(MovePreviewAdapter.forMoves(this, moves, photoSource), null)
             .setPositiveButton(R.string.reorganize_apply) { _, _ -> startApply() }
             .setNeutralButton(R.string.reorganize_review) { _, _ -> reviewPlan(plan) }
             .setNegativeButton(R.string.action_cancel) { _, _ -> pendingPlan = null }
@@ -410,6 +437,7 @@ class ReorganizeActivity : AppCompatActivity() {
         batchIndex = 0
         succeeded = 0
         failed = 0
+        copiedOriginals = emptyList()
         firstError = null
         requestNextConsent()
     }
@@ -468,6 +496,7 @@ class ReorganizeActivity : AppCompatActivity() {
             runOnUiThread {
                 succeeded += result.succeeded
                 failed += result.failed.size
+                copiedOriginals = copiedOriginals + result.copiedOriginals
                 if (firstError == null) firstError = result.firstError
                 batchIndex++
                 requestNextConsent()
@@ -487,6 +516,36 @@ class ReorganizeActivity : AppCompatActivity() {
         }
         statusText.text = ""
         refresh()
+
+        if (copiedOriginals.isNotEmpty()) offerOriginalCleanup(copiedOriginals)
+    }
+
+    /**
+     * Offers to remove the originals the copies stand for.
+     *
+     * A copy leaves the picture on the device twice, and only a deletion
+     * ends that. Asked separately because it is a deletion, and the system
+     * has to be the one to ask.
+     */
+    private fun offerOriginalCleanup(originals: List<Uri>) {
+        pendingCleanup = originals
+        AlertDialog.Builder(this)
+            .setTitle(R.string.cleanup_title)
+            .setMessage(getString(R.string.cleanup_message, originals.size))
+            .setPositiveButton(R.string.cleanup_delete) { _, _ ->
+                try {
+                    cleanupLauncher.launch(
+                        IntentSenderRequest.Builder(
+                            MediaStore.createDeleteRequest(contentResolver, originals).intentSender
+                        ).build()
+                    )
+                } catch (error: Exception) {
+                    pendingCleanup = emptyList()
+                    showError(error)
+                }
+            }
+            .setNegativeButton(R.string.cleanup_keep) { _, _ -> pendingCleanup = emptyList() }
+            .show()
     }
 
     private fun showError(error: Throwable) {

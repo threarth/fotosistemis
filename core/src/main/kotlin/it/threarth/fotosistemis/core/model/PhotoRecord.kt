@@ -39,5 +39,13 @@ data class PhotoRecord(
     /** Best available capture time, resolved by [CaptureDateResolver]. */
     val dateTakenMillis: Long,
 
-    val dateSource: CaptureDateResolver.Source
+    val dateSource: CaptureDateResolver.Source,
+
+    /**
+     * Fingerprint of the file's own bytes, when one has been taken.
+     *
+     * Carried on the record so a scan can hand it to the matcher; filled
+     * only for photos a decision has been made about.
+     */
+    val contentHash: String? = null
 )
