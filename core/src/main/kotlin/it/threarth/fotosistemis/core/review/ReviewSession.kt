@@ -5,6 +5,7 @@ import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.reorg.FileNamer
 
 /**
  * Navigation and pending work for one pass over a filtered set of photos.
@@ -195,10 +196,25 @@ class ReviewSession(
      */
     fun fileCurrent(destination: Destination): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
+
+        // Stamped here, not only when the whole filesystem is reorganised.
+        // The stamp is what makes a flat folder sort by time, and it has to
+        // work for the photos that carry no date of their own — which is
+        // most of what arrives from elsewhere. Filing is the moment the
+        // photo enters the archive, so it is the moment to name it.
+        val naming = FileNamer.nameAll(
+            listOf(
+                FileNamer.Request(
+                    photo.photoId, photo.displayName, photo.dateTakenMillis, photo.dateSource
+                )
+            )
+        ).firstOrNull()
+
         return queueMove(
             ReviewStatus.CATEGORIZED,
             destination.pathFor(photo.dateTakenMillis, yearFolderPattern()),
-            destination.id
+            destination.id,
+            naming?.displayName
         )
     }
 

@@ -61,6 +61,7 @@ class ReorganizeActivity : AppCompatActivity() {
     private lateinit var stateRepository: PhotoStateRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
+    private lateinit var systemBin: SystemBinHandover
     private lateinit var settings: AppSettings
 
     private lateinit var listView: ListView
@@ -90,7 +91,7 @@ class ReorganizeActivity : AppCompatActivity() {
      * Asked about once at the end: a consent dialog per batch would put the
      * same question five times for one decision.
      */
-    private var copiedOriginals: List<Uri> = emptyList()
+    private var copiedOriginals: List<ReviewSession.PendingMove> = emptyList()
     private var firstError: String? = null
 
     private val reviewLauncher =
@@ -119,6 +120,7 @@ class ReorganizeActivity : AppCompatActivity() {
         stateRepository = PhotoStateRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) {}
         settings = AppSettings(this)
 
         listView = findViewById(R.id.reorganizeList)
@@ -496,10 +498,11 @@ class ReorganizeActivity : AppCompatActivity() {
         statusText.text = ""
         refresh()
 
-        // Never destroyed, only ever copied: what this app calls deleting
-        // is moving into its own bin.
+        // The original of a copy cannot be moved and would leave the
+        // picture on the phone twice: Android's bin is the only place it can
+        // go, and only if the user agrees.
         if (copiedOriginals.isNotEmpty()) {
-            toast(getString(R.string.originals_left, copiedOriginals.size))
+            systemBin.offer(copiedOriginals, copiedOriginals.size)
         }
     }
 

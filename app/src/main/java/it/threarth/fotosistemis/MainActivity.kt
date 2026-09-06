@@ -325,39 +325,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    /** Photos Android must be asked to bin, because we cannot move them. */
-    private var forSystemBin: List<ReviewSession.PendingMove> = emptyList()
-
-    /**
-     * Android's own bin accepts them, or it does not; either way we say so.
-     *
-     * On acceptance the handover is written down. Their own paths do not
-     * change — the app cannot move these files, which is why Android was
-     * asked in the first place — so without a record of it the decision
-     * would look unfinished for ever, and every check would offer the same
-     * photos again.
-     */
-    private val requestSystemBin =
-        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            val handed = forSystemBin
-            forSystemBin = emptyList()
-            val accepted = result.resultCode == Activity.RESULT_OK
-
-            if (accepted) {
-                for (move in handed) {
-                    stateRepository.recordSystemBin(
-                        move.photo.photoId, move.photo.relativePath, move.photo.displayName
-                    )
-                }
-            }
-            toast(
-                getString(
-                    if (accepted) R.string.system_bin_done else R.string.system_bin_refused,
-                    handed.size
-                )
-            )
-            refreshFolders()
-        }
+    /** Photos this app cannot move end up in Android's bin, if allowed. */
+    private lateinit var systemBin: SystemBinHandover
 
     private val requestTrashConsent =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -400,6 +369,9 @@ class MainActivity : AppCompatActivity() {
         tagRepository = TagRepository(database)
         destinationRepository = DestinationRepository(database)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) {
+            refreshFolders()
+        }
         session = ReviewSession(stateRepository, tagRepository) { settings.yearFolderPattern }
 
         buildScopeSpinner()
@@ -2388,60 +2360,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         session.retainFailedMoves(result.failed)
-        // Originals of photos that were filed, not binned: they stay where
-        // they are, because this app never destroys a file.
-        if (result.copiedOriginals.isNotEmpty()) {
-            toast(getString(R.string.originals_left, result.copiedOriginals.size))
+        // Both kinds end in the same place, for the same reason: the app
+        // cannot move these files, and leaving the original beside its copy
+        // would double the archive instead of ordering it.
+        val toHandOver = result.forSystemBin + result.copiedOriginals
+        if (toHandOver.isNotEmpty()) {
+            systemBin.offer(toHandOver, copied = result.copiedOriginals.size)
         }
-        if (result.forSystemBin.isNotEmpty()) offerSystemBin(result.forSystemBin)
         refreshFolders()
-    }
-
-    /**
-     * Offers Android's bin to the photos this app cannot move.
-     *
-     * Named for what it is, because it is not the app's bin and does not
-     * behave like it: what goes in there is out of the app's hands, empties
-     * itself after thirty days, and is recovered from the gallery rather
-     * than from here. The alternative — copying into the app's own bin —
-     * would leave the picture on the phone twice, with the original taking
-     * the room, which for a WhatsApp archive is most of the room there is.
-     */
-    private fun offerSystemBin(photos: List<ReviewSession.PendingMove>) {
-        forSystemBin = photos
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.system_bin_title)
-            .setMessage(getString(R.string.system_bin_message, photos.size))
-            .setPositiveButton(R.string.system_bin_do) { _, _ -> requestSystemBinConsent() }
-            .setNegativeButton(R.string.action_cancel) { _, _ -> forSystemBin = emptyList() }
-            .show()
-    }
-
-    /** Android asks; the app only proposes, and never destroys. */
-    private fun requestSystemBinConsent() {
-        if (forSystemBin.isEmpty()) return
-        try {
-            requestSystemBin.launch(
-                IntentSenderRequest.Builder(
-                    MediaStore.createTrashRequest(
-                        contentResolver,
-                        forSystemBin.map { photoSource.uriFor(it.photo) },
-                        true
-                    ).intentSender
-                ).build()
-            )
-        } catch (error: Exception) {
-            forSystemBin = emptyList()
-            showError(error)
-        }
     }
 
     /**
      * Shows what is in Android's bin, and says whose bin it is.
      *
      * Read-only on purpose: the app puts photos in there when it has no
-     * other way, and can count what is inside, but emptying or restoring it
+     * other way, and can count what is inside, but emptying or restoring
      * belongs to the gallery. Saying that plainly is the point of the
      * screen — two bins that behaved differently and looked the same would
      * be worse than one.

@@ -183,6 +183,11 @@ class CheckActivity : AppCompatActivity() {
     private fun findMisplaced(): List<Finding> {
         val byId = destinations.loadAll().getOrElse { emptyList() }.associateBy { it.id }
         val entries = inventory.loadForReorganization().getOrElse { emptyList() }
+        // A photo the platform will not let us move was copied instead, and
+        // the original stayed exactly where it was. Its own path therefore
+        // still says "wrong folder" for ever, and applying again just makes
+        // another copy — which is what produced IMG-…-WA0000 (1) and (2).
+        val reached = stateRepository.destinationsReached().getOrElse { emptyMap() }
         examined = entries.size
         val records = inventory.loadRecords(entries.map { it.photoId })
             .getOrElse { emptyList() }
@@ -192,6 +197,7 @@ class CheckActivity : AppCompatActivity() {
             val destination = byId[entry.destinationId] ?: return@mapNotNull null
             val target = destination.pathFor(entry.captureMillis, settings.yearFolderPattern)
             if (entry.relativePath == target) return@mapNotNull null
+            if (target.trim('/') in reached[entry.photoId].orEmpty()) return@mapNotNull null
 
             val photo = records[entry.photoId] ?: return@mapNotNull null
             Finding(photo, target, destination.id, getString(R.string.move_to, target))

@@ -16,10 +16,64 @@ interface PhotoSource {
         /**
          * Folder under which each app keeps its own media.
          *
-         * Scoped storage lets an app modify a photo it does not own, but not
-         * take it out of another app's own directory: the consent covers the
-         * file, not the place. Photos here can be reviewed and filed in the
-         * database, and the move will be refused however it is asked for.
+         * In practice, on this archive, it means WhatsApp: fifteen thousand
+         * photographs living under Android/media/com.whatsapp. Everything
+         * below is the whole of how the app treats them, gathered here
+         * because the rules differ from the rest of the archive at almost
+         * every step, and each difference looks like a bug to someone
+         * reading only the general rule.
+         *
+         * **The constraint.** Scoped storage lets an app modify a photo it
+         * does not own, but not take it out of another app's directory: the
+         * consent covers the file, not the place. A move is refused however
+         * it is asked for, so no amount of permission-granting will help.
+         *
+         * **Reviewing and deciding work normally.** These photos are read,
+         * shown, dated, rated, tagged and decided about like any others.
+         * Only the file operations differ.
+         *
+         * **Filing copies instead of moving.** The bytes are written to a
+         * new file in the category folder and the original stays behind.
+         * The copy is a photo in its own right in the inventory, carrying
+         * the decision from the start, and the original keeps its own row:
+         * two rows, both decided, so neither is ever offered again.
+         *
+         * **Deleting hands the photo to Android's bin.** Copying it into the
+         * app's own bin would leave the picture on the phone twice, and the
+         * original is the half taking the room — which for this archive is
+         * most of the room. Android's bin is the only place it can go. It is
+         * a different bin, named as one every time: not the app's, empties
+         * itself after thirty days, recovered from the gallery. The user
+         * agrees each time, and Android asks as well.
+         *
+         * **The original of a copy is offered to the same bin.** Same
+         * reasoning, same consent, and the copy in the category stays. A
+         * photo already filed can still be deleted afterwards: it becomes a
+         * deletion like any other and follows the rule above. Its copy in
+         * the category is a separate photograph and is not touched.
+         *
+         * **Nothing is ever destroyed by this app.** Not here and not
+         * anywhere: the strongest thing it does is ask Android to bin
+         * something recoverable.
+         *
+         * **Every act has to be written down, because the path never
+         * changes.** An immovable photo stays at the same address whatever
+         * happens to it, so "where is it?" can never tell whether the work
+         * was done. The copy is recorded as a destination reached, and the
+         * handover to Android's bin is recorded as a location. Without those
+         * records a check asks the path, is told the photo is still in the
+         * wrong place, and copies it again — which is exactly how three
+         * copies of one photograph came to sit in Pictures/Famiglia.
+         *
+         * **Dates need care.** WhatsApp strips EXIF, so a copy would be born
+         * with no date at all and land in the gallery under the day it was
+         * copied. The date is written into the file and onto the file before
+         * the copy is published, which is the one moment the archive reads
+         * it. What is known comes from the file name, which carries the day
+         * but not the hour.
+         *
+         * **The name.** The copy is stamped like any filed photo; the
+         * original keeps the name it has, since it is not ours to rename.
          */
         const val APP_MEDIA_ROOT = "Android/media/"
 

@@ -373,7 +373,20 @@ class PhotoInventory(private val database: Database) {
                     "s.${Schema.COLUMN_DESTINATION_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
                     "AND p.${Schema.COLUMN_RELATIVE_PATH} NOT LIKE " +
-                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%'"
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%' " +
+                    // A photo the platform will not let us move was copied
+                    // into its category instead, and the original stayed put
+                    // for ever. Its own path therefore says "wrong folder"
+                    // permanently, and only the record of the copy says
+                    // otherwise. The check screen already knew this; the
+                    // startup warning did not, and the two disagreed about
+                    // the same photographs.
+                    "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_PATHS} pp " +
+                    "WHERE pp.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
+                    "AND pp.${Schema.COLUMN_KIND} = ? " +
+                    "AND pp.${Schema.COLUMN_PATH} LIKE " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%')",
+            listOf(PhotoStateRepository.PathKind.MOVED.storedValue)
         ).mapNotNull { it.getLong("pid") }
     }
 

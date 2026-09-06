@@ -49,7 +49,15 @@ class BatchMover(
          * a deletion, which is the user's to allow, so they are handed back
          * rather than dealt with here.
          */
-        val copiedOriginals: List<Uri> = emptyList(),
+        /**
+         * Photos that had to be copied, whose originals are still there.
+         *
+         * A copy leaves the picture on the phone twice, and the original is
+         * the one taking the room. It is not destroyed and never will be by
+         * this app: it is offered to Android's bin, which keeps it for
+         * thirty days, and only with the user agreeing each time.
+         */
+        val copiedOriginals: List<ReviewSession.PendingMove> = emptyList(),
 
         /**
          * Photos the platform will not let us move, decided against.
@@ -93,7 +101,7 @@ class BatchMover(
         var firstError: String? = null
 
         val startedAt = System.currentTimeMillis()
-        val originals = ArrayList<Uri>()
+        val originals = ArrayList<ReviewSession.PendingMove>()
         val toSystemBin = ArrayList<ReviewSession.PendingMove>()
         for (move in moves) {
             // A photo the platform will not let us move, decided against:
@@ -114,7 +122,7 @@ class BatchMover(
             // simply written on this side of it.
             if (PhotoSource.isImmovable(move.photo.relativePath)) {
                 copyOne(move).fold(
-                    onSuccess = { succeeded++; originals.add(photoSource.uriFor(move.photo)) },
+                    onSuccess = { succeeded++; originals.add(move) },
                     onFailure = { error ->
                         failed.add(move)
                         if (firstError == null) firstError = describe(move, error)

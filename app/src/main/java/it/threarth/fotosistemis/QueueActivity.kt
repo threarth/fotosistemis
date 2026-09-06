@@ -39,6 +39,7 @@ class QueueActivity : AppCompatActivity() {
     private lateinit var destinations: DestinationRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
+    private lateinit var systemBin: SystemBinHandover
     private lateinit var settings: AppSettings
 
     private lateinit var listView: ListView
@@ -69,6 +70,9 @@ class QueueActivity : AppCompatActivity() {
         destinations = DestinationRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) {
+            load()
+        }
         settings = AppSettings(this)
 
         listView = findViewById(R.id.queueList)
@@ -121,6 +125,11 @@ class QueueActivity : AppCompatActivity() {
         val byId: Map<Long, Destination> = destinations.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
         val entries = inventory.loadForReorganization().getOrElse { emptyList() }
+        // A photo the platform will not let us move was copied instead, and
+        // the original stayed exactly where it was. Its own path therefore
+        // still says "wrong folder" for ever, and applying again just makes
+        // another copy — which is what produced IMG-…-WA0000 (1) and (2).
+        val reached = stateRepository.destinationsReached().getOrElse { emptyMap() }
         val records = inventory.loadRecords(entries.map { it.photoId })
             .getOrElse { emptyList() }
             .associateBy { it.photoId }
@@ -130,6 +139,7 @@ class QueueActivity : AppCompatActivity() {
                 val destination = byId[entry.destinationId] ?: return@mapNotNull null
                 val target = destination.pathFor(entry.captureMillis, settings.yearFolderPattern)
                 if (entry.relativePath == target) return@mapNotNull null
+                if (target.trim('/') in reached[entry.photoId].orEmpty()) return@mapNotNull null
 
                 records[entry.photoId]?.let {
                     ReviewSession.PendingMove(it, target, ReviewStatus.CATEGORIZED, destination.id)
@@ -173,11 +183,11 @@ class QueueActivity : AppCompatActivity() {
             val result = mover.applyAll(moves)
             runOnUiThread {
                 toast(getString(R.string.queue_carried_out, result.succeeded, result.failed.size))
-                // Left where they are on purpose: deleting here means
-                // moving into the app's own bin, never asking the system to
-                // destroy a file.
+                // The original of a copy cannot be moved and would leave
+                // the picture on the phone twice: Android's bin is the only
+                // place it can go, and only if the user agrees.
                 if (result.copiedOriginals.isNotEmpty()) {
-                    toast(getString(R.string.originals_left, result.copiedOriginals.size))
+                    systemBin.offer(result.copiedOriginals, result.copiedOriginals.size)
                 }
                 load()
             }

@@ -172,6 +172,30 @@ class PhotoStateRepository(private val database: Database) {
             }
         }
 
+    /**
+     * The folders each photo has already been put into, keyed by photo id.
+     *
+     * Read in one go because it answers a question asked of every photo at
+     * once: has this move already been made? For a photo the platform will
+     * not let us move — one inside another app's folder — the answer cannot
+     * come from where the photo is, because it never goes anywhere. It was
+     * copied, and the original stayed. Only this record says the work is
+     * done, and without it the same copy is made again at every pass.
+     */
+    fun destinationsReached(): Result<Map<Long, Set<String>>> = runCatching {
+        val reached = HashMap<Long, MutableSet<String>>()
+        database.query(
+            "SELECT ${Schema.COLUMN_PHOTO_ID} AS pid, ${Schema.COLUMN_PATH} AS path " +
+                    "FROM ${Schema.TABLE_PHOTO_PATHS} WHERE ${Schema.COLUMN_KIND} = ?",
+            listOf(PathKind.MOVED.storedValue)
+        ).forEach { row ->
+            val photoId = row.getLong("pid") ?: return@forEach
+            val path = row.getString("path") ?: return@forEach
+            reached.getOrPut(photoId) { HashSet() }.add(path.trim('/'))
+        }
+        reached
+    }
+
     /** Every location the photo has occupied, oldest first. */
     fun loadPathHistory(photoId: Long): Result<List<Pair<Location, PathKind>>> = runCatching {
         database.query(

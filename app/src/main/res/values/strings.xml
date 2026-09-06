@@ -59,7 +59,6 @@
     <string name="bin_message">Nel cestino ci sono %1$d foto.\n\nDi queste, %2$d sono gia\' passate nel cestino di Android: il file resta al suo posto, rinominato e nascosto, e viene distrutto da solo il %3$s. Fino a quel giorno si possono ancora recuperare, da Google Foto o dalla galleria.\n\nL\'app non le vede nelle sue liste — Android le nasconde a chiunque — e per questo il cestino sembrava vuoto. Le altre %4$d sono ancora normali.</string>
     <string name="bin_open">Apri il cestino</string>
     <string name="bin_expiry_unknown">data non dichiarata</string>
-    <string name="originals_left">%1$d originali restano dove sono. Fotosistemis non cancella mai davvero: la copia e\' nel suo cestino, e l\'originale lo togli tu da WhatsApp quando vuoi.</string>
     <string name="system_bin_title">Cestino di sistema</string>
     <string name="system_bin_message">%1$d foto di WhatsApp non si possono spostare: Android vieta di portarle fuori dalla cartella di un\'altra app.\n\nInvece di copiarle nel cestino di fotosistemis — che le lascerebbe sul telefono due volte, occupando il doppio — le mando nel CESTINO DI SISTEMA di Android.\n\nAttenzione, e\' un cestino diverso: non e\' quello di fotosistemis, non e\' sotto il controllo dell\'app, si svuota da solo dopo 30 giorni, e per recuperarle si passa dalla galleria o da Google Foto. Android ti chiedera\' conferma.</string>
     <string name="system_bin_do">Manda al cestino di sistema</string>
@@ -107,6 +106,7 @@
     <string name="full_screen_hint">Schermo intero. Premi Indietro per rivedere i selettori.</string>
     <string name="swipe_legend_bin">scorri: \u2190 conserva (torna dov\'era) · \u2191 successiva · \u2193 precedente</string>
     <string name="trash_already_here">E\' gia\' nel cestino. Da qui si puo\' solo conservarla, scorrendo a sinistra.</string>
+    <string name="system_bin_copied">%1$d foto di WhatsApp sono state COPIATE nella loro categoria, perche\' Android non lascia spostare i file di un\'altra app. Adesso stanno sul telefono due volte, e l\'originale e\' quello che occupa lo spazio.\n\nMando gli originali (%2$d in tutto) nel CESTINO DI SISTEMA di Android. La copia nella categoria resta.\n\nAttenzione, e\' un cestino diverso: non e\' quello di fotosistemis, non e\' sotto il controllo dell\'app, si svuota da solo dopo 30 giorni, e per recuperarle si passa dalla galleria. Android ti chiedera\' conferma.</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
