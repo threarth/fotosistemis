@@ -37,7 +37,10 @@ object PhotoMatcher {
          * for an entire device would read every byte on it to protect work
          * that has not been done yet.
          */
-        val contentHash: String? = null
+        val contentHash: String? = null,
+
+        /** True when a previous scan had already given this photo up. */
+        val alreadyMissing: Boolean = false
     )
 
     /** How a record was recognised, worst case last. */
@@ -79,7 +82,16 @@ object PhotoMatcher {
         val matches: List<Match>,
 
         /** Photos in the inventory that the platform no longer reports. */
-        val missingPhotoIds: List<Long>
+        val missingPhotoIds: List<Long>,
+
+        /**
+         * Of those, the ones this scan is the first to miss.
+         *
+         * A row already known to be gone is missed again by every scan for
+         * ever, so the plain total is the backlog of all time and never
+         * changes for the better. What a reader needs is what happened now.
+         */
+        val newlyMissingPhotoIds: List<Long> = emptyList()
     ) {
         val newCount: Int get() = matches.count { it.kind == MatchKind.NEW }
         val rekeyedCount: Int get() = matches.count { it.needsRekey }
@@ -126,8 +138,9 @@ object PhotoMatcher {
 
         val missing = if (!recordsAreComplete) emptyList()
         else stored.map { it.photoId }.filterNot { claimed.contains(it) }
+        val alreadyGone = stored.filter { it.alreadyMissing }.map { it.photoId }.toHashSet()
 
-        return Plan(matches, missing)
+        return Plan(matches, missing, missing.filterNot { it in alreadyGone })
     }
 
     /** Runs the cascade for one record, skipping photos already claimed. */

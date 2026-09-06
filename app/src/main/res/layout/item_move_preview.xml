@@ -13,8 +13,18 @@
         android:id="@+id/moveThumb"
         android:layout_width="56dp"
         android:layout_height="56dp"
+        android:background="?attr/selectableItemBackground"
         android:contentDescription="@string/placement_thumb_description"
         android:scaleType="centerCrop" />
+
+    <!-- Says the picture opens. Without it the tap is a secret. -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="4dp"
+        android:text="@string/action_full_screen"
+        android:textColor="@color/ink_muted"
+        android:textSize="11sp" />
 
     <LinearLayout
         android:layout_width="0dp"

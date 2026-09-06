@@ -5,12 +5,47 @@
     android:orientation="vertical"
     android:padding="16dp">
 
+    <!-- Where the photos are today. Read-only: it is a fact, not a
+         setting, and without it the field below is a destination with
+         nothing to compare it to. -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/reorganize_from_label"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/reorganizeFrom"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:textColor="@color/ink_muted"
+        android:textSize="12sp" />
+
+    <!-- A hint disappears the moment the field is filled, and these fields
+         are never empty: the label above it stays. -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/reorganize_name_label"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
     <EditText
         android:id="@+id/reorganizeLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="@string/destination_label_hint"
         android:inputType="text" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/reorganize_to_label"
+        android:textSize="12sp"
+        android:textStyle="bold" />
 
     <EditText
         android:id="@+id/reorganizePath"

@@ -45,6 +45,9 @@ class ReorganizeActivity : AppCompatActivity() {
 
     companion object {
 
+        /** How many of a category's current folders to list before summarising. */
+        private const val FOLDERS_SHOWN = 4
+
         /**
          * Photos to work on, when the caller has already chosen them.
          *
@@ -92,6 +95,9 @@ class ReorganizeActivity : AppCompatActivity() {
      * same question five times for one decision.
      */
     private var copiedOriginals: List<ReviewSession.PendingMove> = emptyList()
+
+    /** Planned photos the inventory no longer finds on the device. */
+    private var unreachable = 0
     private var firstError: String? = null
 
     private val reviewLauncher =
@@ -160,8 +166,12 @@ class ReorganizeActivity : AppCompatActivity() {
             showError(it)
             emptyList()
         }
-        val used = entries.map { it.destinationId }.toSet()
-        choices = destinations.filter { it.id in used }.map { destination ->
+        // Every category, including those holding no catalogued photo.
+        // Listing only the ones with photos made the rest vanish with no
+        // word said, so a category could disappear from this screen either
+        // because it was finished or because it was empty — and those are
+        // not the same thing to anybody looking for it.
+        choices = destinations.map { destination ->
             Reorganizer.Choice(destination, stampNames = alreadyStamped(destination.id))
         }
 
@@ -196,8 +206,9 @@ class ReorganizeActivity : AppCompatActivity() {
 
     private fun redrawList() {
         val counts = entries.groupingBy { it.destinationId }.eachCount()
-        val conLavoro = Reorganizer.plan(entries, choices, settings.yearFolderPattern)
-            .categoriesWithWork
+        val piano = Reorganizer.plan(entries, choices, settings.yearFolderPattern)
+        val conLavoro = piano.categoriesWithWork
+        val lavoro = piano.moves.groupBy { it.categoryLabel }
 
         visible = choices.filter { showSettled || it.destination.label in conLavoro }
         val sistemate = choices.size - choices.count { it.destination.label in conLavoro }
@@ -205,7 +216,13 @@ class ReorganizeActivity : AppCompatActivity() {
         listView.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_list_item_1,
-            visible.map { describe(it, counts[it.destination.id] ?: 0) }
+            visible.map {
+                describe(
+                    it,
+                    counts[it.destination.id] ?: 0,
+                    lavoro[it.destination.label].orEmpty()
+                )
+            }
         )
         findViewById<Button>(R.id.reorganizeShowAllButton).text = getString(
             if (showSettled) R.string.reorganize_hide_settled
@@ -215,8 +232,20 @@ class ReorganizeActivity : AppCompatActivity() {
         if (visible.isEmpty() && !showSettled) statusText.setText(R.string.reorganize_all_settled)
     }
 
-    /** One line per category: name, photos, folder shape, and naming. */
-    private fun describe(choice: Reorganizer.Choice, photoCount: Int): String {
+    /**
+     * One line per category: name, photos, folder shape, naming — and what
+     * would actually happen to it.
+     *
+     * "Six not in place" says nothing about what is wrong with them. A
+     * category can need moving, or only renaming, or both, and those are
+     * different amounts of work on different files. Saying which is what
+     * makes the list decidable rather than merely alarming.
+     */
+    private fun describe(
+        choice: Reorganizer.Choice,
+        photoCount: Int,
+        moves: List<Reorganizer.PlannedMove>
+    ): String {
         val layout = getString(
             if (choice.destination.yearSubfolder) R.string.reorganize_layout_year
             else R.string.reorganize_layout_flat
@@ -230,7 +259,44 @@ class ReorganizeActivity : AppCompatActivity() {
             choice.destination.relativePath,
             layout,
             stamped
-        )
+        ) + workOf(moves, photoCount)
+    }
+
+    /** What this category needs doing, or why it needs nothing. */
+    private fun workOf(moves: List<Reorganizer.PlannedMove>, photoCount: Int): String {
+        if (photoCount == 0) return getString(R.string.reorganize_row_empty)
+        if (moves.isEmpty()) return getString(R.string.reorganize_row_settled)
+
+        val daSpostare = moves.count { it.fromRelativePath != it.toRelativePath }
+        val daRinominare = moves.count { it.fromDisplayName != it.toDisplayName }
+        val pezzi = buildList {
+            if (daSpostare > 0) add(getString(R.string.reorganize_work_move, daSpostare))
+            if (daRinominare > 0) add(getString(R.string.reorganize_work_rename, daRinominare))
+        }
+        return getString(R.string.reorganize_row_work, pezzi.joinToString(", "))
+    }
+
+    /**
+     * The folders this category's photos sit in today, as a short list.
+     *
+     * A category is often scattered — half under one root, half under
+     * another, some in a year folder and some not — and the destination
+     * field means nothing without knowing what it is being changed from.
+     * Beyond a few, the rest is summarised rather than listed.
+     */
+    private fun currentFoldersOf(choice: Reorganizer.Choice): String {
+        val folders = entries
+            .filter { it.destinationId == choice.destination.id }
+            .map { it.relativePath.trim('/') }
+            .distinct()
+            .sorted()
+        if (folders.isEmpty()) return getString(R.string.reorganize_from_none)
+
+        val shown = folders.take(FOLDERS_SHOWN).joinToString("\n")
+        val rest = folders.size - FOLDERS_SHOWN
+
+        return if (rest > 0) shown + "\n" + getString(R.string.reorganize_from_more, rest)
+        else shown
     }
 
     /** Opens the form for one category and keeps what it returns. */
@@ -244,6 +310,9 @@ class ReorganizeActivity : AppCompatActivity() {
 
         labelField.setText(choice.destination.label)
         pathField.setText(choice.destination.relativePath)
+        // The folders these photos are actually in, so the destination
+        // written below can be compared with something.
+        form.findViewById<TextView>(R.id.reorganizeFrom).text = currentFoldersOf(choice)
         yearCheck.isChecked = choice.destination.yearSubfolder
         stampCheck.isChecked = choice.stampNames
 
@@ -420,10 +489,22 @@ class ReorganizeActivity : AppCompatActivity() {
         failed = 0
         copiedOriginals = emptyList()
         firstError = null
+        unreachable = 0
         requestNextConsent()
     }
 
-    /** Turns the plan into queued writes, or null when the photos are gone. */
+    /**
+     * Turns the plan into queued writes, or null when the photos are gone.
+     *
+     * A photo the inventory has marked as no longer on the device cannot be
+     * moved, and used to be dropped here without a word: counted in the
+     * preview, never written, never mentioned. The user was left to notice
+     * by hand that some files had stayed behind — which is exactly what
+     * happened to a folder moved from this screen.
+     *
+     * They are still dropped, because there is nothing to move. What
+     * changes is that the number is kept and said out loud at the end.
+     */
     private fun buildMoves(plan: Reorganizer.Plan): List<ReviewSession.PendingMove>? {
         val records = inventory.loadRecords(plan.moves.map { it.photoId })
             .getOrElse {
@@ -431,6 +512,7 @@ class ReorganizeActivity : AppCompatActivity() {
                 return null
             }
         val byId: Map<Long, PhotoRecord> = records.associateBy { it.photoId }
+        unreachable = plan.moves.count { it.photoId !in byId }
 
         return plan.moves.mapNotNull { move ->
             val photo = byId[move.photoId] ?: return@mapNotNull null
@@ -494,6 +576,16 @@ class ReorganizeActivity : AppCompatActivity() {
             toast(getString(R.string.reorganize_done, succeeded))
         } else {
             toast(getString(R.string.reorganize_partial, succeeded, failed, failure))
+        }
+
+        // Said separately because it is a different kind of not-done: these
+        // were never attempted, so no error was raised about them.
+        if (unreachable > 0) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.reorganize_left_title)
+                .setMessage(getString(R.string.reorganize_left_message, unreachable))
+                .setPositiveButton(R.string.action_ok, null)
+                .show()
         }
         statusText.text = ""
         refresh()

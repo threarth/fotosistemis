@@ -33,6 +33,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.snackbar.Snackbar
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.IgnoredRepository
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
@@ -95,6 +96,9 @@ class MainActivity : AppCompatActivity() {
         const val FULL_SCAN_REST_MILLIS = 10 * 60 * 1000L
 
         /** Big enough to tap, small enough that five fit beside a button. */
+        /** How long the way back stays on screen after filing a folder. */
+        const val UNDO_VISIBLE_MILLIS = 12_000
+
         const val STAR_TEXT_SIZE = 22f
         const val STAR_PADDING = 10
 
@@ -502,6 +506,9 @@ class MainActivity : AppCompatActivity() {
         voce(R.id.drawerExportButton) { openOutput(DestinationsActivity.ACTION_EXPORT) }
         voce(R.id.drawerImportButton) { openOutput(DestinationsActivity.ACTION_IMPORT) }
         voce(R.id.drawerBackupButton) { openOutput(DestinationsActivity.ACTION_BACKUP) }
+        voce(R.id.drawerDuplicatesButton) {
+            queueLauncher.launch(Intent(this, DuplicatesActivity::class.java))
+        }
         voce(R.id.drawerRepairDatesButton) { openCheck(IgnoredRepository.Check.DATES) }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
@@ -992,7 +999,57 @@ class MainActivity : AppCompatActivity() {
                 .getOrElse { 0 }
 
             runOnUiThread {
-                toast(getString(R.string.folder_category_done, label, filed))
+                offerUndoFiling(label, photos.map { it.photoId }, filed, existingId == null)
+                reload()
+            }
+        }
+    }
+
+    /**
+     * Says what was just filed and leaves a way to take it back.
+     *
+     * Filing a folder writes no files — the photos stay where they are — so
+     * it does not go through the queue, which exists to review writes before
+     * they happen. But it decides hundreds of photographs in one press, and
+     * a decision that large should not be irreversible just because it was
+     * cheap. Undoing is offered where the eye already is, and only until the
+     * next thing happens.
+     */
+    private fun offerUndoFiling(
+        label: String,
+        photoIds: List<Long>,
+        filed: Int,
+        createdCategory: Boolean
+    ) {
+        Snackbar
+            .make(
+                findViewById(R.id.main),
+                getString(R.string.folder_category_done, label, filed),
+                Snackbar.LENGTH_INDEFINITE
+            )
+            .setDuration(UNDO_VISIBLE_MILLIS)
+            .setAction(R.string.action_undo_filing) { undoFiling(photoIds, createdCategory, label) }
+            .show()
+    }
+
+    /**
+     * Puts the photos back to undecided, and removes a category made for
+     * them if it was made only for them.
+     *
+     * A category created by that one press and then emptied would otherwise
+     * stay behind as an empty folder nobody asked for.
+     */
+    private fun undoFiling(photoIds: List<Long>, createdCategory: Boolean, label: String) {
+        thread {
+            val forgotten = stateRepository.forgetAll(photoIds).getOrElse { 0 }
+            if (createdCategory) {
+                destinationRepository.loadAll().getOrElse { emptyList() }
+                    .firstOrNull { it.label == label }
+                    ?.let { destinationRepository.delete(it.id) }
+            }
+            runOnUiThread {
+                toast(getString(R.string.folder_category_undone, forgotten))
+                buildDestinationButtons()
                 reload()
             }
         }
@@ -1111,7 +1168,16 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.report_seen, report.seen),
             report.added.takeIf { it > 0 }?.let { getString(R.string.report_added, it) },
             report.rekeyed.takeIf { it > 0 }?.let { getString(R.string.report_rekeyed, it) },
-            report.missing.takeIf { it > 0 }?.let { getString(R.string.report_missing, it) }
+            // Only what this scan is the first to miss. The rest — rows
+            // given up long ago — is found missing again by every scan for
+            // ever: not a measurement against any moment, just the size of
+            // the graveyard, and reporting it made each reconciliation read
+            // like a fresh loss. Measured once on this archive: of 692 such
+            // rows, 656 were photos genuinely deleted and the other 36 had
+            // already been superseded by a copy that carries their decision.
+            // Nothing in that number was ever actionable.
+            report.newlyMissing.takeIf { it > 0 }
+                ?.let { getString(R.string.report_missing, it) }
         )
         lastReport = righe.joinToString(" · ")
         // The status line is overwritten by the load that follows, so this

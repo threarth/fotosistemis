@@ -7,6 +7,7 @@ import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.ReviewSession
 import it.threarth.fotosistemis.core.reorg.Reorganizer
 import it.threarth.fotosistemis.core.port.Database
+import it.threarth.fotosistemis.core.port.PhotoSource
 
 /**
  * The app's own record of every photo it has seen.
@@ -23,7 +24,17 @@ class PhotoInventory(private val database: Database) {
         val seen: Int,
         val added: Int,
         val rekeyed: Int,
-        val missing: Int
+        /**
+         * Rows no scan can find any more, of all time.
+         *
+         * A photo already given up is given up again by every later scan, so
+         * this only ever grows: it is a backlog, not news, and reading it as
+         * news makes every reconciliation look like a disaster.
+         */
+        val missing: Int,
+
+        /** Of those, the ones this scan is the first to miss. */
+        val newlyMissing: Int
     )
 
     /**
@@ -62,7 +73,8 @@ class PhotoInventory(private val database: Database) {
                 seen = records.size,
                 added = plan.newCount,
                 rekeyed = plan.rekeyedCount,
-                missing = plan.missingPhotoIds.size
+                missing = plan.missingPhotoIds.size,
+                newlyMissing = plan.newlyMissingPhotoIds.size
             )
         }
     }
@@ -178,8 +190,29 @@ class PhotoInventory(private val database: Database) {
                     // the name it arrived with is the name it goes back
                     // with. A guarantee that rests on a coincidence is not
                     // a guarantee.
-                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ?",
-            listOf(ReviewStatus.CATEGORIZED.storedValue, stagingPath)
+                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ? " +
+                    // A photo that could not be moved was copied into its
+                    // category and the original stayed put, so its own path
+                    // says "wrong folder" for ever and reorganising would
+                    // copy it again. Excluded — but only those. Every other
+                    // photo has to stay visible here even when it is already
+                    // in place, because this screen is also where a category
+                    // is given a different folder, and a photo left out of
+                    // the list can no longer be sent anywhere.
+                    "AND NOT (p.${Schema.COLUMN_RELATIVE_PATH} LIKE ? " +
+                    "AND EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_PATHS} pp " +
+                    "JOIN ${Schema.TABLE_DESTINATIONS} d ON d.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_DESTINATION_ID} " +
+                    "WHERE pp.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
+                    "AND pp.${Schema.COLUMN_KIND} = ? " +
+                    "AND pp.${Schema.COLUMN_PATH} LIKE " +
+                    "d.${Schema.COLUMN_RELATIVE_PATH} || '/%'))",
+            listOf(
+                ReviewStatus.CATEGORIZED.storedValue,
+                stagingPath,
+                PhotoSource.APP_MEDIA_ROOT + "%",
+                PhotoStateRepository.PathKind.MOVED.storedValue
+            )
         ).mapNotNull { row ->
             val photoId = row.getLong("photo_id") ?: return@mapNotNull null
             val destinationId = row.getLong("destination_id") ?: return@mapNotNull null
@@ -540,33 +573,47 @@ class PhotoInventory(private val database: Database) {
      * preview can be assembled from what the app already knows, without a
      * second pass over the media index.
      */
+    /**
+     * Every photo the archive currently holds.
+     *
+     * For the questions that are about the archive as a whole rather than
+     * about a list of photos — finding what is held twice, above all, where
+     * leaving anything out would mean missing exactly the pair being looked
+     * for.
+     */
+    fun loadAllPresent(): Result<List<PhotoRecord>> = runCatching {
+        presentRecords().toList()
+    }
+
     fun loadRecords(photoIds: List<Long>): Result<List<PhotoRecord>> = runCatching {
         if (photoIds.isEmpty()) return@runCatching emptyList()
         val wanted = photoIds.toHashSet()
 
-        database.query(
-            "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, " +
-                    "${Schema.COLUMN_VOLUME_NAME}, ${Schema.COLUMN_DISPLAY_NAME}, " +
-                    "${Schema.COLUMN_RELATIVE_PATH}, ${Schema.COLUMN_SIZE_BYTES}, " +
-                    "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE} " +
-                    "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL " +
-                    "ORDER BY ${Schema.COLUMN_DATE_TAKEN} DESC"
-        ).mapNotNull { row ->
-            val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
-            if (photoId !in wanted) return@mapNotNull null
-            PhotoRecord(
-                photoId = photoId,
-                platformId = row.getLong(Schema.COLUMN_MEDIA_ID) ?: 0L,
-                volumeName = row.getString(Schema.COLUMN_VOLUME_NAME).orEmpty(),
-                displayName = row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty(),
-                relativePath = row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty(),
-                sizeBytes = row.getLong(Schema.COLUMN_SIZE_BYTES) ?: 0L,
-                dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
-                dateSource = CaptureDateResolver.Source.entries
-                    .firstOrNull { it.name == row.getString(Schema.COLUMN_DATE_SOURCE) }
-                    ?: CaptureDateResolver.Source.FILE_TIMESTAMP
-            )
-        }
+        presentRecords().filter { it.photoId in wanted }
+    }
+
+    /** Every present photo as a record, newest first. */
+    private fun presentRecords(): List<PhotoRecord> = database.query(
+        "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, " +
+                "${Schema.COLUMN_VOLUME_NAME}, ${Schema.COLUMN_DISPLAY_NAME}, " +
+                "${Schema.COLUMN_RELATIVE_PATH}, ${Schema.COLUMN_SIZE_BYTES}, " +
+                "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE} " +
+                "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                "ORDER BY ${Schema.COLUMN_DATE_TAKEN} DESC"
+    ).mapNotNull { row ->
+        val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
+        PhotoRecord(
+            photoId = photoId,
+            platformId = row.getLong(Schema.COLUMN_MEDIA_ID) ?: 0L,
+            volumeName = row.getString(Schema.COLUMN_VOLUME_NAME).orEmpty(),
+            displayName = row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty(),
+            relativePath = row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty(),
+            sizeBytes = row.getLong(Schema.COLUMN_SIZE_BYTES) ?: 0L,
+            dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
+            dateSource = CaptureDateResolver.Source.entries
+                .firstOrNull { it.name == row.getString(Schema.COLUMN_DATE_SOURCE) }
+                ?: CaptureDateResolver.Source.FILE_TIMESTAMP
+        )
     }
 
     /** Records the moment a volume was last reconciled in full. */
@@ -608,7 +655,8 @@ class PhotoInventory(private val database: Database) {
     private fun loadStored(): List<PhotoMatcher.Stored> = database.query(
         "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, ${Schema.COLUMN_DISPLAY_NAME}, " +
                 "${Schema.COLUMN_SIZE_BYTES}, ${Schema.COLUMN_DATE_TAKEN}, " +
-                "${Schema.COLUMN_CONTENT_HASH} FROM ${Schema.TABLE_PHOTOS}"
+                "${Schema.COLUMN_CONTENT_HASH}, ${Schema.COLUMN_MISSING_SINCE} " +
+                "FROM ${Schema.TABLE_PHOTOS}"
     ).mapNotNull { row ->
         val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
         PhotoMatcher.Stored(
@@ -617,7 +665,8 @@ class PhotoInventory(private val database: Database) {
             displayName = row.getString(Schema.COLUMN_DISPLAY_NAME).orEmpty(),
             sizeBytes = row.getLong(Schema.COLUMN_SIZE_BYTES) ?: 0L,
             dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
-            contentHash = row.getString(Schema.COLUMN_CONTENT_HASH)
+            contentHash = row.getString(Schema.COLUMN_CONTENT_HASH),
+            alreadyMissing = row.getLong(Schema.COLUMN_MISSING_SINCE) != null
         )
     }
 

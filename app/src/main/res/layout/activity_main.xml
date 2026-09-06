@@ -498,6 +498,13 @@
                 android:textStyle="bold" />
 
             <Button
+                android:id="@+id/drawerDuplicatesButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="3dp"
+                android:text="@string/action_duplicates" />
+
+            <Button
                 android:id="@+id/drawerRepairDatesButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

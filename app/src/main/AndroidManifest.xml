@@ -50,6 +50,15 @@
             android:label="@string/suspect_title" />
 
         <activity
+            android:name=".DuplicatesActivity"
+            android:exported="false"
+            android:label="@string/duplicates_title" />
+
+        <activity
+            android:name=".CardViewerActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".CheckActivity"
             android:exported="false" />
 

@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.view.LayoutInflater
 import android.view.View
@@ -66,6 +67,7 @@ class MovePreviewAdapter(
         }
     }
 
+    private val context = context
     private val inflater = LayoutInflater.from(context)
     private val cache = HashMap<Long, Bitmap>()
 
@@ -87,7 +89,20 @@ class MovePreviewAdapter(
         }
 
         bindThumbnail(view.findViewById(R.id.moveThumb), row.photo)
+
+        // Wired here rather than in each screen that shows cards: a preview
+        // exists to be recognised, a thumbnail this size often cannot be,
+        // and a list that forgot to offer the larger view would be a preview
+        // that cannot do its one job.
+        view.findViewById<ImageView>(R.id.moveThumb).setOnClickListener { openFullScreen(position) }
         return view
+    }
+
+    /** Opens the whole list at [position], to be leafed through in the large. */
+    private fun openFullScreen(position: Int) {
+        CardViewerActivity.pendingRows = rows
+        CardViewerActivity.pendingIndex = position
+        context.startActivity(Intent(context, CardViewerActivity::class.java))
     }
 
     /**
