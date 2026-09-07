@@ -83,6 +83,15 @@
         android:layout_weight="1"
         android:divider="@null" />
 
+    <!-- The reading of the pictures is a job the user starts, never one
+         that starts itself: it reads every photo on the phone once. -->
+    <Button
+        android:id="@+id/duplicatesReadButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="3dp"
+        android:text="@string/duplicates_read" />
+
     <Button
         android:id="@+id/duplicatesApplyButton"
         android:layout_width="match_parent"

@@ -17,6 +17,7 @@ import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -99,6 +100,18 @@ class MainActivity : AppCompatActivity() {
          */
         const val FULL_SCAN_REST_MILLIS = 10 * 60 * 1000L
 
+        /**
+         * Lets one full scan run at a time, across every copy of this screen.
+         *
+         * Bugfix: the scan stamps its completion only at the end, so while
+         * one ran the rest above could not see it and a second started on top
+         * — the recreated screen after Android reclaimed the process was
+         * enough. Held at process level because that recreated screen is a
+         * different instance; a scan waiting here re-reads the stamp once it
+         * gets in, and finds the work already done.
+         */
+        val fullScanLock = Any()
+
         /** Big enough to tap, small enough that five fit beside a button. */
         /** How long the way back stays on screen after filing a folder. */
         const val UNDO_VISIBLE_MILLIS = 12_000
@@ -118,6 +131,12 @@ class MainActivity : AppCompatActivity() {
 
         /** Preselected source folder when it exists: the camera roll. */
         const val DEFAULT_SOURCE_FOLDER = "DCIM/Camera/"
+
+        /** How long the splash stays before it starts to fade. */
+        const val SPLASH_MILLIS = 1500L
+
+        /** How long the fade takes: brisk, so it never feels like waiting. */
+        const val SPLASH_FADE_MILLIS = 400L
 
         const val DATE_PATTERN = "dd/MM/yyyy HH:mm"
         const val DAY_PATTERN = "dd/MM/yyyy"
@@ -391,6 +410,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+        if (savedInstanceState == null) showSplash()
         bindViews()
         findViewById<View>(R.id.main).padForSystemBars()
 
@@ -566,6 +586,31 @@ class MainActivity : AppCompatActivity() {
         voce(R.id.drawerRepairDatesButton) { openCheck(IgnoredRepository.Check.DATES) }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
+    }
+
+    /**
+     * Lays the splash over everything for a moment, then fades it away.
+     *
+     * New feature. Added on top of the window rather than inside the
+     * layout so it also covers the drawer, and only on a fresh start: a
+     * rotation recreates the screen but is not an opening. Loading goes on
+     * underneath meanwhile, so the splash never delays the photos.
+     */
+    private fun showSplash() {
+        val splash = LayoutInflater.from(this).inflate(R.layout.splash_overlay, null)
+        addContentView(
+            splash,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        splash.postDelayed({
+            splash.animate()
+                .alpha(0f)
+                .setDuration(SPLASH_FADE_MILLIS)
+                .withEndAction { (splash.parent as? ViewGroup)?.removeView(splash) }
+        }, SPLASH_MILLIS)
     }
 
     /**
@@ -923,7 +968,7 @@ class MainActivity : AppCompatActivity() {
      * one. The report at the end is the one moment the app can say what it
      * found, and it used to be thrown away.
      */
-    private fun reconcileWithPlatform() {
+    private fun reconcileWithPlatform(): Unit = synchronized(fullScanLock) {
         // Reading every photo on the device is worth doing, and not worth
         // doing again minutes later: coming back from standby should not
         // cost the same as opening the app for the first time.
@@ -2330,8 +2375,11 @@ class MainActivity : AppCompatActivity() {
 
             val inAndroidBin = photoSource.systemBinIds().getOrElse { emptySet() }
             for (photo in waiting.filter { it.platformId in inAndroidBin }) {
+                // Every photo here was decided against: this list is what
+                // is owed to the bin, so the handover is a real discard.
                 stateRepository.recordSystemBin(
-                    photo.photoId, photo.relativePath, photo.displayName
+                    photo.photoId, photo.relativePath, photo.displayName,
+                    thrownAway = true
                 )
             }
         }

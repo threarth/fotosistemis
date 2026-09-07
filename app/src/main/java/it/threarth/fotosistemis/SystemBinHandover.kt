@@ -8,6 +8,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.review.ReviewSession
 
 /**
@@ -46,8 +47,12 @@ class SystemBinHandover(
 
         if (accepted) {
             for (move in handed) {
+                // Why the file is being given up decides what becomes of
+                // the photograph: thrown away when it was decided against,
+                // filed when this is the original left over from a copy.
                 stateRepository.recordSystemBin(
-                    move.photo.photoId, move.photo.relativePath, move.photo.displayName
+                    move.photo.photoId, move.photo.relativePath, move.photo.displayName,
+                    thrownAway = move.action == Proposal.Action.TRASH
                 )
             }
         }

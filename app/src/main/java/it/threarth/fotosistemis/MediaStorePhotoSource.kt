@@ -21,6 +21,7 @@ import java.util.Locale
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
+import it.threarth.fotosistemis.core.dedup.JpegScan
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.port.PhotoSource
 
@@ -98,6 +99,7 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
         const val HASH_HEAD_BYTES = 256 * 1024
 
         const val HASH_CHUNK_BYTES = 32 * 1024
+
 
         /** Enough of a photo to tell it from whichever one took its id. */
         val IDENTITY_PROJECTION = arrayOf(
@@ -491,6 +493,39 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
             }
         }
         digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Fingerprint of the picture alone: the header is walked over, not read.
+     *
+     * A JPEG is a run of segments — the capture date, the thumbnail, the
+     * comments — followed by the scan, which is the photograph. Filing a
+     * photo the platform will not let us move copies it and writes the date
+     * into the copy, so the two files share not one byte of header and
+     * every byte of scan. Hashing from the scan is what recognises them as
+     * one photograph.
+     *
+     * As much is read as for [contentHash], so this costs the same. The
+     * length is deliberately left out of the digest: two copies of one
+     * picture have different lengths precisely when their headers differ,
+     * which is the case this exists for.
+     */
+    override fun imageHash(photo: PhotoRecord): Result<String?> = runCatching {
+        resolver.openInputStream(uriFor(photo)).use { input ->
+            val stream = requireNotNull(input) { "${photo.displayName}: illeggibile" }
+            if (!JpegScan.skipToScan(stream)) return@runCatching null
+
+            val digest = MessageDigest.getInstance(HASH_ALGORITHM)
+            val buffer = ByteArray(HASH_CHUNK_BYTES)
+            var read = 0
+            while (read < HASH_HEAD_BYTES) {
+                val got = stream.read(buffer)
+                if (got <= 0) break
+                digest.update(buffer, 0, got)
+                read += got
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
     }
 
     /** JPEG unless the name says otherwise; nothing else is written here. */

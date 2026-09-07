@@ -170,4 +170,20 @@ interface PhotoSource {
      * worth.
      */
     fun contentHash(photo: PhotoRecord): Result<String>
+
+    /**
+     * Fingerprint of the picture alone, or null when the file carries no
+     * picture this can read.
+     *
+     * The header is skipped, so two files holding one photograph match even
+     * when only one of them carries a capture date. That is the ordinary
+     * case here: filing a photo the platform will not let us move copies it
+     * and writes the date into the copy, leaving two files whose headers
+     * differ and whose pictures are identical to the byte.
+     *
+     * Null rather than a failure for a file with no readable picture — a
+     * PNG, a video: not knowing is a legitimate answer, and [contentHash]
+     * still speaks for those.
+     */
+    fun imageHash(photo: PhotoRecord): Result<String?>
 }

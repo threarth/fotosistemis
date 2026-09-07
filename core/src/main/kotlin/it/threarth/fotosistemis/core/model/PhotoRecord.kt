@@ -47,5 +47,15 @@ data class PhotoRecord(
      * Carried on the record so a scan can hand it to the matcher; filled
      * only for photos a decision has been made about.
      */
-    val contentHash: String? = null
+    val contentHash: String? = null,
+
+    /**
+     * Fingerprint of the picture with its metadata left out, or null when
+     * the file is not a JPEG or has not been read yet.
+     *
+     * Answers "is this the same photograph?" where [contentHash] answers
+     * "is this the same file?". Two copies of one picture whose capture
+     * date was written into only one of them share this and nothing else.
+     */
+    val imageHash: String? = null
 )

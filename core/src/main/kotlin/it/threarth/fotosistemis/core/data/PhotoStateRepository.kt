@@ -238,13 +238,34 @@ class PhotoStateRepository(private val database: Database) {
      * Records that a photo was handed to Android's bin.
      *
      * The app cannot follow it there and does not govern what happens next:
-     * what it can do is say the photo is thrown away, and stop asking.
+     * what it can do is write down that the file left, and stop asking.
+     *
+     * Bugfix: what became of the *photograph* is a separate question, and
+     * the answer depends on why the file was given up. Two paths end here.
+     * A photo decided against goes to Android's bin because it cannot go
+     * to ours, and it is thrown away. A photo the platform will not let us
+     * move is copied into its category first, and only the original — the
+     * second copy on the phone — is handed over: that photograph is filed,
+     * and saying it was thrown away buries a picture the user asked to
+     * keep. This used to write "thrown away" for both, over the truth
+     * [markCarriedOut] had just written seconds earlier.
      */
-    fun recordSystemBin(photoId: Long, path: String, displayName: String): Result<Unit> =
+    fun recordSystemBin(
+        photoId: Long,
+        path: String,
+        displayName: String,
+
+        /** True only when the photo itself was decided against. */
+        thrownAway: Boolean
+    ): Result<Unit> =
         runCatching {
             database.transaction {
                 insertPath(photoId, path, displayName, PathKind.SYSTEM_BIN)
-                writeTruth(photoId, ReviewStatus.TRASHED, null, System.currentTimeMillis())
+                // Left alone otherwise: the copy is filed, and its category
+                // is what is true of this photograph now.
+                if (thrownAway) {
+                    writeTruth(photoId, ReviewStatus.TRASHED, null, System.currentTimeMillis())
+                }
                 deleteProposal(photoId)
                 Unit
             }

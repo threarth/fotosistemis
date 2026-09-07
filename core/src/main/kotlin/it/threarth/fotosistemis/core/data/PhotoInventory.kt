@@ -21,6 +21,21 @@ import it.threarth.fotosistemis.core.port.PhotoSource
  */
 class PhotoInventory(private val database: Database) {
 
+    companion object {
+
+        /**
+         * Written in place of a picture's fingerprint when the file holds
+         * none this can read.
+         *
+         * Stored rather than left empty so the reading pass knows it has
+         * been here and does not offer the same file for ever. Never handed
+         * out as a fingerprint: records carry null instead, or every PNG on
+         * the phone would look like a copy of every other.
+         */
+        const val NO_PICTURE = "-"
+    }
+
+
     /** What a reconciliation changed, for reporting and for tests. */
     data class Report(
         val seen: Int,
@@ -265,6 +280,56 @@ class PhotoInventory(private val database: Database) {
         ).mapNotNull { it.getLong("pid") }
 
         if (ids.isEmpty()) emptyList() else loadRecords(ids).getOrThrow()
+    }
+
+    /**
+     * Photos with no fingerprint of their picture yet, and how many are
+     * left.
+     *
+     * Unlike [loadNeedingHash] this does not stop at the photos a decision
+     * has been made about. It cannot: the whole point is to pair a copy
+     * nobody has decided anything about with one that is already filed, and
+     * a fingerprint only one of the two carries pairs nothing. The reading
+     * is therefore offered as a pass the user starts, and the screen says
+     * how much of it is still owed.
+     */
+    fun loadNeedingImageHash(limit: Int): Result<List<PhotoRecord>> = runCatching {
+        recordsWhere("AND ${Schema.COLUMN_IMAGE_HASH} IS NULL", limit = limit)
+    }
+
+    /** How many photos are on the phone, for saying how far a pass has got. */
+    fun countPresent(): Result<Int> = runCatching {
+        database.query(
+            "SELECT COUNT(*) AS total FROM ${Schema.TABLE_PHOTOS} " +
+                    "WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL"
+        ).firstOrNull()?.getInt("total") ?: 0
+    }
+
+    /** How many present photos still carry no fingerprint of their picture. */
+    fun countNeedingImageHash(): Result<Int> = runCatching {
+        database.query(
+            "SELECT COUNT(*) AS total FROM ${Schema.TABLE_PHOTOS} " +
+                    "WHERE ${Schema.COLUMN_IMAGE_HASH} IS NULL " +
+                    "AND ${Schema.COLUMN_MISSING_SINCE} IS NULL"
+        ).firstOrNull()?.getInt("total") ?: 0
+    }
+
+    /**
+     * Stores the fingerprint of a photo's picture.
+     *
+     * A file with no readable picture is written down as read all the same,
+     * with the mark below: without it the pass would offer the same
+     * unreadable files for ever and never finish.
+     */
+    fun recordImageHash(photoId: Long, imageHash: String?): Result<Unit> = runCatching {
+        database.transaction {
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_IMAGE_HASH} = ? " +
+                        "WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(imageHash ?: NO_PICTURE, photoId)
+            )
+            Unit
+        }
     }
 
     /** Stores the fingerprint taken from a photo's bytes. */
@@ -659,13 +724,31 @@ class PhotoInventory(private val database: Database) {
     }
 
     /** Every present photo as a record, newest first. */
-    private fun presentRecords(): List<PhotoRecord> = database.query(
+    private fun presentRecords(): List<PhotoRecord> = recordsWhere()
+
+    /**
+     * Present photos as records, narrowed by [condition] and [limit].
+     *
+     * Bugfix: callers that wanted a handful used to read the whole
+     * inventory and filter it in memory. Fetching two hundred photos then
+     * cost twenty-four thousand rows, and the pass that reads every
+     * picture paid it once per batch — the archive walked a hundred times
+     * over to walk it once.
+     */
+    private fun recordsWhere(
+        condition: String = "",
+        args: List<Any?> = emptyList(),
+        limit: Int? = null
+    ): List<PhotoRecord> = database.query(
         "SELECT ${Schema.COLUMN_ID}, ${Schema.COLUMN_MEDIA_ID}, " +
                 "${Schema.COLUMN_VOLUME_NAME}, ${Schema.COLUMN_DISPLAY_NAME}, " +
                 "${Schema.COLUMN_RELATIVE_PATH}, ${Schema.COLUMN_SIZE_BYTES}, " +
-                "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE} " +
+                "${Schema.COLUMN_DATE_TAKEN}, ${Schema.COLUMN_DATE_SOURCE}, " +
+                "${Schema.COLUMN_CONTENT_HASH}, ${Schema.COLUMN_IMAGE_HASH} " +
                 "FROM ${Schema.TABLE_PHOTOS} WHERE ${Schema.COLUMN_MISSING_SINCE} IS NULL " +
-                "ORDER BY ${Schema.COLUMN_DATE_TAKEN} DESC"
+                condition + " ORDER BY ${Schema.COLUMN_DATE_TAKEN} DESC" +
+                (limit?.let { " LIMIT $it" } ?: ""),
+        args
     ).mapNotNull { row ->
         val photoId = row.getLong(Schema.COLUMN_ID) ?: return@mapNotNull null
         PhotoRecord(
@@ -678,7 +761,9 @@ class PhotoInventory(private val database: Database) {
             dateTakenMillis = row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L,
             dateSource = CaptureDateResolver.Source.entries
                 .firstOrNull { it.name == row.getString(Schema.COLUMN_DATE_SOURCE) }
-                ?: CaptureDateResolver.Source.FILE_TIMESTAMP
+                ?: CaptureDateResolver.Source.FILE_TIMESTAMP,
+            contentHash = row.getString(Schema.COLUMN_CONTENT_HASH),
+            imageHash = row.getString(Schema.COLUMN_IMAGE_HASH)?.takeIf { it != NO_PICTURE }
         )
     }
 
@@ -783,11 +868,20 @@ class PhotoInventory(private val database: Database) {
                     "${Schema.COLUMN_VOLUME_NAME} = ?, ${Schema.COLUMN_DISPLAY_NAME} = ?, " +
                     "${Schema.COLUMN_RELATIVE_PATH} = ?, ${Schema.COLUMN_SIZE_BYTES} = ?, " +
                     "${Schema.COLUMN_DATE_TAKEN} = ?, ${Schema.COLUMN_DATE_SOURCE} = ?, " +
-                    "${Schema.COLUMN_LAST_SEEN_AT} = ?, ${Schema.COLUMN_MISSING_SINCE} = NULL " +
+                    "${Schema.COLUMN_LAST_SEEN_AT} = ?, ${Schema.COLUMN_MISSING_SINCE} = NULL, " +
+                    // A file whose length changed is not the file the
+                    // fingerprints describe. Clearing them costs one
+                    // re-reading; keeping them would answer "same picture"
+                    // about bytes nobody has looked at.
+                    "${Schema.COLUMN_CONTENT_HASH} = CASE WHEN ${Schema.COLUMN_SIZE_BYTES} = ? " +
+                    "THEN ${Schema.COLUMN_CONTENT_HASH} END, " +
+                    "${Schema.COLUMN_IMAGE_HASH} = CASE WHEN ${Schema.COLUMN_SIZE_BYTES} = ? " +
+                    "THEN ${Schema.COLUMN_IMAGE_HASH} END " +
                     "WHERE ${Schema.COLUMN_ID} = ?",
             listOf(
                 record.platformId, record.volumeName, record.displayName, record.relativePath,
-                record.sizeBytes, dateMillis, dateSource.name, now, photoId
+                record.sizeBytes, dateMillis, dateSource.name, now,
+                record.sizeBytes, record.sizeBytes, photoId
             )
         )
     }

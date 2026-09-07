@@ -37,4 +37,17 @@
         android:layout_height="wrap_content"
         android:paddingTop="4dp"
         android:textSize="12sp" />
+
+    <!-- What is true of this copy and what is still asked of it. Choosing
+         which copy to keep is choosing between histories, not only between
+         folders: one may be filed in a category and another may be carrying
+         a request nobody has applied yet, and discarding that one throws the
+         request away with it. -->
+    <TextView
+        android:id="@+id/copyState"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="1dp"
+        android:textSize="11sp"
+        android:textStyle="italic" />
 </LinearLayout>

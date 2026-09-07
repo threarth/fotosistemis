@@ -30,7 +30,7 @@ object Schema {
      * v13 compares paths without regard to case, and no longer takes a
      *     copy made into the bin for a deletion done.
      */
-    const val VERSION = 13
+    const val VERSION = 15
 
     const val TABLE_PHOTOS = "photos"
 
@@ -106,6 +106,20 @@ object Schema {
 
     /** Reserved for telling apart photos the cheap columns cannot separate. */
     const val COLUMN_CONTENT_HASH = "content_hash"
+
+    /**
+     * Fingerprint of the picture alone, metadata left out.
+     *
+     * Kept apart from [COLUMN_CONTENT_HASH], which answers a different
+     * question: that one is taken over the head of the file and says
+     * whether this is the same *file*, which is what identity needs. This
+     * one skips the header segments and says whether this is the same
+     * *photograph*. Filing a photo the platform will not let us move
+     * writes its capture date into the copy, so the two files hold one
+     * picture and share no byte of header: only this can pair them.
+     * Null for anything that is not a JPEG.
+     */
+    const val COLUMN_IMAGE_HASH = "image_hash"
 
     /**
      * Set when the user has seen the photograph and says its date is wrong.
@@ -206,6 +220,7 @@ object Schema {
             $COLUMN_HEIGHT INTEGER,
             $COLUMN_DURATION_MILLIS INTEGER,
             $COLUMN_CONTENT_HASH TEXT,
+            $COLUMN_IMAGE_HASH TEXT,
             $COLUMN_DATE_SUSPECT INTEGER NOT NULL DEFAULT 0,
             $COLUMN_FIRST_SEEN_AT INTEGER NOT NULL DEFAULT 0,
             $COLUMN_LAST_SEEN_AT INTEGER NOT NULL DEFAULT 0,
@@ -343,6 +358,57 @@ object Schema {
         // v9 added a table, and createTables above has already made it.
         if (oldVersion < 12) migrateToVersion12(database)
         if (oldVersion < 13) migrateToVersion13(database)
+        if (oldVersion < 14) migrateToVersion14(database)
+        if (oldVersion < 15) migrateToVersion15(database)
+    }
+
+    /**
+     * v15 makes room for the fingerprint of the picture alone.
+     *
+     * Added empty and filled afterwards, a few at a time or in one pass the
+     * user asks for: reading every file on the phone is not something a
+     * migration may do while the app waits to open.
+     */
+    private fun migrateToVersion15(database: Database) {
+        if (hasColumn(database, TABLE_PHOTOS, COLUMN_IMAGE_HASH)) return
+        database.execute("ALTER TABLE $TABLE_PHOTOS ADD COLUMN $COLUMN_IMAGE_HASH TEXT")
+    }
+
+    /**
+     * v14 gives back their category to photos recorded as thrown away
+     * while their copy sits filed.
+     *
+     * Handing a file to Android's bin used to write "thrown away" over
+     * whatever was true, and for a photo the platform will not let us move
+     * that is the wrong half of the story: the picture was copied into its
+     * category and only the leftover original was given up. Twenty-three
+     * photographs, filed on 7 September, were buried this way — hidden
+     * from every screen that shows what is still to do, and hidden from
+     * the one that would have offered to tidy the duplicate.
+     *
+     * The repair reads the record the app itself wrote: a photo given to
+     * Android's bin that also carries a move into a category folder was
+     * filed there, and its category is the one that folder belongs to.
+     * Re-runnable — after the first pass no such row says "thrown away"
+     * any more, so a second pass finds nothing and changes nothing.
+     */
+    private fun migrateToVersion14(database: Database) {
+        val filedInto = "SELECT d.$COLUMN_ID FROM $TABLE_DESTINATIONS d " +
+                "JOIN $TABLE_PHOTO_PATHS m ON m.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                "AND m.$COLUMN_KIND = 'moved' " +
+                "WHERE m.$COLUMN_PATH LIKE rtrim(d.$COLUMN_RELATIVE_PATH, '/') || '/%' LIMIT 1"
+
+        database.execute(
+            "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_STATUS = 'categorized', " +
+                    "$COLUMN_DESTINATION_ID = ($filedInto) " +
+                    "WHERE $COLUMN_STATUS = 'trashed' " +
+                    // Handed to Android's bin: the signature of this path.
+                    "AND EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS b " +
+                    "WHERE b.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND b.$COLUMN_KIND = 'system_bin') " +
+                    // And filed, which is what makes "thrown away" untrue.
+                    "AND ($filedInto) IS NOT NULL"
+        )
     }
 
     /**

@@ -25,6 +25,21 @@ object DuplicateFinder {
         /** Filled only for files whose length is shared with another. */
         val contentHash: String? = null,
 
+        /**
+         * Fingerprint of the picture with the header left out, when it has
+         * been read.
+         *
+         * The stronger of the two for a JPEG: files agreeing here hold one
+         * photograph even when their lengths differ, which is what happens
+         * when the app copies a photo it cannot move and writes the capture
+         * date into the copy. Null for a file that carries no readable
+         * picture, and for one nobody has read yet.
+         */
+        val imageHash: String? = null,
+
+        /** True when the user has already asked for this copy to go. */
+        val discardRequested: Boolean = false,
+
         /** True when a decision has been recorded about this copy. */
         val catalogued: Boolean = false,
 
@@ -57,7 +72,10 @@ object DuplicateFinder {
          */
         val suggested: Candidate
             get() = copies.sortedWith(
-                compareByDescending<Candidate> { it.catalogued }
+                // Never propose keeping a copy the user has already asked
+                // to be rid of: that is an answer they have given.
+                compareBy<Candidate> { it.discardRequested }
+                    .thenByDescending { it.catalogued }
                     .thenBy { it.immovable }
                     .thenByDescending { it.stamped }
                     .thenBy { it.relativePath + it.displayName }
@@ -89,10 +107,40 @@ object DuplicateFinder {
      * something.
      */
     fun groups(candidates: List<Candidate>): List<Group> = candidates
-        .filter { it.contentHash != null }
-        .groupBy { it.sizeBytes to it.contentHash }
+        .mapNotNull { candidate -> sameness(candidate)?.let { it to candidate } }
+        .groupBy({ it.first }, { it.second })
         .values
         .filter { it.size > 1 }
         .map { copies -> Group(copies.sortedBy { it.relativePath + it.displayName }) }
         .sortedByDescending { it.extra }
+
+    /**
+     * What makes two files the same photograph, or null when there is no
+     * saying yet.
+     *
+     * Two answers, and the stronger is preferred where it exists. The
+     * picture's fingerprint settles it on its own: files agreeing there
+     * hold the same photograph whatever their lengths, and the length must
+     * not be consulted — differing lengths are exactly the case it was
+     * added for. Failing that, the older pairing stands: the head of the
+     * file and its length together.
+     *
+     * The two keys are kept apart by a prefix so they can never collide,
+     * and a file with neither is left out of the search: not knowing is not
+     * the same as knowing two files differ, and a group is a proposal to
+     * delete something.
+     */
+    private fun sameness(candidate: Candidate): String? = when {
+        candidate.imageHash != null -> "$PICTURE_KEY${candidate.imageHash}"
+        candidate.contentHash != null ->
+            "$FILE_KEY${candidate.sizeBytes}:${candidate.contentHash}"
+
+        else -> null
+    }
+
+    /** Marks a key made from the picture alone. */
+    private const val PICTURE_KEY = "picture:"
+
+    /** Marks a key made from the file's head and length. */
+    private const val FILE_KEY = "file:"
 }

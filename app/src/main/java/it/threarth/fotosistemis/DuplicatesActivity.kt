@@ -20,6 +20,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.data.ProposalRepository
@@ -59,11 +60,21 @@ class DuplicatesActivity : AppCompatActivity() {
 
         /** How often to say how far the hashing has got. */
         const val PROGRESS_EVERY = 20
+
+        /**
+         * Photos asked for at a time while reading pictures.
+         *
+         * Asked for in batches rather than all at once: the list is drawn
+         * from what still has no fingerprint, so each batch is fresh and
+         * the work resumes by itself after an interruption.
+         */
+        const val READ_BATCH = 200
     }
 
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
     private lateinit var proposals: ProposalRepository
+    private lateinit var destinations: DestinationRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
     private lateinit var systemBin: SystemBinHandover
@@ -74,11 +85,29 @@ class DuplicatesActivity : AppCompatActivity() {
     private var groups: List<DuplicateFinder.Group> = emptyList()
     private var byId: Map<Long, PhotoRecord> = emptyMap()
 
+    /** What is true of each photo, and what is still asked of it. */
+    private var stateById: Map<Long, PhotoStateRepository.StoredState> = emptyMap()
+    private var requestById: Map<Long, Proposal> = emptyMap()
+    private var categoryById: Map<Long, String> = emptyMap()
+
     /** Which copy of each group the user wants to keep, by group index. */
     private val keeping = HashMap<Int, Long>()
 
     private var thumbSizeDp = MIN_THUMB_DP + 60
     private var pending: List<ReviewSession.PendingMove> = emptyList()
+
+    /** True while the pictures are being read; cleared to stop the pass. */
+    @Volatile
+    private var reading = false
+
+    /**
+     * Requests standing on copies about to go, and what to do with them.
+     *
+     * Held until consent is granted, so cancelling the system dialog leaves
+     * every decision exactly as the user left it.
+     */
+    private var affected: List<Discarded> = emptyList()
+    private var moveRequests = false
 
     private val consentLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -95,6 +124,7 @@ class DuplicatesActivity : AppCompatActivity() {
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
         proposals = ProposalRepository(database, stateRepository)
+        destinations = DestinationRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
         systemBin = SystemBinHandover(this, photoSource, stateRepository) { search() }
@@ -103,6 +133,7 @@ class DuplicatesActivity : AppCompatActivity() {
         outcome = findViewById(R.id.duplicatesOutcome)
         progress = ScanProgress(findViewById(R.id.duplicatesProgress))
         findViewById<Button>(R.id.duplicatesApplyButton).setOnClickListener { askConsent() }
+        findViewById<Button>(R.id.duplicatesReadButton).setOnClickListener { readPictures() }
         listenToSizeSlider()
 
         search()
@@ -123,7 +154,16 @@ class DuplicatesActivity : AppCompatActivity() {
         )
     }
 
-    /** Two passes: lengths narrow the field, the bytes decide. */
+    /**
+     * Two questions asked of every file, and the stronger one first.
+     *
+     * The picture's fingerprint is read once and kept, so it is already
+     * here; the file's is taken now, and only for copies that have no
+     * picture fingerprint and share a length with another. What the reading
+     * has not reached yet is declared rather than passed over in silence: a
+     * search that has read half the archive and says "no duplicates" is
+     * telling the user something it does not know.
+     */
     private fun search() {
         outcome.setText(R.string.duplicates_running)
         progress.startSpinning()
@@ -131,64 +171,29 @@ class DuplicatesActivity : AppCompatActivity() {
         keeping.clear()
 
         thread {
-            val decisions = stateRepository.loadAll().getOrElse { emptyMap() }
-            val proposed = proposals.loadAll().getOrElse { emptyMap() }
-            val handedOver = stateRepository.handedToSystemBin().getOrElse { emptySet() }
+            stateById = stateRepository.loadAll().getOrElse { emptyMap() }
+            categoryById = destinations.loadAll().getOrElse { emptyList() }
+                .associate { it.id to it.label }
+            requestById = proposals.loadAll().getOrElse { emptyMap() }
 
-            // A photo already thrown away is not a duplicate to weigh
-            // against the copy that was kept: offering it could propose
-            // keeping the discarded one and binning the survivor.
-            //
-            // Being asked for the bin and being in it are not two cases
-            // but one, in two moments: the proposal is written at once, the
-            // file moves when Android grants it and the proposal becomes
-            // the truth. Both moments are excluded.
-            //
-            // Apart from those, one case that really is different: an
-            // immovable original handed to Android's bin after its copy was
-            // filed. That photo is CATEGORISED, not thrown away — the
-            // picture was kept, in another file — so no decision marks it,
-            // and only the record of the handover does. It is hidden rather
-            // than gone, and without this the scan found every WhatsApp
-            // original it had just disposed of.
-            //
-            // The path is checked too, for anything dropped into the bin
-            // from outside the app, which no decision of ours would know.
-            val photos = inventory.loadAllPresent().getOrElse { emptyList() }
-                .filterNot {
-                    FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) ||
-                            it.photoId in handedOver ||
-                            decisions[it.photoId]?.status == ReviewStatus.TRASHED ||
-                            proposed[it.photoId]?.action == Proposal.Action.TRASH
-                }
+            val photos = searchable()
+            val candidates = photos.map { describe(it) }
+            // Only the copies with no picture fingerprint fall back to the
+            // file's, and only those sharing a length are worth reading:
+            // a length nobody else has cannot be a duplicate of anything.
+            val toRead = DuplicateFinder.needingHash(candidates.filter { it.imageHash == null })
+            runOnUiThread { progress.start(toRead.size) }
 
-            // What makes one copy worth more than another: whether work has
-            // been done on it, whether it can still be organised at all, and
-            // whether it carries the date stamp.
-            val filed = decisions.keys
-            val candidates = photos.map {
-                DuplicateFinder.Candidate(
-                    photoId = it.photoId,
-                    relativePath = it.relativePath,
-                    displayName = it.displayName,
-                    sizeBytes = it.sizeBytes,
-                    catalogued = it.photoId in filed,
-                    immovable = PhotoSource.isImmovable(it.relativePath),
-                    stamped = CaptureDateResolver.readStamp(it.displayName) != null
-                )
-            }
-            val daLeggere = DuplicateFinder.needingHash(candidates)
-            // From here the length of the work is known, so the bar can
-            // stop spinning and start meaning something.
-            runOnUiThread { progress.start(daLeggere.size) }
             val perId = photos.associateBy { it.photoId }
-
-            val hashed = daLeggere.mapIndexed { index, candidate ->
-                if (index % PROGRESS_EVERY == 0) showProgress(index, daLeggere.size)
+            val read = toRead.mapIndexed { index, candidate ->
+                if (index % PROGRESS_EVERY == 0) showProgress(index, toRead.size)
                 val photo = perId[candidate.photoId]
                 candidate.copy(contentHash = photo?.let { photoSource.contentHash(it).getOrNull() })
             }
-            val found = DuplicateFinder.groups(hashed)
+            val found = DuplicateFinder.groups(
+                candidates.filter { it.imageHash != null } + read
+            )
+            val unread = inventory.countNeedingImageHash().getOrElse { 0 }
 
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -198,29 +203,212 @@ class DuplicatesActivity : AppCompatActivity() {
                 // alphabet put the WhatsApp original first, which is the
                 // one copy that can never be organised again.
                 found.indices.forEach { keeping[it] = found[it].suggested.photoId }
-                redraw(photos.size, daLeggere.size)
+                redraw(photos.size, toRead.size, unread)
             }
         }
     }
 
-    private fun showProgress(done: Int, total: Int) {
+    /**
+     * The photos this search may weigh against each other.
+     *
+     * Excluded by **where the file is**, never by what has been decided
+     * about it. Two places are out: the app's own bin, since being there is
+     * the whole point of it, and Android's bin, which is asked about now
+     * rather than remembered — a photo handed over months ago may have been
+     * put back from the gallery since, and a record of the handover would go
+     * on hiding it for ever.
+     *
+     * Bugfix: this used to exclude by decision as well — anything recorded
+     * as thrown away, anything with a discard waiting, and everything ever
+     * handed to Android's bin. That buried the very copies the search
+     * exists to find: a group needs two copies, so hiding one does not hide
+     * a row, it makes the whole finding disappear. Fifty-five photographs
+     * were on the phone and out of this search. What was decided about a
+     * copy is worth knowing and is now written on its row — where it helps
+     * the user choose, instead of choosing for them.
+     */
+    private fun searchable(): List<PhotoRecord> {
+        val inSystemBin = photoSource.systemBinIds().getOrElse { emptySet() }
+
+        return inventory.loadAllPresent().getOrElse { emptyList() }
+            .filterNot {
+                FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) ||
+                        it.platformId in inSystemBin
+            }
+    }
+
+    /** One photo as the search needs to see it. */
+    private fun describe(photo: PhotoRecord) = DuplicateFinder.Candidate(
+        photoId = photo.photoId,
+        relativePath = photo.relativePath,
+        displayName = photo.displayName,
+        sizeBytes = photo.sizeBytes,
+        imageHash = photo.imageHash,
+        catalogued = photo.photoId in stateById,
+        discardRequested = requestById[photo.photoId]?.action == Proposal.Action.TRASH ||
+                stateById[photo.photoId]?.status == ReviewStatus.TRASHED,
+        immovable = PhotoSource.isImmovable(photo.relativePath),
+        stamped = CaptureDateResolver.readStamp(photo.displayName) != null
+    )
+
+    /**
+     * Reads the picture of every photo that has none recorded, once.
+     *
+     * Started by hand and never on its own: it opens every file on the
+     * phone. Interruptible, and resumable for nothing — it asks each time
+     * for what still has no fingerprint, so stopping halfway costs only the
+     * photos not yet reached.
+     *
+     * A file whose picture cannot be read is written down as read all the
+     * same, or the pass would offer it again for ever and never end. How
+     * many there were is reported: a probe that fails has to say so.
+     */
+    private fun readPictures() {
+        if (reading) {
+            reading = false
+            return
+        }
+        val left = inventory.countNeedingImageHash().getOrElse { 0 }
+        if (left == 0) return
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.duplicates_read_title)
+            .setMessage(getString(R.string.duplicates_read_message, left))
+            .setPositiveButton(R.string.duplicates_read_do) { _, _ -> runReading() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * The reading itself, off the main thread.
+     *
+     * Bugfix: how far it has got is counted over the whole archive, not
+     * over what was left when this run began. Counted the other way, a pass
+     * resumed after six thousand photos said "0" and appeared to be
+     * starting again — the work was not being redone, but nothing on screen
+     * said so, and a bar that denies the work already done is worse than no
+     * bar.
+     */
+    private fun runReading() {
+        val everything = inventory.countPresent().getOrElse { 0 }
+        var done = everything - inventory.countNeedingImageHash().getOrElse { 0 }
+
+        reading = true
+        progress.start(everything)
+        showProgress(done, everything, R.string.duplicates_read_progress)
+        findViewById<Button>(R.id.duplicatesReadButton).setText(R.string.duplicates_read_stop)
+
+        thread {
+            var read = 0
+            var unreadable = 0
+            while (reading) {
+                val batch = inventory.loadNeedingImageHash(READ_BATCH).getOrElse { emptyList() }
+                if (batch.isEmpty()) break
+
+                val before = done
+                for (photo in batch) {
+                    if (!reading) break
+                    val picture = photoSource.imageHash(photo).getOrNull()
+                    if (picture == null) unreadable++
+                    if (inventory.recordImageHash(photo.photoId, picture).isFailure) continue
+
+                    read++
+                    done++
+                    if (read % PROGRESS_EVERY == 0) {
+                        showProgress(done, everything, R.string.duplicates_read_progress)
+                    }
+                }
+                // A batch that wrote nothing would be handed back unchanged
+                // for ever: the loop would spin on the same photos and the
+                // pass would never end.
+                if (done == before) break
+            }
+            reading = false
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                toast(getString(R.string.duplicates_read_report, read, unreadable))
+                search()
+            }
+        }
+    }
+
+    /**
+     * How far a pass has got, in its own words.
+     *
+     * The two passes read different things — one the head of a file, the
+     * other the picture inside it — and a single wording for both would
+     * leave the reader unable to tell which is running.
+     */
+    private fun showProgress(done: Int, total: Int, said: Int = R.string.duplicates_progress) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-            outcome.text = getString(R.string.duplicates_progress, done, total)
+            outcome.text = getString(said, done, total)
             progress.advance(done)
         }
     }
 
-    private fun redraw(examined: Int, hashed: Int) {
+    private fun redraw(examined: Int, hashed: Int, unread: Int) {
         progress.stop()
         val extra = groups.sumOf { it.extra }
-        outcome.text =
+        val said =
             if (groups.isEmpty()) getString(R.string.duplicates_none, examined)
             else getString(R.string.duplicates_found, groups.size, extra, hashed)
 
+        // Said every time there is anything left to read, whether or not
+        // duplicates were found: it is on an empty result that a partial
+        // search misleads most.
+        outcome.text =
+            if (unread == 0) said else said + getString(R.string.duplicates_unread, unread)
+
         listView.adapter = GroupAdapter()
         findViewById<Button>(R.id.duplicatesApplyButton).isEnabled = groups.isNotEmpty()
+        findViewById<Button>(R.id.duplicatesReadButton).apply {
+            isEnabled = unread > 0
+            text =
+                if (unread > 0) getString(R.string.duplicates_read_some, unread)
+                else getString(R.string.duplicates_read_done_all)
+        }
     }
+
+    /**
+     * What is true of one copy, and what is still asked of it.
+     *
+     * Which copy to keep is a choice between histories as much as between
+     * folders: one may be filed in a category, another may carry a request
+     * nobody has applied yet — and discarding that one throws the request
+     * away with it. Saying so on the row is what lets the user see that
+     * before choosing rather than after.
+     */
+    private fun stateOf(photoId: Long): String {
+        val stored = stateById[photoId]
+        val truth = when (stored?.status) {
+            ReviewStatus.CATEGORIZED -> getString(
+                R.string.duplicates_state_categorized, categoryNamed(stored.destinationId)
+            )
+
+            ReviewStatus.KEPT -> getString(R.string.duplicates_state_kept)
+            ReviewStatus.TRASHED -> getString(R.string.duplicates_state_trashed)
+            else -> getString(R.string.duplicates_state_none)
+        }
+        val request = requestById[photoId] ?: return truth
+
+        return truth + getString(R.string.duplicates_state_request, describeRequest(request))
+    }
+
+    /** A pending request in words, with the category it names. */
+    private fun describeRequest(request: Proposal): String = when (request.action) {
+        Proposal.Action.FILE -> getString(
+            R.string.duplicates_request_file,
+            categoryNamed(request.destinationId)
+        )
+
+        Proposal.Action.TRASH -> getString(R.string.duplicates_request_trash)
+        Proposal.Action.RESTORE -> getString(R.string.duplicates_request_restore)
+    }
+
+    /** A category by its number, or a word saying it is not known. */
+    private fun categoryNamed(destinationId: Long?): String =
+        categoryById[destinationId] ?: getString(R.string.duplicates_category_unknown)
 
     /** One card per photograph, one radio per copy of it. */
     private inner class GroupAdapter : BaseAdapter() {
@@ -288,6 +476,8 @@ class DuplicatesActivity : AppCompatActivity() {
                 )
             ) + if (suggested) getString(R.string.duplicates_copy_suggested) else ""
 
+            row.findViewById<TextView>(R.id.copyState).text = stateOf(copy.photoId)
+
             val image = row.findViewById<ImageView>(R.id.copyThumb)
             val side = (thumbSizeDp * resources.displayMetrics.density).toInt()
             image.layoutParams = image.layoutParams.apply {
@@ -315,8 +505,78 @@ class DuplicatesActivity : AppCompatActivity() {
         }
     }
 
-    /** Everything not chosen goes to the app's bin, and can come back. */
+    /** A copy about to go, and the copy of its group that survives. */
+    private data class Discarded(
+        val photo: PhotoRecord,
+        val keptPhotoId: Long,
+        val request: Proposal
+    )
+
+    /**
+     * Everything not chosen goes to the app's bin, and can come back.
+     *
+     * A copy may carry a request nobody has applied yet, and binning it
+     * would take that request down with it. Those are named before anything
+     * happens, with what the surviving copy is, so the choice is made
+     * knowing both.
+     */
     private fun askConsent() {
+        val discarding = groups.flatMapIndexed { index, group ->
+            val kept = keeping[index] ?: return@flatMapIndexed emptyList()
+            group.copies.filter { it.photoId != kept }.mapNotNull { copy ->
+                byId[copy.photoId]?.let { photo ->
+                    requestById[photo.photoId]
+                        ?.takeIf { it.action != Proposal.Action.TRASH }
+                        ?.let { Discarded(photo, kept, it) }
+                }
+            }
+        }
+        affected = discarding
+        moveRequests = false
+
+        if (discarding.isEmpty()) launchConsent() else confirmRequests(discarding)
+    }
+
+    /**
+     * Names the requests standing on the copies about to go, and offers the
+     * two honest answers.
+     *
+     * A request is about the photograph, not about the file holding it, so
+     * moving it onto the copy that survives loses nothing — except where
+     * that copy carries a request of its own, which the app must not
+     * silently overwrite. Those are said apart, and for them the request
+     * lapses whichever button is pressed.
+     */
+    private fun confirmRequests(discarding: List<Discarded>) {
+        val movable = discarding.count { requestById[it.keptPhotoId] == null }
+        val lines = discarding.joinToString("\n") { discarded ->
+            getString(
+                R.string.duplicates_request_line,
+                discarded.photo.displayName,
+                describeRequest(discarded.request),
+                stateOf(discarded.keptPhotoId)
+            )
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.duplicates_requests_title)
+            .setMessage(
+                getString(R.string.duplicates_requests_message, discarding.size, lines) +
+                        getString(R.string.duplicates_requests_movable, movable, discarding.size)
+            )
+            .apply {
+                if (movable > 0) setPositiveButton(R.string.duplicates_requests_move) { _, _ ->
+                    moveRequests = true
+                    launchConsent()
+                }
+            }
+            .setNeutralButton(R.string.duplicates_requests_drop) { _, _ -> launchConsent() }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> affected = emptyList() }
+            .show()
+    }
+
+    /** Asks Android for the one permission the whole batch needs. */
+    private fun launchConsent() {
         pending = groups.flatMapIndexed { index, group ->
             group.copies
                 .filter { it.photoId != keeping[index] }
@@ -324,14 +584,6 @@ class DuplicatesActivity : AppCompatActivity() {
                 .map { MovePlanner.toBin(it) }
         }
         if (pending.isEmpty()) return
-
-        // Proposed before the files move, as everywhere else in this app:
-        // the decision is the user's and holds even if Android refuses the
-        // move. It becomes the truth when the copy actually reaches the bin;
-        // until then it waits in the queue like any other request.
-        for (move in pending) {
-            proposals.propose(move.photo, Proposal.Action.TRASH, null)
-        }
 
         try {
             consentLauncher.launch(
@@ -343,6 +595,36 @@ class DuplicatesActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Writes the decisions, then carries them out.
+     *
+     * Bugfix: the requests used to be written before the consent dialog, on
+     * the reasoning that a decision is the user's and holds even if the
+     * platform refuses. But refusing that dialog is not the platform
+     * declining — it is the user changing their mind — and writing first
+     * meant a cancelled dialog left a photo's own request destroyed and one
+     * it never asked for in its place. Written here, a cancellation costs
+     * nothing; a move the platform then refuses still keeps its request,
+     * which is what that reasoning wanted.
+     */
+    private fun recordDecisions(moves: List<ReviewSession.PendingMove>) {
+        if (moveRequests) {
+            for (discarded in affected) {
+                if (requestById[discarded.keptPhotoId] != null) continue
+                val kept = byId[discarded.keptPhotoId] ?: continue
+                proposals.propose(kept, discarded.request.action, discarded.request.destinationId)
+            }
+        }
+        affected = emptyList()
+        moveRequests = false
+
+        // One request per photo: this replaces whatever stood on the copies
+        // that are going, which is the point — they are going.
+        for (move in moves) {
+            proposals.propose(move.photo, Proposal.Action.TRASH, null)
+        }
+    }
+
     private fun binThem() {
         val moves = pending
         pending = emptyList()
@@ -350,6 +632,7 @@ class DuplicatesActivity : AppCompatActivity() {
         progress.startSpinning()
 
         thread {
+            recordDecisions(moves)
             val result = mover.applyAll(moves)
             runOnUiThread {
                 progress.stop()
