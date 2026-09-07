@@ -129,20 +129,20 @@ Il backup esporta `proposals`. Un file v10/v11 (righe con `pending`) viene
 convertito all'import allo stesso modo; un file pre-v10 passa da
 `proposeUnfinishedWork`.
 
-### Da provare sul telefono
+### Provato sul telefono, 7 settembre 2026
 
-- ~~La migrazione: contare le proposte dopo l'apertura~~ Fatto il 7 settembre:
-  14 proposte, tutte le `pending` v11 (WhatsApp da eliminare mai consegnate),
-  nessuna dal criterio. Verita' controllate contro il filesystem: coerenti,
-  salvo le 7 sopra. La v13 deve mostrarne 7 in Coda all'apertura.
-- Dopo la v13 la Sorgente deve mostrare un solo `Pictures/Famiglia`, e
-  nessun avviso sulle maiuscole all'avvio.
-- Con la sorgente WhatsApp, i mesi 2018-07..10 devono comparire in verde
-  (23, 35, 34, 6 foto, tutte decise).
-- Scartare dalla principale e dalla Coda: le foto devono tornare com'erano.
-- Tieni su una foto gia' in categoria: deve restare in categoria e l'Annulla
-  non deve comparire.
-- Un backup fatto con la v11, se ne esiste uno, reimportato nella v12.
+Tutto il giro fatto con la v13 installata:
+
+- Migrazione: 14 proposte dalla v12, tutte le `pending` v11 (WhatsApp da
+  eliminare mai consegnate); con la v13 le 7 del 5 settembre in Coda,
+  consegnate al cestino di Android.
+- Sorgente: un solo `Pictures/Famiglia`, nessun avviso sulle maiuscole.
+- Sorgente WhatsApp: 2018-07..10 in verde, 23/34/34/7. Il conto fatto sulla
+  copia del DB diceva 23/35/34/6 perche' contava in UTC; l'app conta in ora
+  locale, e i nomi `IMG-20180901-WA0007` e `IMG-20181001-WA0016` le danno
+  ragione.
+- Scarta dalla principale e dalla Coda, Tieni su una foto in categoria,
+  backup v11 reimportato: come previsto.
 
 ### Cosa non e' stato fatto
 
