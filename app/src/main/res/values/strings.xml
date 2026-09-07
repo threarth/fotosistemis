@@ -110,13 +110,44 @@
     <string name="duplicates_action">SE APPLICHI: per ogni gruppo resta la copia che hai scelto tu. Le altre vanno nel cestino di fotosistemis, da cui puoi sempre riprenderle.\n\nEccezione: una copia che sta dentro la cartella di WhatsApp non si puo\' spostare, quindi va nel CESTINO DI SISTEMA di Android — che non e\' il nostro e si svuota da solo dopo 30 giorni. Ogni riga dice quale delle due la aspetta, e Android chiedera\' conferma.</string>
     <string name="duplicates_size">Dimensione</string>
     <string name="duplicates_running">Ricerca in corso…</string>
-    <string name="duplicates_progress">Lettura dei byte: %1$d di %2$d</string>
+    <string name="duplicates_progress">Lettura hashes file %1$d/%2$d</string>
     <string name="duplicates_none">Nessun doppione: %1$d foto guardate, tutte diverse fra loro.</string>
     <string name="duplicates_found">%1$d foto tenute in piu\' copie, %2$d file di troppo. Byte letti per %3$d file. Scegli quale copia resta:</string>
     <string name="duplicates_group_heading">La stessa foto in %1$d copie · %2$d di troppo</string>
     <string name="duplicates_copy_line">%1$s\n%2$d KB · se scarti: %3$s</string>
     <string name="duplicates_copy_own_bin">cestino fotosistemis, reversibile</string>
     <string name="duplicates_copy_system_bin">CESTINO DI SISTEMA (e\' in WhatsApp, non si puo\' spostare) — si svuota da solo in 30 giorni</string>
+    <!-- La lettura delle immagini: una passata sola, avviata dall'utente. -->
+    <string name="duplicates_read">Leggi le immagini</string>
+    <string name="duplicates_read_some">Leggi le immagini di %1$d foto</string>
+    <string name="duplicates_read_done_all">Immagini tutte lette</string>
+    <string name="duplicates_read_stop">Interrompi la lettura</string>
+    <string name="duplicates_read_title">Leggere le immagini</string>
+    <string name="duplicates_read_message">Ci sono %1$d foto di cui non e\' ancora stata letta l\'immagine.\n\nSenza quella lettura due copie della stessa fotografia non si riconoscono quando i loro dati di testa sono diversi — succede a ogni foto di WhatsApp archiviata, perche\' archiviandola l\'app le scrive dentro la data di scatto.\n\nSi legge una volta sola: le foto nuove poi se la prendono da sole. Puoi interrompere quando vuoi, riprende da dove era.</string>
+    <string name="duplicates_read_do">Leggi ora</string>
+    <string name="duplicates_read_progress">Lettura hashes foto %1$d/%2$d</string>
+    <string name="duplicates_read_report">%1$d foto lette, %2$d senza un\'immagine leggibile.</string>
+    <string name="duplicates_unread">\n%1$d foto non sono ancora state lette: fino ad allora questa ricerca e\' parziale.</string>
+
+    <!-- Lo stato di ogni copia, scritto sulla sua riga. -->
+    <string name="duplicates_state_categorized">catalogata in %1$s</string>
+    <string name="duplicates_state_kept">tenuta dov\'era</string>
+    <string name="duplicates_state_trashed">segnata da eliminare</string>
+    <string name="duplicates_state_none">nessuna decisione presa</string>
+    <string name="duplicates_state_request">, in sospeso: %1$s</string>
+    <string name="duplicates_request_file">archivia in %1$s</string>
+    <string name="duplicates_request_trash">butta via</string>
+    <string name="duplicates_request_restore">rimetti dov\'era</string>
+    <string name="duplicates_category_unknown">categoria sconosciuta</string>
+
+    <!-- Cosa ne e\' delle richieste in sospeso sulle copie che se ne vanno. -->
+    <string name="duplicates_requests_title">Richieste in sospeso</string>
+    <string name="duplicates_requests_message">%1$d copie che stai per eliminare hanno una richiesta non ancora applicata:\n\n%2$s\n\n</string>
+    <string name="duplicates_request_line">%1$s: %2$s\n   la copia che tieni: %3$s</string>
+    <string name="duplicates_requests_movable">Una richiesta riguarda la fotografia, non il file: puoi spostarla sulla copia che tieni. Si puo\' fare per %1$d di %2$d. Per le altre la copia che tieni ha gia\' una richiesta sua, che non viene toccata: li\' la richiesta decade.</string>
+    <string name="duplicates_requests_move">Sposta la richiesta</string>
+    <string name="duplicates_requests_drop">Falle decadere</string>
+
     <string name="duplicates_apply">Manda nel cestino le copie non scelte</string>
     <string name="duplicates_binned">%1$d copie nel cestino, %2$d non riuscite.</string>
     <string name="action_duplicates">Controlla: doppioni</string>
@@ -444,4 +475,7 @@
 
     <string name="help_never_title">Quello che l\'app non fa mai</string>
     <string name="help_never_body">Non cancella file: sposta soltanto, e ogni spostamento passa dal consenso di Android.\n\nNon scrive dentro le foto: legge l\'EXIF, non lo modifica mai. Cambia solo cartella e nome, mai il contenuto: l\'immagine resta identica byte per byte.\n\nNon tocca i video.\n\nNon copia tra volumi: una foto sulla SD resta sulla SD.\n\nNon si collega a Internet, non usa servizi esterni, non usa intelligenza artificiale. Non puo\' toccare la copia delle foto nel cloud: quella la governi tu da Google Foto.\n\nNon indovina: quando non e\' sicura di quale foto sia quale, o di quale sia la data, lo dice e si ferma.</string>
+    <!-- Splash, shown for a moment at start-up. -->
+    <string name="splash_title">Fotosistemis</string>
+    <string name="splash_tagline">Bring light to your photos</string>
 </resources>

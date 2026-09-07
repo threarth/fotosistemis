@@ -10,3 +10,19 @@ build/
 .externalNativeBuild
 .cxx
 local.properties
+
+# Mai nel repository: i dati dell'app e quelli dell'archivio.
+# Il database vive sul telefono, e una sua copia tirata giu' per
+# un'analisi contiene i percorsi e i nomi di ogni fotografia.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.csv
+
+# Le fotografie non stanno nel codice sorgente. Le uniche immagini che
+# servono all'app sono i disegni in res/ e in Resources/, che sono png.
+*.jpg
+*.jpeg
+*.heic

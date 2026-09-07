@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon background: the sky of the artwork, continued past its
+     edge so whatever shape the launcher cuts still reads as one picture.
+     The two stops are sampled from the top and bottom of splash.png. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#A3DFFD"
+        android:endColor="#C6EDFD" />
+</shape>

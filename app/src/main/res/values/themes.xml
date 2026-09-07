@@ -20,6 +20,13 @@
         <item name="colorOnSurfaceVariant">@color/ink_muted</item>
         <item name="android:textColorPrimary">@color/ink</item>
         <item name="android:textColorSecondary">@color/ink_muted</item>
+
+        <!-- Android draws its own splash before the app can, a small icon
+             on a plain ground, and there is no way to switch it off. Making
+             it blank white lets the app's own splash, which follows on the
+             same white, look like the only one. -->
+        <item name="android:windowSplashScreenBackground">@color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
     </style>
 
     <style name="Theme.Fotosistemis" parent="Base.Theme.Fotosistemis" />
