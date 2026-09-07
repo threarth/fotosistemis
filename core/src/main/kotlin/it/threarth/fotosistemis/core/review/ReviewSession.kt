@@ -265,9 +265,18 @@ class ReviewSession(
     /**
      * Marks the current photo as reviewed and left in place, then advances.
      * No file is touched, so nothing is queued.
+     *
+     * Left in place means what the archive says of the place. A photo
+     * filed in Famiglia and then queued for Viaggi is, when kept, in
+     * Famiglia: keeping it gives that decision back rather than writing
+     * "kept" over it, which would call a filed photo merely looked at and
+     * lose the category it is in.
      */
     fun keepCurrent(): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
+        val replaced = storedStates[photo.photoId]?.takeIf { it.pending }?.decisionToKeep()
+        if (replaced != null) return keepAsBefore(photo.photoId)
+
         // Nothing to move, so nothing is owed: done as it is taken.
         return stateRepository.record(photo, ReviewStatus.KEPT, null, pending = false)
             .onSuccess {
@@ -280,6 +289,24 @@ class ReviewSession(
                 goNext()
             }
     }
+
+    /**
+     * Keeps a photo by giving back the carried-out decision its pending
+     * one had replaced.
+     *
+     * Not noted as decided here: there is nothing an undo could restore,
+     * since the replaced move is gone and what remains is what had already
+     * happened. An undo reaching this photo would delete that, and call a
+     * filed photo never seen.
+     */
+    private fun keepAsBefore(photoId: Long): Result<Unit> =
+        stateRepository.forget(photoId).map { restored ->
+            dequeue(photoId)
+            storedStates = if (restored == null) storedStates - photoId
+            else storedStates + (photoId to restored)
+            decidedHere.remove(photoId)
+            goNext()
+        }
 
     /** Queues the current photo for the app's bin and advances. */
     fun trashCurrent(): Result<Unit> {

@@ -149,6 +149,12 @@ scartare riporta comunque alla decisione eseguita. Quando la decisione nuova
 viene eseguita, la precedente viene azzerata: non c'e' piu' nulla a cui
 tornare.
 
+**Tieni** su una foto con una decisione in sospeso che ne ha sostituita una
+eseguita non scrive "tenuta": restituisce la precedente. Una foto in Famiglia
+riarchiviata in Viaggi e poi tenuta e' in Famiglia, e l'archivio torna a
+dirlo. Non e' annullabile, perche' non c'e' nulla a cui tornare: la mossa
+verso Viaggi e' scartata e quel che resta era gia' vero.
+
 ### Cosa non e' stato fatto
 
 - **Storia delle decisioni**: scartata di proposito. La storia dei percorsi la

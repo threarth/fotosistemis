@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis.core.review
 
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.Schema
 import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
@@ -29,11 +30,18 @@ class ReviewSessionTest {
         const val DELETED_ROWS = "DELETE FROM photo_state"
     }
 
-    /** Accepts every statement, remembering the deletions for the asserts. */
+    /**
+     * Accepts every statement, remembering the deletions for the asserts.
+     *
+     * Answers a query for one photo's decision from [rows], seeded by the
+     * test, so that what the repository reads back can be controlled.
+     */
     private class AcceptingDatabase : Database {
         val deletedIds = ArrayList<Long>()
+        val rows = HashMap<Long, Database.Row>()
 
-        override fun query(sql: String, args: List<Any?>): List<Database.Row> = emptyList()
+        override fun query(sql: String, args: List<Any?>): List<Database.Row> =
+            listOfNotNull(rows[args.singleOrNull()])
 
         override fun execute(sql: String, args: List<Any?>): Int {
             if (sql.startsWith(DELETED_ROWS)) deletedIds.add(args.single() as Long)
@@ -66,6 +74,22 @@ class ReviewSessionTest {
 
     private fun done(id: Long, status: ReviewStatus) =
         id to PhotoStateRepository.StoredState(id, status, null, pending = false)
+
+    /** A stored decision as the database would hand it back. */
+    private fun row(state: PhotoStateRepository.StoredState) = object : Database.Row {
+        private val values: Map<String, Any?> = mapOf(
+            Schema.COLUMN_PHOTO_ID to state.photoId,
+            Schema.COLUMN_STATUS to state.status.storedValue,
+            Schema.COLUMN_DESTINATION_ID to state.destinationId,
+            Schema.COLUMN_PENDING to if (state.pending) 1L else 0L,
+            Schema.COLUMN_PREVIOUS_STATUS to state.previousStatus?.storedValue,
+            Schema.COLUMN_PREVIOUS_DESTINATION_ID to state.previousDestinationId
+        )
+
+        override fun getString(column: String) = values[column] as String?
+        override fun getLong(column: String) = values[column] as Long?
+        override fun getInt(column: String) = (values[column] as Long?)?.toInt()
+    }
 
     @Test
     fun `the queue is read back from what is owed`() {
@@ -152,6 +176,26 @@ class ReviewSessionTest {
 
         assertEquals(0, session.pendingCount)
         assertEquals(ReviewStatus.KEPT, session.statusOf(1))
+    }
+
+    @Test
+    fun `keeping a refiled photo gives its category back`() {
+        val refiled = PhotoStateRepository.StoredState(
+            1, ReviewStatus.CATEGORIZED, 8, pending = true,
+            previousStatus = ReviewStatus.CATEGORIZED, previousDestinationId = 7
+        )
+        val travel = family.copy(id = 8, label = "Viaggi", relativePath = "Pictures/Viaggi/")
+        session.destinationsById = { id -> listOf(family, travel).firstOrNull { it.id == id } }
+        database.rows[1L] = row(refiled)
+        session.load(listOf(photo(1)), mapOf(1L to refiled), emptyMap(), emptyMap())
+        assertEquals(1, session.pendingCount)
+
+        assertTrue(session.keepCurrent().isSuccess)
+        assertEquals(0, session.pendingCount)
+        assertEquals(ReviewStatus.CATEGORIZED, session.statusOf(1))
+        assertEquals(7L, session.currentDestinationId())
+        assertTrue(database.deletedIds.isEmpty())
+        assertFalse(session.canUndo)
     }
 
     @Test
