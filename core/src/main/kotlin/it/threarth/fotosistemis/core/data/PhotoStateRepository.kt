@@ -16,6 +16,9 @@ class PhotoStateRepository(private val database: Database) {
 
     private companion object {
 
+        /** The tables that point photos at a category: what is, and what is asked. */
+        val DESTINATION_TABLES = listOf(Schema.TABLE_PHOTO_STATE, Schema.TABLE_PROPOSALS)
+
         /** Every column of a decision, as [stateOf] reads them. */
         val STATE_COLUMNS = listOf(
             Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STATUS, Schema.COLUMN_DESTINATION_ID
@@ -279,13 +282,22 @@ class PhotoStateRepository(private val database: Database) {
         }
     }
 
-    /** How many photos are filed under [destinationId]. */
+    /**
+     * How many photos are filed under [destinationId], or asked to be.
+     *
+     * Both tables, because a category is deleted or merged as a whole:
+     * a proposal left pointing at a category that is gone could never be
+     * carried out, and would sit in the queue as a request nobody can
+     * grant.
+     */
     fun countFor(destinationId: Long): Result<Int> = runCatching {
-        database.query(
-            "SELECT COUNT(*) AS total FROM ${Schema.TABLE_PHOTO_STATE} " +
-                    "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
-            listOf(destinationId)
-        ).firstOrNull()?.getInt("total") ?: 0
+        DESTINATION_TABLES.sumOf { table ->
+            database.query(
+                "SELECT COUNT(*) AS total FROM $table " +
+                        "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+                listOf(destinationId)
+            ).firstOrNull()?.getInt("total") ?: 0
+        }
     }
 
     /**
@@ -299,11 +311,19 @@ class PhotoStateRepository(private val database: Database) {
      */
     fun reassign(fromDestinationId: Long, toDestinationId: Long): Result<Int> = runCatching {
         database.transaction {
-            database.execute(
+            val moved = database.execute(
                 "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_DESTINATION_ID} = ?, " +
                         "${Schema.COLUMN_UPDATED_AT} = ? WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
                 listOf(toDestinationId, System.currentTimeMillis(), fromDestinationId)
             )
+            // The requests too: a filing asked into the old category is
+            // now a filing into the new one, still waiting to be done.
+            val asked = database.execute(
+                "UPDATE ${Schema.TABLE_PROPOSALS} SET ${Schema.COLUMN_DESTINATION_ID} = ? " +
+                        "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+                listOf(toDestinationId, fromDestinationId)
+            )
+            moved + asked
         }
     }
 
@@ -318,11 +338,12 @@ class PhotoStateRepository(private val database: Database) {
      */
     fun forgetDestination(destinationId: Long): Result<Int> = runCatching {
         database.transaction {
-            database.execute(
-                "DELETE FROM ${Schema.TABLE_PHOTO_STATE} " +
-                        "WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
-                listOf(destinationId)
-            )
+            DESTINATION_TABLES.sumOf { table ->
+                database.execute(
+                    "DELETE FROM $table WHERE ${Schema.COLUMN_DESTINATION_ID} = ?",
+                    listOf(destinationId)
+                )
+            }
         }
     }
 

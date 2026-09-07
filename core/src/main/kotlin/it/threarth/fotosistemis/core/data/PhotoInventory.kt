@@ -307,6 +307,10 @@ class PhotoInventory(private val database: Database) {
      * because it no longer looks like an unsorted photo.
      *
      * Finding them is cheap, since it asks only about the category folders.
+     *
+     * A photo something is asked of is not a stranger either: the request
+     * says what it is about to be, and filing it here on top would put a
+     * truth under a proposal that will overwrite it.
      */
     fun loadStrangersInDestinations(): Result<List<Long>> = runCatching {
         database.query(
@@ -314,6 +318,8 @@ class PhotoInventory(private val database: Database) {
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
                     "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_STATE} s " +
                     "WHERE s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID}) " +
+                    "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PROPOSALS} r " +
+                    "WHERE r.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID}) " +
                     "AND EXISTS (SELECT 1 FROM ${Schema.TABLE_DESTINATIONS} d " +
                     "WHERE p.${Schema.COLUMN_RELATIVE_PATH} = " +
                     "d.${Schema.COLUMN_RELATIVE_PATH} || '/' " +

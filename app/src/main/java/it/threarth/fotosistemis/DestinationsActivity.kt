@@ -17,6 +17,7 @@ import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.model.Destination
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -64,6 +65,7 @@ class DestinationsActivity : AppCompatActivity() {
     private lateinit var backup: BackupRepository
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var proposals: ProposalRepository
 
     /** Held while the user looks at the photos it would affect. */
     private var pendingProposal: ClassificationAdopter.Proposal? = null
@@ -87,6 +89,7 @@ class DestinationsActivity : AppCompatActivity() {
         backup = BackupRepository(database, AppSettings(this))
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        proposals = ProposalRepository(database, stateRepository)
         listView = findViewById(R.id.destinationList)
         listView.setOnItemClickListener { _, _, position, _ ->
             editDestination(destinations[position])
@@ -203,7 +206,10 @@ class DestinationsActivity : AppCompatActivity() {
      * first.
      */
     private fun previewAdoption() {
-        val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys
+        // Decided means known or asked about: a photo with a request
+        // waiting is not offered as if it were sorted.
+        val decided = stateRepository.loadAll().getOrElse { return showError(it) }.keys +
+                proposals.loadAll().getOrElse { return showError(it) }.keys
         val destinations = repository.loadAll().getOrElse { return showError(it) }
 
         // Every photo on the device is the source, less two kinds: what is
