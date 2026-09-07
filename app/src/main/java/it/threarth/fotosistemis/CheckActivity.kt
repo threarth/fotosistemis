@@ -312,7 +312,11 @@ class CheckActivity : AppCompatActivity() {
             for (finding in findings) {
                 val destinationId = finding.destinationId ?: continue
                 if (stateRepository
-                        .record(finding.photo, ReviewStatus.CATEGORIZED, destinationId)
+                        .record(
+                            finding.photo, ReviewStatus.CATEGORIZED, destinationId,
+                            // It is already in that folder: nothing to move.
+                            pending = false
+                        )
                         .isSuccess
                 ) filed++
             }

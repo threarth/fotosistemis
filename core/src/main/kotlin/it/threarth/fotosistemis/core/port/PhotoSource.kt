@@ -28,6 +28,15 @@ interface PhotoSource {
          * consent covers the file, not the place. A move is refused however
          * it is asked for, so no amount of permission-granting will help.
          *
+         * **What decides is the folder, never the name.** A photo is treated
+         * this way because it sits under Android/media, and for no other
+         * reason. Once copied into a category it is an ordinary photograph
+         * — moved, renamed, reorganised like any other — even though its
+         * name still reads IMG-20260826-WA0007, and even though the
+         * original it came from is still subject to every rule below. The
+         * name is read for one thing only, the date it carries, and that is
+         * read from every file name that has a date in it.
+         *
          * **Reviewing and deciding work normally.** These photos are read,
          * shown, dated, rated, tagged and decided about like any others.
          * Only the file operations differ.

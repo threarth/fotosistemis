@@ -139,14 +139,12 @@ class BatchMover(
                 onSuccess = {
                     succeeded++
                     val name = move.newDisplayName ?: move.photo.displayName
-                    stateRepository.recordMovedPath(
-                        move.photo.photoId, move.destinationRelativePath, name
-                    )
-                    // Where the photo is, not only where it has been: without
-                    // this the inventory keeps the old folder until the next
-                    // full scan, and every screen reading it says the photo
-                    // is still where it no longer is.
-                    inventory.recordRelocation(
+                    // One transaction for the three facts this produces:
+                    // where the photo now is, that it went there, and that
+                    // the work is no longer owed. Written apart, a death
+                    // between them leaves a photo called filed whose folder
+                    // was never updated.
+                    stateRepository.markCarriedOut(
                         move.photo.photoId, move.destinationRelativePath, name
                     )
                 },
@@ -188,8 +186,13 @@ class BatchMover(
                 // than letting the user find it there by accident.
                 if (!copy.captureDateWritten) inventory.markDateSuspect(copyId, true)
 
-                stateRepository.recordMovedPath(
-                    move.photo.photoId, move.destinationRelativePath, name
+                // The original could not be moved, so the copy is the
+                // photograph now: the work is done and no longer owed. But
+                // the original did not go anywhere, and the inventory must
+                // not be told that it did.
+                stateRepository.markCarriedOut(
+                    move.photo.photoId, move.destinationRelativePath, name,
+                    relocated = false
                 ).getOrThrow()
             }
     }

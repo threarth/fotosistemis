@@ -183,6 +183,7 @@ class PhotoInventory(private val database: Database) {
                     "ON s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
                     "AND s.${Schema.COLUMN_STATUS} = ? " +
+                    "AND s.${Schema.COLUMN_PENDING} = 0 " +
                     "AND s.${Schema.COLUMN_DESTINATION_ID} IS NOT NULL " +
                     // Said outright rather than left to follow from a photo
                     // in the bin having no category. Reorganising is what
@@ -232,43 +233,19 @@ class PhotoInventory(private val database: Database) {
     }
 
     /**
-     * Photos decided for deletion that never reached the bin.
+     * Photos decided for the bin whose file has not moved yet.
      *
-     * A decision is written the moment it is made, while the move can be
-     * refused, postponed, or lost when the queue dies with the session. The
-     * two drift apart silently, and these are the photos the app believes it
-     * has gathered and has not.
+     * A view of the owed work rather than a query of its own: two ways of
+     * asking the same question are two answers waiting to disagree, and
+     * this one used to be deduced from where the photo happened to be —
+     * which for a photo that cannot be moved is never an answer at all.
      */
-    fun loadPendingTrash(stagingPath: String): Result<List<PhotoRecord>> = runCatching {
-        val ids = database.query(
-            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid FROM ${Schema.TABLE_PHOTO_STATE} s " +
-                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
-                    "s.${Schema.COLUMN_PHOTO_ID} " +
-                    "WHERE s.${Schema.COLUMN_STATUS} = ? " +
-                    "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
-                    "AND p.${Schema.COLUMN_RELATIVE_PATH} <> ? " +
-                    // Where the file could not be moved it was copied, and
-                    // the original stays put until someone agrees to delete
-                    // it. Its own path therefore still says nothing has
-                    // happened, while the photograph is already in the bin.
-                    // The record of the move is what says otherwise.
-                    "AND NOT EXISTS (SELECT 1 FROM ${Schema.TABLE_PHOTO_PATHS} pp " +
-                    "WHERE pp.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
-                    "AND ((pp.${Schema.COLUMN_KIND} = ? AND pp.${Schema.COLUMN_PATH} = ?) " +
-                    // Or handed to Android's bin, which the app cannot move
-                    // a photo into and cannot follow it out of. Its own path
-                    // never changes, so only this record says it is done.
-                    "OR pp.${Schema.COLUMN_KIND} = ?))",
-            listOf(
-                ReviewStatus.TRASHED.storedValue,
-                stagingPath,
-                PhotoStateRepository.PathKind.MOVED.storedValue,
-                stagingPath,
-                PhotoStateRepository.PathKind.SYSTEM_BIN.storedValue
-            )
-        ).mapNotNull { it.getLong("pid") }
-
-        if (ids.isEmpty()) emptyList() else loadRecords(ids).getOrThrow()
+    fun loadPendingTrash(
+        @Suppress("UNUSED_PARAMETER") stagingPath: String = ""
+    ): Result<List<PhotoRecord>> = runCatching {
+        loadOwedWork().getOrThrow()
+            .filter { it.status == ReviewStatus.TRASHED }
+            .map { it.photo }
     }
 
     /**
@@ -373,6 +350,44 @@ class PhotoInventory(private val database: Database) {
         }.toMap()
     }
 
+    /** One decision still owed: the photo, and what was decided about it. */
+    data class OwedWork(
+        val photo: PhotoRecord,
+        val status: ReviewStatus,
+        val destinationId: Long?
+    )
+
+    /**
+     * Every decision taken and not yet carried out.
+     *
+     * The one place that answers "what is still owed", of every kind at
+     * once. Deriving it per kind — deletions from one query, filings from
+     * another — is how the queue came to show half its contents and the
+     * user came to distrust the count.
+     */
+    fun loadOwedWork(): Result<List<OwedWork>> = runCatching {
+        val rows = database.query(
+            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid, s.${Schema.COLUMN_STATUS} AS status, " +
+                    "s.${Schema.COLUMN_DESTINATION_ID} AS destination " +
+                    "FROM ${Schema.TABLE_PHOTO_STATE} s " +
+                    "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
+                    "s.${Schema.COLUMN_PHOTO_ID} " +
+                    "WHERE s.${Schema.COLUMN_PENDING} = 1 " +
+                    "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL"
+        ).mapNotNull { row ->
+            val photoId = row.getLong("pid") ?: return@mapNotNull null
+            val status = ReviewStatus.fromStoredValue(row.getString("status"))
+                ?: return@mapNotNull null
+            Triple(photoId, status, row.getLong("destination"))
+        }
+        if (rows.isEmpty()) return@runCatching emptyList()
+
+        val byId = loadRecords(rows.map { it.first }).getOrThrow().associateBy { it.photoId }
+        rows.mapNotNull { (photoId, status, destination) ->
+            byId[photoId]?.let { OwedWork(it, status, destination) }
+        }
+    }
+
     /** Ids of every photo whose date the user has contradicted. */
     fun loadDateSuspect(): Result<Set<Long>> = runCatching {
         database.query(
@@ -405,6 +420,10 @@ class PhotoInventory(private val database: Database) {
                     "JOIN ${Schema.TABLE_DESTINATIONS} d ON d.${Schema.COLUMN_ID} = " +
                     "s.${Schema.COLUMN_DESTINATION_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
+                    // Carried out only: a decision still owed is work to do,
+                    // not a photo in the wrong place. Mixing the two made
+                    // the check report the queue as if it were damage.
+                    "AND s.${Schema.COLUMN_PENDING} = 0 " +
                     "AND p.${Schema.COLUMN_RELATIVE_PATH} NOT LIKE " +
                     "d.${Schema.COLUMN_RELATIVE_PATH} || '/%' " +
                     // A photo the platform will not let us move was copied

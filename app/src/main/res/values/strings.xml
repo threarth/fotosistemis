@@ -7,9 +7,6 @@
     <string name="folder_all">tutte le cartelle di origine</string>
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="folder_removable">SD: %1$s</string>
-    <string name="pending_title">Modifiche non applicate</string>
-    <string name="pending_message">%1$d spostamenti o eliminazioni non applicati.\n\nApplica: le foto si spostano davvero.\nScarta: quelle foto tornano non viste. Le foto mantenute restano tali in ogni caso.</string>
-    <string name="pending_apply">Applica</string>
     <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
     <string name="message_applied_blocked">%1$d foto spostate. %2$d restano dove sono: stanno nella cartella di un\'altra app e Android non lascia portarle fuori. Sono comunque catalogate, ed escono dalla coda.</string>
     <string name="action_queue">Coda (%1$d)</string>
@@ -158,7 +155,7 @@
     <string name="folder_with_count">%1$s  ·  %2$s foto</string>
     <string name="period_range_chosen">Intervallo scelto  %1$d/%2$d</string>
     <string name="period_done_title">%1$s: finito</string>
-    <string name="period_done_message">Ogni foto di questo periodo ha la sua decisione. Vuoi continuare da un altro periodo?</string>
+    <string name="period_done_message">Ogni foto di questo periodo ha la sua decisione. Vuoi continuare da un altro periodo?\n\nSe ci sono modifiche in coda vengono applicate prima, e il periodo cambia solo dopo: se il permesso viene negato resti qui, con il lavoro intatto.</string>
     <string name="period_done_older">Piu\' vecchio: %1$s</string>
     <string name="period_done_newer">Piu\' recente: %1$s</string>
     <string name="period_done_stay">Resto qui</string>
@@ -167,6 +164,10 @@
     <string name="destination_moved_reorganize">Riorganizza ora</string>
     <string name="destination_moved_later">Piu\' tardi</string>
     <string name="action_menu">\u2630</string>
+    <string name="period_done_apply_first">%1$s (applica %2$d)</string>
+    <string name="discard_message">%1$d decisioni prese sulle foto che stai guardando tornano non prese, e le foto tornano da smistare. Nessun file viene toccato.\n\nRiguarda solo queste: le decisioni prese altrove, o in giorni diversi, restano in attesa. Per riprenderle tutte c\'e\' la Coda.</string>
+    <string name="queue_call_off_all">Annulla TUTTE</string>
+    <string name="queue_call_off_all_message">Tutte le %1$d decisioni in attesa tornano non prese, comprese quelle di altre cartelle e di altri giorni. Le foto tornano da smistare.\n\nNessun file viene toccato, ma il lavoro di giudizio si perde: va rifatto.</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
@@ -192,7 +193,7 @@
     <string name="immovable_title">Foto che non si possono spostare</string>
     <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, come WhatsApp. Android non lascia portare fuori da li\' un file, qualunque permesso si abbia.\n\nVerranno quindi COPIATE nella cartella giusta, con la loro data di scatto. Finita la copia ti sara\' chiesto se eliminare gli originali: a chiedertelo sara\' Android, mostrandoti le foto.\n\nSe rifiuti, la foto resta sul telefono due volte e la trovi cosi\' anche in Posizioni.</string>
     <string name="discard_title">Scarta la coda</string>
-    <string name="discard_message">%1$d foto in coda tornano NON VISTE: non verranno spostate ne\' eliminate, e ricompariranno fra quelle da rivedere.\n\nNessun file viene toccato: la coda non ha ancora scritto niente sul disco.\n\nLe foto che avevi semplicemente mantenuto restano mantenute.</string>
+    <string name="discard_message_old">%1$d foto in coda tornano NON VISTE: non verranno spostate ne\' eliminate, e ricompariranno fra quelle da rivedere.\n\nNessun file viene toccato: la coda non ha ancora scritto niente sul disco.\n\nLe foto che avevi semplicemente mantenuto restano mantenute.</string>
     <string name="discard_done">Coda svuotata: %1$d foto tornate da rivedere.</string>
     <string name="pending_drop_all">Scarta</string>
     <string name="period_any">Tutti i periodi  %1$d/%2$d</string>

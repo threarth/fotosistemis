@@ -105,51 +105,47 @@ class QueueActivity : AppCompatActivity() {
         }
     }
 
-    /** Photos decided for deletion that are not yet in the bin. */
-    private fun readTrash(): List<ReviewSession.PendingMove> =
-        inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
-            .getOrElse { emptyList() }
-            .map { photo ->
-                ReviewSession.PendingMove(
-                    photo = photo,
-                    destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
-                    status = ReviewStatus.TRASHED,
-                    destinationId = null
-                )
-            }
+    /**
+     * Deletions still owed: decided, and the file has not moved yet.
+     */
+    private fun readTrash(): List<ReviewSession.PendingMove> = owed()
+        .filter { it.status == ReviewStatus.TRASHED }
+        .map { work ->
+            ReviewSession.PendingMove(
+                photo = work.photo,
+                destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
+                status = ReviewStatus.TRASHED,
+                destinationId = null
+            )
+        }
 
     /**
-     * Filed photos sitting somewhere other than where their category says.
+     * Filings still owed: a category chosen, the file not yet moved.
      *
-     * The record of the folder and the folder itself can disagree — a move
-     * refused, an app closed mid-batch — and the photo is then filed in name
-     * only. These are the moves that would make the two agree again.
+     * Read from what the archive says is owed, not deduced from where each
+     * photo happens to be. Deducing it showed only half the queue — the
+     * deletions — and left every filing waiting invisibly.
      */
     private fun readMisplaced(): List<ReviewSession.PendingMove> {
         val byId: Map<Long, Destination> = destinations.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
-        val entries = inventory.loadForReorganization().getOrElse { emptyList() }
-        // A photo the platform will not let us move was copied instead, and
-        // the original stayed exactly where it was. Its own path therefore
-        // still says "wrong folder" for ever, and applying again just makes
-        // another copy — which is what produced IMG-…-WA0000 (1) and (2).
-        val reached = stateRepository.destinationsReached().getOrElse { emptyMap() }
-        val records = inventory.loadRecords(entries.map { it.photoId })
-            .getOrElse { emptyList() }
-            .associateBy { it.photoId }
 
-        return entries
-            .mapNotNull { entry ->
-                val destination = byId[entry.destinationId] ?: return@mapNotNull null
-                val target = destination.pathFor(entry.captureMillis, settings.yearFolderPattern)
-                if (entry.relativePath == target) return@mapNotNull null
-                if (target.trim('/') in reached[entry.photoId].orEmpty()) return@mapNotNull null
-
-                records[entry.photoId]?.let {
-                    ReviewSession.PendingMove(it, target, ReviewStatus.CATEGORIZED, destination.id)
-                }
+        return owed()
+            .filter { it.status == ReviewStatus.CATEGORIZED }
+            .mapNotNull { work ->
+                val destination = byId[work.destinationId] ?: return@mapNotNull null
+                val target = destination.pathFor(
+                    work.photo.dateTakenMillis, settings.yearFolderPattern
+                )
+                ReviewSession.PendingMove(
+                    work.photo, target, ReviewStatus.CATEGORIZED, destination.id
+                )
             }
     }
+
+    /** Read once per pass: both halves come from the same answer. */
+    private fun owed(): List<PhotoInventory.OwedWork> =
+        inventory.loadOwedWork().getOrElse { emptyList() }
 
     private fun redraw() {
         val shown = if (showingTrash) trash else misplaced
@@ -206,8 +202,34 @@ class QueueActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.queue_call_off)
             .setMessage(getString(R.string.queue_call_off_message, shown.size))
+            .setNeutralButton(R.string.queue_call_off_all) { _, _ -> confirmCallOffAll() }
             .setPositiveButton(R.string.queue_call_off) { _, _ ->
                 stateRepository.forgetAll(shown.map { it.photo.photoId }).fold(
+                    onSuccess = {
+                        toast(getString(R.string.queue_called_off, it))
+                        load()
+                    },
+                    onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }
+                )
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Takes back every decision still owed, of every kind and every folder.
+     *
+     * Offered only here, because only here is all of it shown: a screen
+     * that displays twelve must not be able to discard four hundred.
+     */
+    private fun confirmCallOffAll() {
+        val everything = trash.size + misplaced.size
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.queue_call_off_all)
+            .setMessage(getString(R.string.queue_call_off_all_message, everything))
+            .setPositiveButton(R.string.queue_call_off_all) { _, _ ->
+                stateRepository.discardPending().fold(
                     onSuccess = {
                         toast(getString(R.string.queue_called_off, it))
                         load()

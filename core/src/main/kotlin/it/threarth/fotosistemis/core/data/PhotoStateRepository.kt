@@ -13,7 +13,10 @@ class PhotoStateRepository(private val database: Database) {
     data class StoredState(
         val photoId: Long,
         val status: ReviewStatus,
-        val destinationId: Long?
+        val destinationId: Long?,
+
+        /** True while the decision has been taken and not yet carried out. */
+        val pending: Boolean = false
     )
 
     /**
@@ -55,12 +58,18 @@ class PhotoStateRepository(private val database: Database) {
     fun loadAll(): Result<Map<Long, StoredState>> = runCatching {
         database.query(
             "SELECT ${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                    "${Schema.COLUMN_DESTINATION_ID} FROM ${Schema.TABLE_PHOTO_STATE}"
+                    "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_PENDING} " +
+                    "FROM ${Schema.TABLE_PHOTO_STATE}"
         ).mapNotNull { row ->
             val photoId = row.getLong(Schema.COLUMN_PHOTO_ID) ?: return@mapNotNull null
             val status = ReviewStatus.fromStoredValue(row.getString(Schema.COLUMN_STATUS))
                 ?: return@mapNotNull null
-            photoId to StoredState(photoId, status, row.getLong(Schema.COLUMN_DESTINATION_ID))
+            photoId to StoredState(
+                photoId,
+                status,
+                row.getLong(Schema.COLUMN_DESTINATION_ID),
+                pending = (row.getLong(Schema.COLUMN_PENDING) ?: 0L) == 1L
+            )
         }.toMap()
     }
 
@@ -95,21 +104,93 @@ class PhotoStateRepository(private val database: Database) {
     fun record(
         photo: PhotoRecord,
         status: ReviewStatus,
-        destinationId: Long?
+        destinationId: Long?,
+
+        /**
+         * False when the decision is already carried out as it is taken.
+         *
+         * Keeping a photo where it is moves nothing, and neither does
+         * filing a folder into a category it already sits in. Those are
+         * done the moment they are decided; only work that needs a file to
+         * move is owed.
+         */
+        pending: Boolean = true
     ): Result<Unit> = runCatching {
         database.transaction {
             database.execute(
                 "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
                         "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                        "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}) " +
-                        "VALUES (?, ?, ?, ?)",
+                        "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}, " +
+                        "${Schema.COLUMN_PENDING}) VALUES (?, ?, ?, ?, ?)",
                 listOf(
                     photo.photoId, status.storedValue, destinationId,
-                    System.currentTimeMillis()
+                    System.currentTimeMillis(), if (pending) 1 else 0
                 )
             )
+            // Written now, while the photo is still where it started: this
+            // is what putting it back later depends on.
             rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
             Unit
+        }
+    }
+
+    /**
+     * Marks a decision as carried out, together with where the photo ended
+     * up and how it got there — in one transaction.
+     *
+     * Three writes describing one event: the archive's idea of where the
+     * photo is, the record of the move, and the fact that the work is done.
+     * Apart, a death between them leaves a photo said to be filed whose
+     * folder was never updated, or a move recorded twice. Together they
+     * either all describe what happened or none of them does.
+     */
+    fun markCarriedOut(
+        photoId: Long,
+        relativePath: String,
+        displayName: String,
+
+        /**
+         * False when the photo itself did not move.
+         *
+         * A file the platform refuses to move is copied instead, and the
+         * original stays exactly where it was. The work is done — the
+         * photograph is in its category — but saying the original went
+         * there would be a plain untruth, and every screen reading the
+         * inventory would repeat it.
+         */
+        relocated: Boolean = true
+    ): Result<Unit> = runCatching {
+        database.transaction {
+            insertPath(photoId, relativePath, displayName, PathKind.MOVED)
+            if (relocated) database.execute(
+                "UPDATE ${Schema.TABLE_PHOTOS} SET ${Schema.COLUMN_RELATIVE_PATH} = ?, " +
+                        "${Schema.COLUMN_DISPLAY_NAME} = ? WHERE ${Schema.COLUMN_ID} = ?",
+                listOf(relativePath, displayName, photoId)
+            )
+            database.execute(
+                "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_PENDING} = 0 " +
+                        "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+                listOf(photoId)
+            )
+            Unit
+        }
+    }
+
+
+
+    /**
+     * Throws away every decision not yet carried out, and says how many.
+     *
+     * Only those: what has already happened is not in the queue and is not
+     * the queue's to undo. Deleting the rows returns the database to what
+     * it was before those decisions were taken, which is what discarding
+     * has always promised.
+     */
+    fun discardPending(): Result<Int> = runCatching {
+        database.transaction {
+            database.execute(
+                "DELETE FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PENDING} = 1"
+            )
         }
     }
 
@@ -124,7 +205,10 @@ class PhotoStateRepository(private val database: Database) {
     fun recordAll(
         photos: List<PhotoRecord>,
         status: ReviewStatus,
-        destinationId: Long?
+        destinationId: Long?,
+
+        /** False when the photos are already where the decision puts them. */
+        pending: Boolean = true
     ): Result<Int> = runCatching {
         if (photos.isEmpty()) return@runCatching 0
 
@@ -134,9 +218,12 @@ class PhotoStateRepository(private val database: Database) {
                 database.execute(
                     "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
                             "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                            "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}) " +
-                            "VALUES (?, ?, ?, ?)",
-                    listOf(photo.photoId, status.storedValue, destinationId, now)
+                            "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}, " +
+                            "${Schema.COLUMN_PENDING}) VALUES (?, ?, ?, ?, ?)",
+                    listOf(
+                        photo.photoId, status.storedValue, destinationId, now,
+                        if (pending) 1 else 0
+                    )
                 )
                 rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
             }
@@ -145,42 +232,12 @@ class PhotoStateRepository(private val database: Database) {
     }
 
     /**
-     * Appends the location a photo was moved to, name included.
-     *
-     * Every move and every rename adds a row, so the history is what makes
-     * going back possible: MediaStore itself offers no undo.
-     */
-    fun recordMovedPath(photoId: Long, path: String, displayName: String): Result<Unit> =
-        runCatching {
-            database.transaction {
-                insertPath(photoId, path, displayName, PathKind.MOVED)
-                Unit
-            }
-        }
-
-    /**
-     * Records that a photo was handed to Android's bin.
-     *
-     * The app cannot follow it there and does not govern what happens next:
-     * what it can do is stop pretending the decision is still pending.
-     */
-    fun recordSystemBin(photoId: Long, path: String, displayName: String): Result<Unit> =
-        runCatching {
-            database.transaction {
-                insertPath(photoId, path, displayName, PathKind.SYSTEM_BIN)
-                Unit
-            }
-        }
-
-    /**
      * The folders each photo has already been put into, keyed by photo id.
      *
-     * Read in one go because it answers a question asked of every photo at
-     * once: has this move already been made? For a photo the platform will
-     * not let us move — one inside another app's folder — the answer cannot
-     * come from where the photo is, because it never goes anywhere. It was
-     * copied, and the original stayed. Only this record says the work is
-     * done, and without it the same copy is made again at every pass.
+     * For a photo the platform will not let us move, where it is cannot
+     * answer whether the work was done: it was copied, and the original
+     * stayed. Only this record says so, and without it the same copy is
+     * made again at every pass.
      */
     fun destinationsReached(): Result<Map<Long, Set<String>>> = runCatching {
         val reached = HashMap<Long, MutableSet<String>>()
@@ -197,13 +254,30 @@ class PhotoStateRepository(private val database: Database) {
     }
 
     /**
+     * Records that a photo was handed to Android's bin.
+     *
+     * The app cannot follow it there and does not govern what happens next:
+     * what it can do is stop pretending the decision is still pending.
+     */
+    fun recordSystemBin(photoId: Long, path: String, displayName: String): Result<Unit> =
+        runCatching {
+            database.transaction {
+                insertPath(photoId, path, displayName, PathKind.SYSTEM_BIN)
+                database.execute(
+                    "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_PENDING} = 0 " +
+                            "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+                    listOf(photoId)
+                )
+                Unit
+            }
+        }
+
+    /**
      * Photos already handed to Android's bin.
      *
-     * They are still in the archive as far as the platform is concerned —
-     * a trashed file is hidden, not gone, for thirty days — and the app's
-     * own record still shows them present until the next reconciliation. So
-     * anything asking "what is on this phone?" will find them, and offer
-     * work that has already been done.
+     * They are still in the archive as far as the platform is concerned — a
+     * trashed file is hidden, not gone, for thirty days — so anything asking
+     * "what is on this phone?" finds them and offers work already done.
      */
     fun handedToSystemBin(): Result<Set<Long>> = runCatching {
         database.query(

@@ -547,15 +547,11 @@ class ReorganizeActivity : AppCompatActivity() {
         statusText.setText(R.string.status_applying)
 
         thread {
+            // The mover records where each photo ended up, in the same
+            // transaction that marks the work done. Doing it again here
+            // wrote the same fact twice, from two places that could
+            // disagree.
             val result = mover.applyAll(batch)
-            for (move in batch) {
-                if (move in result.failed) continue
-                inventory.recordRelocation(
-                    move.photo.photoId,
-                    move.destinationRelativePath,
-                    move.newDisplayName ?: move.photo.displayName
-                )
-            }
             runOnUiThread {
                 succeeded += result.succeeded
                 failed += result.failed.size

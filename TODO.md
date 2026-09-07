@@ -1,6 +1,6 @@
 # Lavoro in corso
 
-Stato al 5 settembre 2026.
+Stato al 7 settembre 2026.
 
 ## Misurato sul dispositivo, il 4 e 5 settembre 2026
 
@@ -38,6 +38,65 @@ Android aggiunge qualche minuto di scarto suo.
 **Da rifare quando arrivano foto nuove:** WhatsApp continua a riceverne, e le
 nuove nascono con `date_modified` corretta, quindi il problema non si ripresenta.
 Resterebbe solo dopo un altro trasferimento di telefono.
+
+## Da rivedere: lo spool delle decisioni (schema v10, 7 settembre 2026)
+
+**Scritto e compilato, mai eseguito su un telefono.** La migrazione tocca 1.859
+decisioni vere e nessuno l'ha ancora vista girare.
+
+### Il problema che risolve
+
+Decidere scriveva due cose in due posti con due vite diverse: la decisione in
+`photo_state`, subito e definitiva, e lo spostamento in una lista in memoria.
+`ReviewSession.load()` svuotava quella lista, e ogni ricarica passa di li'.
+Restava la decisione senza la mossa: la foto marcata, il file fermo. E' l'origine
+delle "arretrate" che l'archivio si porta dietro da settimane, attribuite per
+giorni a consensi negati.
+
+### La forma
+
+Colonna `pending` su `photo_state`. `status` dice **cosa e' stato deciso**,
+`pending` **se e' gia' avvenuto**. Finche' vale 1 non c'e' nulla di definitivo:
+scartare cancella quelle righe e il database torna com'era.
+
+Non tutte le decisioni nascono in sospeso. Non lo sono: mantenere una foto dov'e',
+catalogare una cartella nella categoria in cui gia' si trova, riagganciare un
+estraneo alla categoria che lo ospita, registrare un ripristino gia' applicato.
+Quattro punti, marcati `pending = false`.
+
+### Cosa controllare per primo
+
+1. **La migrazione** (`Schema.migrateToVersion10`). Classifica ogni decisione
+   esistente in fatta o dovuta. Il caso insidioso e' la foto WhatsApp: non lascia
+   mai la sua cartella, quindi "dove sta" non puo' dire se il lavoro e' stato
+   fatto — lo dice solo il registro della copia. Senza quella esclusione la
+   migrazione rimetterebbe in coda ogni originale gia' copiato, e il primo
+   Applica ne farebbe una seconda copia. L'esclusione c'e'; va verificata sui
+   numeri veri.
+2. **`markCarriedOut`** scrive tre fatti in una transazione: nuovo percorso,
+   riga nella storia, `pending = 0`. Il parametro `relocated = false` serve al
+   ramo della copia, dove l'originale non si e' mosso e l'inventario non deve
+   dire il contrario.
+3. **La portata dello scarto.** Nella schermata principale riguarda solo le foto
+   in vista; nella Coda c'e' anche "Annulla TUTTE". Un pulsante che ne mostra
+   dodici non deve poterne cancellare quattrocento.
+4. **`rebuildQueueFromSpool`** ricostruisce la coda all'avvio per le foto
+   caricate, ricalcolando la destinazione invece di averla salvata: se la
+   categoria e' stata spostata fra il decidere e l'applicare, la foto va dove la
+   categoria punta adesso. Verificare che non duplichi e che copra i tre stati.
+5. **Il dialogo "applica o scarta" al cambio filtro non c'e' piu'.** Le decisioni
+   non appartengono alla vista: si decide a settembre, si passa ad agosto, si
+   applica alla fine. Controllare che nessun percorso perda ancora lavoro.
+6. **Il backup** esporta anche `pending`. Senza, un ripristino riporterebbe come
+   fatto cio' che e' ancora dovuto, e i file non si muoverebbero mai.
+
+### Cosa non e' stato fatto
+
+- **Applicare in parti** e' progettato ma non scritto: `Applica (n)` conta ancora
+  la coda della sessione, non l'intersezione fra il dovuto e la vista.
+- **Storia delle decisioni**: scartata di proposito. La storia dei percorsi la
+  copre quasi tutta, perche' una categoria e' una cartella.
+- Il piano completo, con le alternative valutate, e' in `PIANO-SPOOL.md`.
 
 ## Fase 3 — funzionalità richieste, non ancora scritte
 

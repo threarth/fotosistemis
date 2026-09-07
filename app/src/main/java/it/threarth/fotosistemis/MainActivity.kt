@@ -241,6 +241,17 @@ class MainActivity : AppCompatActivity() {
     private val periodsOffered = HashSet<PhotoFilter.Period.Month>()
 
     /**
+     * What to do once the queued writes have actually happened.
+     *
+     * Moving on to the next month while the moves are still in flight puts
+     * the user somewhere else if the consent is refused or a write fails:
+     * the screen has changed, the work has not, and the two no longer
+     * describe the same thing. So the step is written down and taken
+     * afterwards, once there is something to take it from.
+     */
+    private var afterApplying: (() -> Unit)? = null
+
+    /**
      * The scope dialog while it is up.
      *
      * Folders arrive twice — once from our own inventory, once after the
@@ -1027,7 +1038,9 @@ class MainActivity : AppCompatActivity() {
 
             val photos = inventory.loadRecords(photoIds).getOrElse { emptyList() }
             val filed = stateRepository
-                .recordAll(photos, ReviewStatus.CATEGORIZED, destinationId)
+                // The photos are already in that folder: naming it a
+                // category moves nothing, so nothing is owed.
+                .recordAll(photos, ReviewStatus.CATEGORIZED, destinationId, pending = false)
                 .getOrElse { 0 }
 
             runOnUiThread {
@@ -1688,6 +1701,9 @@ class MainActivity : AppCompatActivity() {
             showError(it)
             emptyList()
         }
+        // The session needs the categories to rebuild where an owed
+        // decision would send its photo.
+        session.destinationsById = { id -> destinations.firstOrNull { it.id == id } }
         destinationActions.removeAllViews()
 
         // Working in the bin, filing into a category is not what is wanted,
@@ -1773,30 +1789,19 @@ class MainActivity : AppCompatActivity() {
      * no counterpart to apply, so asking about it would be asking about
      * work already done.
      */
+    /**
+     * Changes what is being looked at, and nothing else.
+     *
+     * It used to demand "apply or discard" first, because the queue lived in
+     * the session and the session died at every reload: leaving the view
+     * meant losing the work. The decisions are in the database now and
+     * belong to no view — decide in September, move to August, decide more,
+     * apply at the end — so the question has stopped being one.
+     */
     private fun changeFilter(change: () -> Unit) {
-        if (session.pendingCount == 0) {
-            change()
-            buildDestinationButtons()
-            reload()
-            return
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.pending_title)
-            .setMessage(getString(R.string.pending_message, session.pendingCount))
-            .setCancelable(false)
-            .setPositiveButton(R.string.pending_apply) { _, _ ->
-                change()
-                buildDestinationButtons()
-                startApply()
-            }
-            .setNegativeButton(R.string.pending_drop_all) { _, _ ->
-                session.discardQueue().onFailure { showError(it) }
-                change()
-                buildDestinationButtons()
-                reload()
-            }
-            .show()
+        change()
+        buildDestinationButtons()
+        reload()
     }
 
     /** Loads photos matching the filter, off the main thread. */
@@ -1922,9 +1927,16 @@ class MainActivity : AppCompatActivity() {
     private fun applyDecision(decision: () -> Result<Unit>) {
         if (busy) return
 
-        val deciding = session.current()?.photoId
+        // Both the photo in view before and the one in view after. Filing
+        // decides the first and moves on to the second; undoing decides
+        // nothing here and jumps back to the photo it took the decision
+        // off. Watching only the first left the undone month still counting
+        // that photo as done.
+        val before = session.current()?.photoId
         decision().onFailure { showError(it) }
-        if (deciding != null) rememberDecision(deciding)
+        val after = session.current()?.photoId
+
+        setOfNotNull(before, after).forEach { rememberDecision(it) }
         render()
     }
 
@@ -1935,6 +1947,13 @@ class MainActivity : AppCompatActivity() {
         else decidedInSession[photoId] = status
 
         rebuildPeriodSpinner(loadedForPeriods, decidedInSession)
+
+        // A period that has just lost a decision is no longer finished, so
+        // it may be offered again when it is finished a second time.
+        if (status == null) {
+            loadedForPeriods.firstOrNull { it.photoId == photoId }
+                ?.let { periodsOffered.remove(monthOf(it)) }
+        }
         offerNextPeriodIfDone()
     }
 
@@ -1982,17 +2001,65 @@ class MainActivity : AppCompatActivity() {
             .setMessage(R.string.period_done_message)
             .setNegativeButton(R.string.period_done_stay, null)
 
-        older?.let {
-            builder.setPositiveButton(getString(R.string.period_done_older, monthName(it))) { _, _ ->
-                changeFilter { preferredPeriod = it }
+        older?.let { month ->
+            builder.setPositiveButton(nextPeriodLabel(R.string.period_done_older, month)) { _, _ ->
+                goToPeriod(month)
             }
         }
-        newer?.let {
-            builder.setNeutralButton(getString(R.string.period_done_newer, monthName(it))) { _, _ ->
-                changeFilter { preferredPeriod = it }
+        newer?.let { month ->
+            builder.setNeutralButton(nextPeriodLabel(R.string.period_done_newer, month)) { _, _ ->
+                goToPeriod(month)
             }
         }
         builder.show()
+    }
+
+    /**
+     * Names the button, saying whether it also writes.
+     *
+     * With work queued, moving on means applying it first: the button has
+     * to say so, or the user is agreeing to a move of the filter and gets
+     * a move of their files.
+     */
+    private fun nextPeriodLabel(directionRes: Int, month: PhotoFilter.Period.Month): String {
+        val direction = getString(directionRes, monthName(month))
+
+        return if (session.pendingCount == 0) direction
+        else getString(R.string.period_done_apply_first, direction, session.pendingCount)
+    }
+
+    /**
+     * Moves to [month], applying whatever is queued first.
+     *
+     * The switch waits for the writing: if the consent is refused, the
+     * filter stays where it was and the queue keeps its work, so the two go
+     * on describing the same thing.
+     */
+    private fun goToPeriod(month: PhotoFilter.Period.Month) {
+        if (session.pendingCount == 0) {
+            changeFilter { preferredPeriod = month }
+            showPeriodInSpinner(month)
+            return
+        }
+
+        afterApplying = {
+            preferredPeriod = month
+            showPeriodInSpinner(month)
+            reload()
+        }
+        startApply()
+    }
+
+    /**
+     * Moves the spinner to [period] without asking for another load.
+     *
+     * The list is redrawn in place now, so nothing else moves the
+     * selection: the filter would change while the control kept naming the
+     * month just finished.
+     */
+    private fun showPeriodInSpinner(period: PhotoFilter.Period) {
+        val index = offeredPeriods.indexOf(period)
+        if (index >= 0) periodSpinner.setSelection(index)
     }
 
     /** The month a photo falls in, for grouping and comparing. */
@@ -2651,6 +2718,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         session.retainFailedMoves(result.failed)
+
+        // Only now, and only if the writing got somewhere. A batch that
+        // failed entirely leaves the user where they were, with the work
+        // still in front of them.
+        val follow = afterApplying
+        afterApplying = null
+        if (follow != null && result.succeeded > 0) follow()
         // Both kinds end in the same place, for the same reason: the app
         // cannot move these files, and leaving the original beside its copy
         // would double the archive instead of ordering it.

@@ -25,7 +25,7 @@ object Schema {
      * v6 records the file name beside every path, so a move can be undone.
      * v7 lets a photo be rated without deciding anything else about it.
      */
-    const val VERSION = 9
+    const val VERSION = 10
 
     const val TABLE_PHOTOS = "photos"
 
@@ -40,6 +40,15 @@ object Schema {
 
     /** Which check was told to leave the photo alone. */
     const val COLUMN_CHECK = "check_kind"
+
+    /**
+     * The app's own bin, spelled out here for the migration.
+     *
+     * Named in one place rather than repeated in the SQL: the folder is
+     * defined in ReviewSession, and core data must not reach into review to
+     * ask. Kept in step by the test that compares the two.
+     */
+    const val BIN_PATH = "Pictures/_FotoSistemis_DaEliminare"
     const val TABLE_DESTINATIONS = "destinations"
     const val TABLE_PHOTO_STATE = "photo_state"
     const val TABLE_TAGS = "tags"
@@ -103,6 +112,24 @@ object Schema {
     const val COLUMN_STATUS = "status"
     const val COLUMN_DESTINATION_ID = "destination_id"
     const val COLUMN_UPDATED_AT = "updated_at"
+
+    /**
+     * Set while a decision has been taken and not yet carried out.
+     *
+     * The decision and the file work are two different things with two
+     * different moments: deciding costs a gesture, moving costs the
+     * platform's permission and real time. Between them the archive would
+     * otherwise be unable to say which of its records describe something
+     * that has happened and which describe something still owed.
+     *
+     * Nothing here is definitive while this is set: discarding deletes
+     * exactly these rows and leaves the database as it was.
+     *
+     * Not every decision starts pending. Keeping a photo where it is, or
+     * filing a folder into a category it already sits in, moves no file and
+     * is done the moment it is taken.
+     */
+    const val COLUMN_PENDING = "pending"
 
     const val COLUMN_NAME = "name"
     const val COLUMN_TAG_ID = "tag_id"
@@ -180,7 +207,8 @@ object Schema {
             $COLUMN_PHOTO_ID INTEGER PRIMARY KEY,
             $COLUMN_STATUS TEXT NOT NULL,
             $COLUMN_DESTINATION_ID INTEGER,
-            $COLUMN_UPDATED_AT INTEGER NOT NULL
+            $COLUMN_UPDATED_AT INTEGER NOT NULL,
+            $COLUMN_PENDING INTEGER NOT NULL DEFAULT 0
         )
     """
 
@@ -283,6 +311,7 @@ object Schema {
         if (oldVersion < 6) migrateToVersion6(database)
         // v7 added a table, and createTables above has already made it.
         if (oldVersion < 8) migrateToVersion8(database)
+        if (oldVersion < 10) migrateToVersion10(database)
         // v9 added a table, and createTables above has already made it.
     }
 
@@ -292,6 +321,69 @@ object Schema {
         database.execute(
             "ALTER TABLE $TABLE_PHOTOS ADD COLUMN $COLUMN_DATE_SUSPECT " +
                     "INTEGER NOT NULL DEFAULT 0"
+        )
+    }
+
+    /**
+     * v10 tells decisions taken from decisions carried out.
+     *
+     * Every existing row is examined rather than assumed: a decision counts
+     * as done when the photograph is already where it implies. Filed under
+     * a category means sitting in that category's folder; thrown away means
+     * sitting in the bin, or handed to Android's. Everything else was
+     * decided and never happened — which is the backlog the app has been
+     * carrying without being able to name it.
+     */
+    private fun migrateToVersion10(database: Database) {
+        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PENDING)) {
+            database.execute(
+                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN $COLUMN_PENDING " +
+                        "INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+
+        // Filed, but not in the folder its category names.
+        database.execute(
+            "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
+                    "WHERE $COLUMN_STATUS = 'categorized' " +
+                    "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
+                    "JOIN $TABLE_DESTINATIONS d ON d.$COLUMN_ID = " +
+                    "$TABLE_PHOTO_STATE.$COLUMN_DESTINATION_ID " +
+                    "WHERE p.$COLUMN_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND p.$COLUMN_MISSING_SINCE IS NULL " +
+                    "AND p.$COLUMN_RELATIVE_PATH NOT LIKE d.$COLUMN_RELATIVE_PATH || '/%') " +
+                    // Unless it was copied there. A photo the platform will
+                    // not let us move never leaves its folder, so where it
+                    // is can never say the work was done — only the record
+                    // of the copy can. Without this every WhatsApp original
+                    // would come back owed, and applying would copy them a
+                    // second time: the duplicates, made again by the very
+                    // migration meant to tidy up.
+                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
+                    "JOIN $TABLE_DESTINATIONS d2 ON d2.$COLUMN_ID = " +
+                    "$TABLE_PHOTO_STATE.$COLUMN_DESTINATION_ID " +
+                    "WHERE pp.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND pp.$COLUMN_KIND = 'moved' " +
+                    "AND pp.$COLUMN_PATH LIKE d2.$COLUMN_RELATIVE_PATH || '/%')"
+        )
+
+        // Thrown away, but neither in our bin nor handed to Android's.
+        database.execute(
+            "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
+                    "WHERE $COLUMN_STATUS = 'trashed' " +
+                    "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
+                    "WHERE p.$COLUMN_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND p.$COLUMN_MISSING_SINCE IS NULL " +
+                    "AND p.$COLUMN_RELATIVE_PATH NOT LIKE '$BIN_PATH%') " +
+                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
+                    "WHERE pp.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND pp.$COLUMN_KIND = 'system_bin') " +
+                    // Nor copied into the bin, which is how photos that
+                    // could not be moved used to get there.
+                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp2 " +
+                    "WHERE pp2.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
+                    "AND pp2.$COLUMN_KIND = 'moved' " +
+                    "AND pp2.$COLUMN_PATH LIKE '$BIN_PATH%')"
         )
     }
 

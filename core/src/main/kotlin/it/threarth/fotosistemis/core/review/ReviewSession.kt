@@ -91,6 +91,15 @@ class ReviewSession(
     private var tagAssignments: Map<Long, List<String>> = emptyMap()
     private var originalPaths: Map<Long, PhotoStateRepository.Location> = emptyMap()
 
+    /**
+     * The categories, for rebuilding a queued move's destination.
+     *
+     * Where a photo is bound is recomputed rather than stored: if the
+     * category is pointed at a different folder between deciding and
+     * applying, the photo should go where the category points now.
+     */
+    var destinationsById: (Long?) -> Destination? = { null }
+
 
     var currentIndex: Int = 0
         private set
@@ -100,6 +109,20 @@ class ReviewSession(
     val queuedMoves: List<PendingMove> get() = pendingMoves.toList()
 
     /** Replaces the working set. Any queued move is discarded. */
+    /**
+     * Takes a fresh list of photos, keeping whatever is queued.
+     *
+     * The queue used to be emptied here, and every reload goes through
+     * here: refreshing the folders, filing a folder, undoing one. The
+     * decisions survived — they are written the moment they are taken — but
+     * the moves they had queued did not, so the files never went anywhere.
+     * That is where photos decided against and still sitting in place came
+     * from, hundreds of them, blamed on refused permissions.
+     *
+     * Emptying the queue is something the user asks for, and there is a
+     * screen for it. It is not something a list refresh does on their
+     * behalf.
+     */
     fun load(
         loaded: List<PhotoRecord>,
         states: Map<Long, PhotoStateRepository.StoredState>,
@@ -108,8 +131,13 @@ class ReviewSession(
     ) {
         photos.clear()
         photos.addAll(loaded)
-        pendingMoves.clear()
         storedStates = states
+
+        // Anything owed that this session has not queued itself — decided
+        // before the app was last closed, or in another folder — is rebuilt
+        // from the database, so the queue is the spool rather than a second
+        // copy of part of it.
+        rebuildQueueFromSpool(loaded, states)
         tagAssignments = tags
         originalPaths = origins
 
@@ -157,6 +185,54 @@ class ReviewSession(
      */
     fun canLeafForward(): Boolean = photos.size > 1
 
+    /**
+     * Puts back into the queue the decisions the database still owes.
+     *
+     * Only for photos in hand: a move needs the record it is about, and one
+     * outside this view will be picked up when its own folder is loaded, or
+     * from the queue screen, which reads the spool directly.
+     */
+    private fun rebuildQueueFromSpool(
+        loaded: List<PhotoRecord>,
+        states: Map<Long, PhotoStateRepository.StoredState>
+    ) {
+        val queued = pendingMoves.map { it.photo.photoId }.toHashSet()
+
+        for (photo in loaded) {
+            val state = states[photo.photoId] ?: continue
+            if (!state.pending || photo.photoId in queued) continue
+
+            val target = targetOf(photo, state) ?: continue
+            pendingMoves.add(
+                PendingMove(
+                    photo, target.first, state.status, state.destinationId, target.second
+                )
+            )
+        }
+    }
+
+    /** Where a still-owed decision would send a photo, and under what name. */
+    private fun targetOf(
+        photo: PhotoRecord,
+        state: PhotoStateRepository.StoredState
+    ): Pair<String, String?>? = when (state.status) {
+        ReviewStatus.TRASHED -> DELETION_STAGING_PATH to null
+
+        ReviewStatus.CATEGORIZED -> {
+            val destination = destinationsById(state.destinationId) ?: return null
+            val naming = FileNamer.nameAll(
+                listOf(
+                    FileNamer.Request(
+                        photo.photoId, photo.displayName, photo.dateTakenMillis, photo.dateSource
+                    )
+                )
+            ).firstOrNull()
+            destination.pathFor(photo.dateTakenMillis, yearFolderPattern()) to naming?.displayName
+        }
+
+        ReviewStatus.KEPT -> originOf(photo)?.let { it.relativePath to it.displayName }
+    }
+
     /** Pure navigation: looking at a photo is not a decision about it. */
     /**
      * Moves on, and past the last photo comes the first again.
@@ -192,7 +268,9 @@ class ReviewSession(
      */
     fun keepCurrent(): Result<Unit> {
         val photo = current() ?: return Result.failure(IllegalStateException("Nessuna foto"))
-        return stateRepository.record(photo, ReviewStatus.KEPT, null).onSuccess {
+        // Nothing to move, so nothing is owed: done as it is taken.
+        return stateRepository.record(photo, ReviewStatus.KEPT, null, pending = false)
+            .onSuccess {
             // Keeping a photo revokes any move queued for it earlier: the
             // last decision is the one that counts, and leaving the old
             // entry would move a photo the user has since chosen to keep.
@@ -319,7 +397,9 @@ class ReviewSession(
      */
     fun commitRestores(applied: List<PendingMove>): Result<Unit> {
         for (move in applied) {
-            val outcome = stateRepository.record(move.photo, ReviewStatus.KEPT, null)
+            // Already applied when this is called: nothing left owed.
+            val outcome =
+                stateRepository.record(move.photo, ReviewStatus.KEPT, null, pending = false)
             if (outcome.isFailure) return outcome
             rememberState(move.photo.photoId, ReviewStatus.KEPT, null)
         }
@@ -391,11 +471,16 @@ class ReviewSession(
      * a state the app could never make true.
      */
     fun discardQueue(): Result<Unit> {
-        for (move in pendingMoves) {
-            val outcome = stateRepository.forget(move.photo.photoId)
-            if (outcome.isFailure) return outcome
-            storedStates = storedStates - move.photo.photoId
-        }
+        // What this session is holding, which is the work on the photos in
+        // view. Not everything owed: with the spool the queue outlives the
+        // screen, and a button that says "twelve" must not delete four
+        // hundred decided last week in another folder. Taking back all of
+        // it is offered where all of it is shown, which is the queue.
+        val ids = pendingMoves.map { it.photo.photoId }
+        val outcome = stateRepository.forgetAll(ids)
+        if (outcome.isFailure) return Result.failure(outcome.exceptionOrNull()!!)
+
+        for (photoId in ids) storedStates = storedStates - photoId
         pendingMoves.clear()
         return Result.success(Unit)
     }
