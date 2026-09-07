@@ -48,16 +48,23 @@ class StorageCaseProbe(private val settings: AppSettings) {
     }
 
     /**
-     * True the first time the filesystem turns out to distinguish case.
-     * The warning is remembered so it does not greet the user on every
-     * launch; the log line repeats, since it costs nothing.
+     * The verdict the user has not yet been told, or null.
+     *
+     * Two verdicts are worth declaring: that the filesystem distinguishes
+     * case, and that the probe could not tell. Silence on the second would
+     * make a failed check look like a passed one. Each verdict is declared
+     * once, the log line every time since it costs nothing; a verdict that
+     * changes — a volume mounted late, a permission granted — is declared
+     * afresh.
      */
-    fun shouldWarn(): Boolean {
+    fun verdictToDeclare(): Verdict? {
         val verdict = probe()
         Log.i(LOG_TAG, "storage case probe: $verdict")
-        if (verdict != Verdict.DISTINCT_FOLDERS || settings.caseWarningShown) return false
-        settings.caseWarningShown = true
-        return true
+        if (verdict == Verdict.SAME_FOLDER || settings.caseVerdictDeclared == verdict.name) {
+            return null
+        }
+        settings.caseVerdictDeclared = verdict.name
+        return verdict
     }
 
     /** The inode of [file], [MISSING] when it does not exist, null on any other failure. */

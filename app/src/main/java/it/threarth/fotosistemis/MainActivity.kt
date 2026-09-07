@@ -417,12 +417,19 @@ class MainActivity : AppCompatActivity() {
         ensureReadPermission()
     }
 
-    /** See [StorageCaseProbe]: a one-time notice, never a change of behaviour. */
+    /**
+     * See [StorageCaseProbe]: a notice, never a change of behaviour. A
+     * probe that could not answer is declared as such, not passed over.
+     */
     private fun warnIfStorageDistinguishesCase() {
-        if (!StorageCaseProbe(settings).shouldWarn()) return
+        val verdict = StorageCaseProbe(settings).verdictToDeclare() ?: return
+        val message = when (verdict) {
+            StorageCaseProbe.Verdict.DISTINCT_FOLDERS -> R.string.case_warning_message
+            else -> R.string.case_unknown_message
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.case_warning_title)
-            .setMessage(R.string.case_warning_message)
+            .setMessage(message)
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }

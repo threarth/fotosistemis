@@ -108,7 +108,8 @@ Sorgente mostrava due nodi per una cartella. Ora `relative_path` e
 testo invariato), in Kotlin passa tutto da `FolderPath.sameFolder`/`key`, e le
 selezioni MediaStore usano `LIKE ... ESCAPE`. `StorageCaseProbe` fa `stat` di
 `Pictures` e `pictures` all'avvio e avvisa una volta sola se gli inode
-differiscono; non cambia comportamento.
+differiscono, e dichiara anche quando non e' riuscita a rispondere: un
+controllo fallito non deve sembrare passato. Non cambia comportamento.
 
 I periodi contano anche le foto andate via. Prima la tendina dei periodi
 nasceva dalle sole foto presenti nelle cartelle scelte, e un mese finito —
