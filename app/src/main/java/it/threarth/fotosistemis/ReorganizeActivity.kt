@@ -26,7 +26,7 @@ import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.reorg.Reorganizer
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
@@ -519,7 +519,7 @@ class ReorganizeActivity : AppCompatActivity() {
             ReviewSession.PendingMove(
                 photo = photo,
                 destinationRelativePath = move.toRelativePath,
-                status = ReviewStatus.CATEGORIZED,
+                action = Proposal.Action.FILE,
                 destinationId = move.destinationId,
                 newDisplayName = move.toDisplayName
             )

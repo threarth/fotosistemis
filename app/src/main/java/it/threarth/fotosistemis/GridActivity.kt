@@ -22,9 +22,10 @@ import androidx.core.content.ContextCompat
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
@@ -70,6 +71,7 @@ class GridActivity : AppCompatActivity() {
 
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var proposals: ProposalRepository
     private lateinit var destinationRepository: DestinationRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
@@ -114,6 +116,7 @@ class GridActivity : AppCompatActivity() {
         val database = AndroidDatabase(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        proposals = ProposalRepository(database, stateRepository)
         destinationRepository = DestinationRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
@@ -210,7 +213,7 @@ class GridActivity : AppCompatActivity() {
      */
     private fun fileInto(destination: Destination) {
         forEachSelected { photo ->
-            stateRepository.record(photo, ReviewStatus.CATEGORIZED, destination.id)
+            proposals.propose(photo, Proposal.Action.FILE, destination.id)
             decided[photo.photoId] = destination.label
             queued[photo.photoId] =
                 MovePlanner.toCategory(photo, destination, settings.yearFolderPattern)
@@ -219,22 +222,23 @@ class GridActivity : AppCompatActivity() {
 
     private fun trashSelected() {
         forEachSelected { photo ->
-            stateRepository.record(photo, ReviewStatus.TRASHED, null)
+            proposals.propose(photo, Proposal.Action.TRASH, null)
             decided[photo.photoId] = getString(R.string.grid_trash_label)
             queued[photo.photoId] = MovePlanner.toBin(photo)
         }
     }
 
     /**
-     * Takes the decision back off the chosen tiles.
+     * Takes the request back off the chosen tiles.
      *
-     * Both halves have to go: the record of the decision and the move it
-     * queued. Forgetting one would leave a photo that says it is undecided
-     * and still moves when the batch is applied.
+     * Both halves have to go: the proposal and the move it planned.
+     * Withdrawing one would leave a photo that says nothing is asked of it
+     * and still moves when the batch is applied. What has already happened
+     * to the photo is not touched: it goes on being what it was.
      */
     private fun clearSelected() {
         forEachSelected { photo ->
-            stateRepository.forget(photo.photoId)
+            proposals.withdraw(photo.photoId)
             decided.remove(photo.photoId)
             queued.remove(photo.photoId)
         }

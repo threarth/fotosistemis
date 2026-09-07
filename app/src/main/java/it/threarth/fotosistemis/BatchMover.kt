@@ -5,7 +5,7 @@ import android.content.IntentSender
 import android.provider.MediaStore
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.port.PhotoSource
 import it.threarth.fotosistemis.core.review.ReviewSession
 
@@ -144,7 +144,7 @@ class BatchMover(
      */
     private fun applyOne(move: ReviewSession.PendingMove): Outcome {
         val immovable = PhotoSource.isImmovable(move.photo.relativePath)
-        if (immovable && move.status == ReviewStatus.TRASHED) return Outcome.FOR_SYSTEM_BIN
+        if (immovable && move.action == Proposal.Action.TRASH) return Outcome.FOR_SYSTEM_BIN
 
         return if (immovable) {
             copyOne(move).fold({ Outcome.COPIED }, { Outcome.Failed(it) })
@@ -156,19 +156,21 @@ class BatchMover(
     /**
      * Moves one photo and writes down that it went.
      *
-     * One transaction for the three facts this produces: where the photo
-     * now is, that it went there, and that the work is no longer owed.
-     * Written apart, a death between them leaves a photo called filed whose
-     * folder was never updated. And if the writing fails, the move counts
-     * as failed even though the file went: the archive still owes it, and
-     * will offer it again, which is the truth.
+     * One transaction for the facts this produces: where the photo now is,
+     * that it went there, what is true of it now, and that nothing is
+     * asked of it any more. Written apart, a death between them leaves a
+     * photo called filed whose folder was never updated. And if the
+     * writing fails, the move counts as failed even though the file went:
+     * the proposal still stands, and will be offered again, which is the
+     * truth.
      */
     private fun moveOne(move: ReviewSession.PendingMove): Result<Unit> {
         val name = move.newDisplayName ?: move.photo.displayName
         return photoSource.move(move.photo, move.destinationRelativePath, name)
             .mapCatching {
                 stateRepository.markCarriedOut(
-                    move.photo.photoId, move.destinationRelativePath, name
+                    move.photo.photoId, move.destinationRelativePath, name,
+                    move.action.outcome, move.destinationId
                 ).getOrThrow()
             }
     }
@@ -176,16 +178,17 @@ class BatchMover(
     /**
      * Copies one photo and records the copy as the photograph now.
      *
-     * The copy gets its own row, carrying the decision from the start; the
-     * original keeps its own row and is marked done without having moved,
-     * since the inventory must not be told it went anywhere.
+     * The copy gets its own row, already what the proposal asked for; the
+     * original is recorded as the same, without having moved, since the
+     * inventory must not be told it went anywhere.
      */
     private fun copyOne(move: ReviewSession.PendingMove): Result<Unit> {
         val name = move.newDisplayName ?: move.photo.displayName
         return photoSource.copyInto(move.photo, move.destinationRelativePath, name)
             .mapCatching { copy ->
                 val copyId = inventory.recordCopy(
-                    move.photo.photoId, copy.mediaId, move.destinationRelativePath, name
+                    move.photo.photoId, copy.mediaId, move.destinationRelativePath, name,
+                    move.action.outcome, move.destinationId
                 ).getOrThrow()
 
                 // A copy whose date could not be written will sit in the
@@ -195,7 +198,7 @@ class BatchMover(
 
                 stateRepository.markCarriedOut(
                     move.photo.photoId, move.destinationRelativePath, name,
-                    relocated = false
+                    move.action.outcome, move.destinationId, relocated = false
                 ).getOrThrow()
             }
     }

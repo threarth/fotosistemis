@@ -3,7 +3,7 @@ package it.threarth.fotosistemis.core.review
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.reorg.FileNamer
 
 /**
@@ -20,7 +20,7 @@ object MovePlanner {
     /** Into the app's own bin, keeping the name: nothing there is renamed. */
     fun toBin(photo: PhotoRecord): ReviewSession.PendingMove =
         ReviewSession.PendingMove(
-            photo, ReviewSession.DELETION_STAGING_PATH, ReviewStatus.TRASHED, null
+            photo, ReviewSession.DELETION_STAGING_PATH, Proposal.Action.TRASH, null
         )
 
     /**
@@ -49,7 +49,7 @@ object MovePlanner {
         return ReviewSession.PendingMove(
             photo,
             destination.pathFor(photo.dateTakenMillis, yearFolderPattern),
-            ReviewStatus.CATEGORIZED,
+            Proposal.Action.FILE,
             destination.id,
             naming?.displayName
         )
@@ -66,32 +66,33 @@ object MovePlanner {
         origin: PhotoStateRepository.Location
     ): ReviewSession.PendingMove =
         ReviewSession.PendingMove(
-            photo, origin.relativePath, ReviewStatus.KEPT, null, origin.displayName
+            photo, origin.relativePath, Proposal.Action.RESTORE, null, origin.displayName
         )
 
     /**
-     * The move a decision still owed would make, or null when it cannot be
-     * carried out as things stand.
+     * The move a proposal asks for, or null when it cannot be carried out
+     * as things stand.
      *
      * Null for a filing whose category no longer exists, and for a restore
      * of a photo the app never saw anywhere else or that is already home.
-     * The decision stays owed in the database either way; only the move
-     * cannot be planned from here.
+     * The proposal stays in the database either way; only the move cannot
+     * be planned from here.
      *
      * The destination is recomputed rather than stored: if the category
-     * was pointed at a different folder between deciding and applying, the
+     * was pointed at a different folder between asking and applying, the
      * photo should go where the category points now.
      */
-    fun forOwed(
+    fun plan(
         photo: PhotoRecord,
-        status: ReviewStatus,
+        proposal: Proposal,
         destination: Destination?,
         yearFolderPattern: String,
         origin: PhotoStateRepository.Location?
-    ): ReviewSession.PendingMove? = when (status) {
-        ReviewStatus.TRASHED -> toBin(photo)
-        ReviewStatus.CATEGORIZED -> destination?.let { toCategory(photo, it, yearFolderPattern) }
-        ReviewStatus.KEPT -> origin?.takeUnless { isHome(photo, it) }?.let { backHome(photo, it) }
+    ): ReviewSession.PendingMove? = when (proposal.action) {
+        Proposal.Action.TRASH -> toBin(photo)
+        Proposal.Action.FILE -> destination?.let { toCategory(photo, it, yearFolderPattern) }
+        Proposal.Action.RESTORE ->
+            origin?.takeUnless { isHome(photo, it) }?.let { backHome(photo, it) }
     }
 
     /**

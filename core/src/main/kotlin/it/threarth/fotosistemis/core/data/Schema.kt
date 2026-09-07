@@ -27,7 +27,7 @@ object Schema {
      * v10 tells decisions taken from decisions carried out.
      * v11 keeps the carried-out decision a pending one replaced.
      */
-    const val VERSION = 11
+    const val VERSION = 12
 
     const val TABLE_PHOTOS = "photos"
 
@@ -53,6 +53,19 @@ object Schema {
     const val BIN_PATH = "Pictures/_FotoSistemis_DaEliminare"
     const val TABLE_DESTINATIONS = "destinations"
     const val TABLE_PHOTO_STATE = "photo_state"
+
+    /**
+     * What the user has asked to be done to a photo and has not been done
+     * yet, apart from what has happened to it (v12).
+     *
+     * photo_state is the truth: kept, filed under a category, thrown away,
+     * or no row at all for a photo never seen. A proposal is a request on
+     * top of it — file here, throw away, bring back — that the truth does
+     * not yet reflect. Carrying it out writes the outcome into photo_state
+     * and deletes the proposal; withdrawing it deletes the proposal alone,
+     * and the truth was never touched.
+     */
+    const val TABLE_PROPOSALS = "proposals"
     const val TABLE_TAGS = "tags"
     const val TABLE_PHOTO_TAGS = "photo_tags"
     const val TABLE_PHOTO_PATHS = "photo_paths"
@@ -115,39 +128,14 @@ object Schema {
     const val COLUMN_DESTINATION_ID = "destination_id"
     const val COLUMN_UPDATED_AT = "updated_at"
 
-    /**
-     * Set while a decision has been taken and not yet carried out.
-     *
-     * The decision and the file work are two different things with two
-     * different moments: deciding costs a gesture, moving costs the
-     * platform's permission and real time. Between them the archive would
-     * otherwise be unable to say which of its records describe something
-     * that has happened and which describe something still owed.
-     *
-     * Nothing here is definitive while this is set: discarding deletes
-     * exactly these rows and leaves the database as it was.
-     *
-     * Not every decision starts pending. Keeping a photo where it is, or
-     * filing a folder into a category it already sits in, moves no file and
-     * is done the moment it is taken.
-     */
-    const val COLUMN_PENDING = "pending"
+    /** One of Proposal.Action's stored values: file, trash, restore. */
+    const val COLUMN_ACTION = "action"
+    const val COLUMN_PROPOSED_AT = "proposed_at"
 
-    /**
-     * The decision a pending one replaced, when that one had been carried
-     * out; null otherwise.
-     *
-     * Restoring a photo from the bin, refiling one, throwing away one
-     * already catalogued: each writes a new pending decision over a done
-     * one. Discarding the new decision has to give the old one back, not
-     * leave the photo undecided — it is in the bin, or in its category,
-     * and the archive must go on saying so. Cleared when the new decision
-     * is carried out, since then it is the one that has happened.
-     */
-    const val COLUMN_PREVIOUS_STATUS = "previous_status"
-
-    /** Goes with [COLUMN_PREVIOUS_STATUS]: the category it was filed in. */
-    const val COLUMN_PREVIOUS_DESTINATION_ID = "previous_destination_id"
+    /** Columns photo_state carried from v10 to v11; named so v12 can find them. */
+    private const val OBSOLETE_PENDING = "pending"
+    private const val OBSOLETE_PREVIOUS_STATUS = "previous_status"
+    private const val OBSOLETE_PREVIOUS_DESTINATION_ID = "previous_destination_id"
 
     const val COLUMN_NAME = "name"
     const val COLUMN_TAG_ID = "tag_id"
@@ -225,10 +213,16 @@ object Schema {
             $COLUMN_PHOTO_ID INTEGER PRIMARY KEY,
             $COLUMN_STATUS TEXT NOT NULL,
             $COLUMN_DESTINATION_ID INTEGER,
-            $COLUMN_UPDATED_AT INTEGER NOT NULL,
-            $COLUMN_PENDING INTEGER NOT NULL DEFAULT 0,
-            $COLUMN_PREVIOUS_STATUS TEXT,
-            $COLUMN_PREVIOUS_DESTINATION_ID INTEGER
+            $COLUMN_UPDATED_AT INTEGER NOT NULL
+        )
+    """
+
+    private const val CREATE_PROPOSALS = """
+        CREATE TABLE IF NOT EXISTS $TABLE_PROPOSALS (
+            $COLUMN_PHOTO_ID INTEGER PRIMARY KEY,
+            $COLUMN_ACTION TEXT NOT NULL,
+            $COLUMN_DESTINATION_ID INTEGER,
+            $COLUMN_PROPOSED_AT INTEGER NOT NULL
         )
     """
 
@@ -293,7 +287,7 @@ object Schema {
     private val CREATE_TABLES = listOf(
         CREATE_PHOTOS, CREATE_DESTINATIONS, CREATE_PHOTO_STATE, CREATE_TAGS,
         CREATE_PHOTO_TAGS, CREATE_PHOTO_PATHS, CREATE_SYNC_STATE,
-        CREATE_PHOTO_RATINGS, CREATE_IGNORED
+        CREATE_PHOTO_RATINGS, CREATE_IGNORED, CREATE_PROPOSALS
     )
 
     private val CREATE_INDEXES = listOf(
@@ -331,29 +325,8 @@ object Schema {
         if (oldVersion < 6) migrateToVersion6(database)
         // v7 added a table, and createTables above has already made it.
         if (oldVersion < 8) migrateToVersion8(database)
-        if (oldVersion < 10) migrateToVersion10(database)
         // v9 added a table, and createTables above has already made it.
-        if (oldVersion < 11) migrateToVersion11(database)
-    }
-
-    /**
-     * v11 gives a pending decision room to remember the one it replaced.
-     *
-     * Nothing to classify: rows that exist have no replaced decision the
-     * database could know of, so the columns start empty.
-     */
-    private fun migrateToVersion11(database: Database) {
-        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PREVIOUS_STATUS)) {
-            database.execute(
-                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN $COLUMN_PREVIOUS_STATUS TEXT"
-            )
-        }
-        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PREVIOUS_DESTINATION_ID)) {
-            database.execute(
-                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN " +
-                        "$COLUMN_PREVIOUS_DESTINATION_ID INTEGER"
-            )
-        }
+        if (oldVersion < 12) migrateToVersion12(database)
     }
 
     /** v8 lets the user contradict a photo's recorded date. */
@@ -366,83 +339,151 @@ object Schema {
     }
 
     /**
-     * v10 tells decisions taken from decisions carried out.
+     * v12 separates what has happened to a photo from what is asked of it.
      *
-     * Every existing row is examined rather than assumed: a decision counts
-     * as done when the photograph is already where it implies. Filed under
-     * a category means sitting in that category's folder; thrown away means
-     * sitting in the bin, or handed to Android's. Everything else was
-     * decided and never happened — which is the backlog the app has been
-     * carrying without being able to name it.
+     * v10 and v11 had kept both in photo_state, a pending flag telling them
+     * apart and a remembered previous decision to fall back on. Whatever
+     * those columns hold is carried over — each pending row becomes a
+     * proposal, and the truth it had covered is put back — before the
+     * table is rebuilt without them. Databases that never saw v10 have no
+     * such columns and skip straight to the classification.
      */
-    private fun migrateToVersion10(database: Database) {
-        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PENDING)) {
+    private fun migrateToVersion12(database: Database) {
+        if (hasColumn(database, TABLE_PHOTO_STATE, OBSOLETE_PENDING)) {
+            liftPendingDecisions(database)
+            rebuildPhotoStateAsTruth(database)
+        }
+        proposeUnfinishedWork(database)
+    }
+
+    /** Turns v10/v11 pending rows into proposals and uncovers the truth beneath. */
+    private fun liftPendingDecisions(database: Database) {
+        database.execute(
+            "INSERT OR IGNORE INTO $TABLE_PROPOSALS ($COLUMN_PHOTO_ID, $COLUMN_ACTION, " +
+                    "$COLUMN_DESTINATION_ID, $COLUMN_PROPOSED_AT) " +
+                    "SELECT $COLUMN_PHOTO_ID, " +
+                    "CASE $COLUMN_STATUS WHEN 'categorized' THEN 'file' " +
+                    "WHEN 'trashed' THEN 'trash' ELSE 'restore' END, " +
+                    "$COLUMN_DESTINATION_ID, $COLUMN_UPDATED_AT " +
+                    "FROM $TABLE_PHOTO_STATE WHERE $OBSOLETE_PENDING = 1"
+        )
+        // v11 remembered the decision a pending one had covered; that one
+        // is the truth and takes the row back. A pending row with nothing
+        // beneath it, or any pending row of v10, covered no truth: it goes.
+        if (hasColumn(database, TABLE_PHOTO_STATE, OBSOLETE_PREVIOUS_STATUS)) {
             database.execute(
-                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN $COLUMN_PENDING " +
-                        "INTEGER NOT NULL DEFAULT 0"
+                "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_STATUS = $OBSOLETE_PREVIOUS_STATUS, " +
+                        "$COLUMN_DESTINATION_ID = $OBSOLETE_PREVIOUS_DESTINATION_ID, " +
+                        "$OBSOLETE_PENDING = 0 " +
+                        "WHERE $OBSOLETE_PENDING = 1 " +
+                        "AND $OBSOLETE_PREVIOUS_STATUS IS NOT NULL"
             )
         }
-        classifyOwedWork(database)
+        database.execute("DELETE FROM $TABLE_PHOTO_STATE WHERE $OBSOLETE_PENDING = 1")
     }
 
     /**
-     * Marks as owed every decision the photographs show was never carried
-     * out, by the rules of the v10 migration.
+     * Rebuilds photo_state with the truth's columns only.
      *
-     * Public because a backup written before v10 carries decisions with no
-     * such mark, and restoring one has to ask the same question the
-     * migration asked, or the whole backlog comes back as done.
+     * SQLite on older devices cannot drop a column, so the table is
+     * rebuilt and refilled; its index goes down with the old table and is
+     * made again with the new one.
      */
-    fun classifyOwedWork(database: Database) {
-        markOwedFilings(database)
-        markOwedDeletions(database)
+    private fun rebuildPhotoStateAsTruth(database: Database) {
+        val columns = "$COLUMN_PHOTO_ID, $COLUMN_STATUS, $COLUMN_DESTINATION_ID, " +
+                "$COLUMN_UPDATED_AT"
+        database.execute("ALTER TABLE $TABLE_PHOTO_STATE RENAME TO ${TABLE_PHOTO_STATE}_old")
+        database.execute(CREATE_PHOTO_STATE)
+        database.execute(
+            "INSERT INTO $TABLE_PHOTO_STATE ($columns) " +
+                    "SELECT $columns FROM ${TABLE_PHOTO_STATE}_old"
+        )
+        database.execute("DROP TABLE ${TABLE_PHOTO_STATE}_old")
+        createTables(database)
+    }
+
+    /**
+     * Turns into proposals the decisions the photographs show were never
+     * carried out.
+     *
+     * Before v10 a decision was written the moment it was taken, done or
+     * not, and the app carried the backlog without being able to name it.
+     * Each such row is examined rather than assumed: filed under a category
+     * means sitting in that category's folder, thrown away means sitting
+     * in the bin or handed to Android's. A row that says otherwise is not
+     * a truth but a request, and becomes one — the row goes, a proposal
+     * takes its place. Re-runnable: what it has already converted it no
+     * longer finds.
+     *
+     * Public because a backup written before v10 carries such rows, and
+     * restoring one has to ask the same question, or the whole backlog
+     * comes back as done.
+     */
+    fun proposeUnfinishedWork(database: Database) {
+        proposeUnfinishedFilings(database)
+        proposeUnfinishedDeletions(database)
     }
 
     /** Filed, but not in the folder its category names. */
-    private fun markOwedFilings(database: Database) {
-        database.execute(
-            "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
-                    "WHERE $COLUMN_STATUS = 'categorized' " +
-                    "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
-                    "JOIN $TABLE_DESTINATIONS d ON d.$COLUMN_ID = " +
-                    "$TABLE_PHOTO_STATE.$COLUMN_DESTINATION_ID " +
-                    "WHERE p.$COLUMN_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
-                    "AND p.$COLUMN_MISSING_SINCE IS NULL " +
-                    "AND p.$COLUMN_RELATIVE_PATH NOT LIKE d.$COLUMN_RELATIVE_PATH || '/%') " +
-                    // Unless it was copied there. A photo the platform will
-                    // not let us move never leaves its folder, so where it
-                    // is can never say the work was done — only the record
-                    // of the copy can. Without this every WhatsApp original
-                    // would come back owed, and applying would copy them a
-                    // second time: the duplicates, made again by the very
-                    // migration meant to tidy up.
-                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
-                    "JOIN $TABLE_DESTINATIONS d2 ON d2.$COLUMN_ID = " +
-                    "$TABLE_PHOTO_STATE.$COLUMN_DESTINATION_ID " +
-                    "WHERE pp.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
-                    "AND pp.$COLUMN_KIND = 'moved' " +
-                    "AND pp.$COLUMN_PATH LIKE d2.$COLUMN_RELATIVE_PATH || '/%')"
-        )
+    private fun proposeUnfinishedFilings(database: Database) {
+        val unfinished = "SELECT s.$COLUMN_PHOTO_ID FROM $TABLE_PHOTO_STATE s " +
+                "WHERE s.$COLUMN_STATUS = 'categorized' " +
+                "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
+                "JOIN $TABLE_DESTINATIONS d ON d.$COLUMN_ID = s.$COLUMN_DESTINATION_ID " +
+                "WHERE p.$COLUMN_ID = s.$COLUMN_PHOTO_ID " +
+                "AND p.$COLUMN_MISSING_SINCE IS NULL " +
+                "AND p.$COLUMN_RELATIVE_PATH NOT LIKE d.$COLUMN_RELATIVE_PATH || '/%') " +
+                // Unless it was copied there. A photo the platform will not
+                // let us move never leaves its folder, so where it is can
+                // never say the work was done — only the record of the copy
+                // can. Without this every WhatsApp original would come back
+                // owed, and applying would copy them a second time: the
+                // duplicates, made again by the very migration meant to
+                // tidy up.
+                "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
+                "JOIN $TABLE_DESTINATIONS d2 ON d2.$COLUMN_ID = s.$COLUMN_DESTINATION_ID " +
+                "WHERE pp.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
+                "AND pp.$COLUMN_KIND = 'moved' " +
+                "AND pp.$COLUMN_PATH LIKE d2.$COLUMN_RELATIVE_PATH || '/%')"
+        convertToProposals(database, unfinished, "file")
     }
 
     /** Thrown away, but neither in our bin nor handed to Android's. */
-    private fun markOwedDeletions(database: Database) {
+    private fun proposeUnfinishedDeletions(database: Database) {
+        val unfinished = "SELECT s.$COLUMN_PHOTO_ID FROM $TABLE_PHOTO_STATE s " +
+                "WHERE s.$COLUMN_STATUS = 'trashed' " +
+                "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
+                "WHERE p.$COLUMN_ID = s.$COLUMN_PHOTO_ID " +
+                "AND p.$COLUMN_MISSING_SINCE IS NULL " +
+                "AND p.$COLUMN_RELATIVE_PATH NOT LIKE '$BIN_PATH%') " +
+                "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
+                "WHERE pp.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
+                "AND pp.$COLUMN_KIND = 'system_bin') " +
+                // Nor copied into the bin, which is how photos that could
+                // not be moved used to get there.
+                "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp2 " +
+                "WHERE pp2.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
+                "AND pp2.$COLUMN_KIND = 'moved' " +
+                "AND pp2.$COLUMN_PATH LIKE '$BIN_PATH%')"
+        convertToProposals(database, unfinished, "trash")
+    }
+
+    /**
+     * Replaces the state rows a query selects with proposals for [action].
+     *
+     * A proposal already there wins: it is the more recent request. The
+     * state row goes either way, since what it said was never true.
+     */
+    private fun convertToProposals(database: Database, unfinished: String, action: String) {
         database.execute(
-            "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
-                    "WHERE $COLUMN_STATUS = 'trashed' " +
-                    "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
-                    "WHERE p.$COLUMN_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
-                    "AND p.$COLUMN_MISSING_SINCE IS NULL " +
-                    "AND p.$COLUMN_RELATIVE_PATH NOT LIKE '$BIN_PATH%') " +
-                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
-                    "WHERE pp.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
-                    "AND pp.$COLUMN_KIND = 'system_bin') " +
-                    // Nor copied into the bin, which is how photos that
-                    // could not be moved used to get there.
-                    "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp2 " +
-                    "WHERE pp2.$COLUMN_PHOTO_ID = $TABLE_PHOTO_STATE.$COLUMN_PHOTO_ID " +
-                    "AND pp2.$COLUMN_KIND = 'moved' " +
-                    "AND pp2.$COLUMN_PATH LIKE '$BIN_PATH%')"
+            "INSERT OR IGNORE INTO $TABLE_PROPOSALS ($COLUMN_PHOTO_ID, $COLUMN_ACTION, " +
+                    "$COLUMN_DESTINATION_ID, $COLUMN_PROPOSED_AT) " +
+                    "SELECT $COLUMN_PHOTO_ID, ?, $COLUMN_DESTINATION_ID, $COLUMN_UPDATED_AT " +
+                    "FROM $TABLE_PHOTO_STATE WHERE $COLUMN_PHOTO_ID IN ($unfinished)",
+            listOf(action)
+        )
+        database.execute(
+            "DELETE FROM $TABLE_PHOTO_STATE WHERE $COLUMN_PHOTO_ID IN ($unfinished)"
         )
     }
 

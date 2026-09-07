@@ -1,6 +1,6 @@
 # Piano: le decisioni non ancora eseguite
 
-Stato: **implementato** (schema v10, colonna `pending` — la strada B con `pending` al posto di `applied_at`, come deciso). Applicare in parti scritto il 7 settembre 2026. Lo stato del lavoro e cio' che resta da provare sono in `TODO.md`; questo file resta come registro delle alternative valutate.
+Stato: **superato** da `PIANO-PROPOSTE.md` (schema v12): la colonna `pending` e' durata dalla v10 alla v11, poi le decisioni in sospeso sono diventate una tabella a parte, `proposals`. Era: implementato (schema v10, colonna `pending` — la strada B con `pending` al posto di `applied_at`, come deciso). Applicare in parti scritto il 7 settembre 2026. Lo stato del lavoro e cio' che resta da provare sono in `TODO.md`; questo file resta come registro delle alternative valutate.
 
 ## Il problema
 

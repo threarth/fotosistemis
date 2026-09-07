@@ -19,8 +19,9 @@ import androidx.core.view.WindowInsetsCompat
 import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.model.Destination
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
@@ -42,6 +43,7 @@ class QueueActivity : AppCompatActivity() {
 
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var proposals: ProposalRepository
     private lateinit var destinations: DestinationRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
@@ -74,6 +76,7 @@ class QueueActivity : AppCompatActivity() {
         val database = AndroidDatabase(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        proposals = ProposalRepository(database, stateRepository)
         destinations = DestinationRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
@@ -102,8 +105,8 @@ class QueueActivity : AppCompatActivity() {
             val moves = readOwed()
             runOnUiThread {
                 progress.stop()
-                trash = moves.filter { it.status == ReviewStatus.TRASHED }
-                misplaced = moves.filter { it.status != ReviewStatus.TRASHED }
+                trash = moves.filter { it.action == Proposal.Action.TRASH }
+                misplaced = moves.filter { it.action != Proposal.Action.TRASH }
                 if (trash.isEmpty() && misplaced.isNotEmpty()) showingTrash = false
                 redraw()
             }
@@ -124,13 +127,13 @@ class QueueActivity : AppCompatActivity() {
             .associateBy { it.id }
         val origins = stateRepository.loadOriginalPaths().getOrElse { emptyMap() }
 
-        return inventory.loadOwedWork().getOrElse { emptyList() }.mapNotNull { work ->
-            MovePlanner.forOwed(
-                work.photo,
-                work.status,
-                byId[work.destinationId],
+        return inventory.loadProposed().getOrElse { emptyList() }.mapNotNull { proposed ->
+            MovePlanner.plan(
+                proposed.photo,
+                proposed.proposal,
+                byId[proposed.proposal.destinationId],
                 settings.yearFolderPattern,
-                origins[work.photo.photoId]
+                origins[proposed.photo.photoId]
             )
         }
     }
@@ -195,9 +198,9 @@ class QueueActivity : AppCompatActivity() {
             .setMessage(getString(R.string.queue_call_off_message, shown.size))
             .setNeutralButton(R.string.queue_call_off_all) { _, _ -> confirmCallOffAll() }
             .setPositiveButton(R.string.queue_call_off) { _, _ ->
-                stateRepository.forgetAll(shown.map { it.photo.photoId }).fold(
+                proposals.withdrawAll(shown.map { it.photo.photoId }).fold(
                     onSuccess = {
-                        toast(getString(R.string.queue_called_off, it.count))
+                        toast(getString(R.string.queue_called_off, it))
                         load()
                     },
                     onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }
@@ -220,7 +223,7 @@ class QueueActivity : AppCompatActivity() {
             .setTitle(R.string.queue_call_off_all)
             .setMessage(getString(R.string.queue_call_off_all_message, everything))
             .setPositiveButton(R.string.queue_call_off_all) { _, _ ->
-                stateRepository.discardPending().fold(
+                proposals.withdrawEvery().fold(
                     onSuccess = {
                         toast(getString(R.string.queue_called_off, it))
                         load()

@@ -39,127 +39,76 @@ Android aggiunge qualche minuto di scarto suo.
 nuove nascono con `date_modified` corretta, quindi il problema non si ripresenta.
 Resterebbe solo dopo un altro trasferimento di telefono.
 
-## Da rivedere: lo spool delle decisioni (schema v10, 7 settembre 2026)
+## Da rivedere: le proposte (schema v12, 7 settembre 2026)
 
 **Scritto e compilato, mai eseguito su un telefono.** La migrazione tocca 1.859
-decisioni vere e nessuno l'ha ancora vista girare.
+decisioni vere e nessuno l'ha ancora vista girare. Passa dalla v9 (il telefono)
+o dalla v11 (l'APK consegnato lo stesso giorno, se e' stato installato).
 
 ### Il problema che risolve
 
 Decidere scriveva due cose in due posti con due vite diverse: la decisione in
 `photo_state`, subito e definitiva, e lo spostamento in una lista in memoria.
-`ReviewSession.load()` svuotava quella lista, e ogni ricarica passa di li'.
 Restava la decisione senza la mossa: la foto marcata, il file fermo. E' l'origine
-delle "arretrate" che l'archivio si porta dietro da settimane, attribuite per
-giorni a consensi negati.
+delle "arretrate". La v10 aveva risposto con una colonna `pending` sulla stessa
+riga, e la v11 con `previous_status` per non perdere la decisione sostituita:
+due colonne e una regola speciale per Tieni, per dire una cosa sola.
 
 ### La forma
 
-Colonna `pending` su `photo_state`. `status` dice **cosa e' stato deciso**,
-`pending` **se e' gia' avvenuto**. Finche' vale 1 non c'e' nulla di definitivo:
-scartare cancella quelle righe e il database torna com'era.
+Due tabelle con due significati. `photo_state` dice **cio' che e' avvenuto**
+(tenuta, in categoria, nel cestino) e non contiene mai nulla di sospeso.
+`proposals` dice **cio' che e' stato chiesto e non ancora fatto**: un'azione
+(`file`, `trash`, `restore`), la categoria se serve, quando. Al piu' una
+proposta per foto; l'ultima sostituisce la precedente. Eseguire una proposta
+scrive l'esito in `photo_state` e la cancella; scartarla la cancella e basta,
+e la foto torna a essere quel che l'archivio diceva: non vista, o la decisione
+gia' eseguita. Non c'e' nulla da "restituire" perche' nulla era stato tolto.
 
-Non tutte le decisioni nascono in sospeso. Non lo sono: mantenere una foto dov'e',
-catalogare una cartella nella categoria in cui gia' si trova, riagganciare un
-estraneo alla categoria che lo ospita, registrare un ripristino gia' applicato.
-Quattro punti, marcati `pending = false`.
+La coda in memoria e' derivata: le proposte nella portata della sessione,
+pianificate da `MovePlanner.plan`. Non esiste piu' una lista da tenere allineata.
 
-### Cosa controllare per primo
+Cinque punti scrivono la verita' senza passare da una proposta, perche' il
+file e' gia' dove deve stare: `markCarriedOut` (dopo una mossa), la copia di
+una foto inamovibile (`recordCopy`), le foto riconosciute nelle cartelle di
+destinazione (`recordAll`), le estranee gia' nella cartella giusta
+(`fileStrangers`), e il cestino di Android (`recordSystemBin`).
 
-1. **La migrazione** (`Schema.migrateToVersion10`, `classifyOwedWork`).
-   Classifica ogni decisione esistente in fatta o dovuta. Il caso insidioso e'
-   la foto WhatsApp: non lascia mai la sua cartella, quindi "dove sta" non puo'
-   dire se il lavoro e' stato fatto — lo dice solo il registro della copia.
-   Senza quella esclusione la migrazione rimetterebbe in coda ogni originale
-   gia' copiato, e il primo Applica ne farebbe una seconda copia. L'esclusione
-   c'e'; va verificata sui numeri veri.
-2. **`markCarriedOut`** scrive tre fatti in una transazione: nuovo percorso,
-   riga nella storia, `pending = 0`. Il parametro `relocated = false` serve al
-   ramo della copia, dove l'originale non si e' mosso e l'inventario non deve
-   dire il contrario. Se la scrittura fallisce dopo che il file si e' mosso,
-   `BatchMover` conta la mossa come fallita: l'archivio la deve ancora, e la
-   rioffre.
-3. **La portata dello scarto.** Nella schermata principale riguarda la coda
-   della sessione (periodo × cartelle, vedi sotto); nella Coda c'e' anche
-   "Annulla TUTTE". Un pulsante che ne mostra dodici non deve poterne cancellare
-   quattrocento.
-4. **`ReviewSession.load`** svuota la coda e la ricostruisce dallo spool a ogni
-   caricamento: il database e' l'unica verita', la memoria non ne tiene una
-   seconda copia. Ricalcola la destinazione invece di averla salvata: se la
-   categoria e' stata spostata fra il decidere e l'applicare, la foto va dove la
-   categoria punta adesso. Il test `ReviewSessionTest` copre i tre stati.
-5. **Il dialogo "applica o scarta" al cambio filtro non c'e' piu'.** Le decisioni
-   non appartengono alla vista: si decide a settembre, si passa ad agosto, si
-   applica alla fine. Controllare che nessun percorso perda ancora lavoro.
-6. **Il backup** esporta anche `pending`. Un file scritto prima della v10 non
-   ce l'ha: al ripristino si rifa' la classificazione della migrazione, invece
-   di dare tutto per fatto.
+**Tieni** ritira la proposta, se c'e', e scrive `kept` solo se della foto non si
+sa nulla. Non sovrascrive mai una verita': una foto in Famiglia riarchiviata in
+Viaggi e poi tenuta e' in Famiglia. E' annullabile solo quando ha scritto
+`kept`.
 
-### Applicare in parti (scritto il 7 settembre 2026, non ancora provato)
+### La migrazione
 
-- `Applica (n)` nella schermata principale = tutto il dovuto per **il periodo e
-  le cartelle scelte**, filtro di stato escluso. Il filtro escluso di proposito:
-  con "non viste" le foto appena decise spariscono dallo schermo, e una coda
-  letta dallo schermo direbbe zero dopo un pomeriggio di lavoro.
-- La Coda mostra tutto il dovuto, di ogni cartella e giorno, con "Applica
-  tutto" e "Annulla TUTTE". Ora include anche i **ripristini** dovuti (foto nel
-  cestino con "riporta indietro" deciso), sotto "da spostare"; prima li
-  cancellava con "Annulla TUTTE" senza averli mai mostrati.
-- **Annulla** nella schermata principale torna indietro solo sulle decisioni
-  di **questa** sessione, nell'ordine in cui sono state prese. Le decisioni di
-  giorni fa sono in coda ma non si annullano una alla volta da li': per quelle
-  c'e' la Coda.
-- Il contatore nel cassetto, `Coda (n)`, conta il dovuto (`loadOwedWork`).
-  Prima sommava le foto fuori posto, che sono lavoro gia' fatto, e non
-  contava le archiviazioni dovute.
+`migrateToVersion12`: se `photo_state` ha la colonna `pending`, le righe con
+`pending = 1` diventano proposte (azione dallo status, data da `updated_at`);
+quelle con una `previous_status` tornano alla precedente, le altre spariscono.
+Poi `photo_state` viene ricostruita con le sole quattro colonne. Sempre, da
+qualunque versione, `proposeUnfinishedWork`: ogni verita' il cui file non e'
+dove la verita' dice diventa una proposta (stesse esclusioni della v10: le copie
+WhatsApp e il cestino di Android). Idempotente.
 
-### Cosa ha cambiato la revisione del 7 settembre
+Il backup esporta `proposals`. Un file v10/v11 (righe con `pending`) viene
+convertito all'import allo stesso modo; un file pre-v10 passa da
+`proposeUnfinishedWork`.
 
-- **`MovePlanner`** (core/review): l'unico posto che dice dove va una foto e
-  con che nome. Prima quattro schermate rispondevano ognuna a modo suo, e il
-  timbro `__data__` lo metteva solo la schermata principale: Coda, Griglia e
-  il controllo "fuori posto" spostavano senza timbro. Ora tutte passano di li'.
-- `load` ricostruiva la coda **prima** di sapere le origini: un ripristino
-  dovuto non veniva mai rimesso in coda. Corretto l'ordine.
-- La coda in memoria non veniva mai riallineata allo spool: dopo un Applica
-  dalla Coda, la principale teneva ancora le mosse gia' fatte, e un secondo
-  Applica avrebbe ricopiato le foto WhatsApp. Ora si svuota a ogni load.
-- La Coda non offriva mai al cestino di Android le foto WhatsApp decise da
-  eliminare (`forSystemBin`): restavano dovute per sempre. Ora le offre.
-- `SystemBinHandover`: "Annulla" nel dialogo non chiamava `onFinished`, e la
-  Griglia restava aperta senza piu' niente da mostrare.
-- Backup: esporta anche `photo_paths.display_name` (senza, un ripristino dal
-  cestino non ritrova il nome originale), `photos.date_suspect`, le stelle e
-  gli "ignora" dei controlli. `restoreTable` inserisce solo le colonne presenti
-  nel file, cosi' le mancanti prendono il default dello schema invece di NULL.
-- Tolti `retainFailedMoves` (chi applica ricarica, e lo spool rioffre cio' che
-  e' fallito), il parametro inutile di `loadPendingTrash`, e 39 stringhe senza
-  riferimenti — fra cui `cleanup_*`, che descrivevano la copia nel cestino
-  dell'app che oggi non si fa piu'.
+### Da provare sul telefono
 
-### Scartare restituisce la decisione precedente (schema v11)
-
-Una decisione nuova che sostituisce una gia' eseguita — ripristinare dal
-cestino, riarchiviare altrove, buttare una foto gia' catalogata — riscrive la
-riga con `pending = 1` e conserva la precedente in `previous_status` /
-`previous_destination_id`. Se poi si **scarta**, la riga non viene cancellata:
-torna alla decisione precedente, con `pending = 0`. La foto e' di nuovo
-"eliminata" o "in Famiglia", non "non vista". Cambiare idea due volte e
-scartare riporta comunque alla decisione eseguita. Quando la decisione nuova
-viene eseguita, la precedente viene azzerata: non c'e' piu' nulla a cui
-tornare.
-
-**Tieni** su una foto con una decisione in sospeso che ne ha sostituita una
-eseguita non scrive "tenuta": restituisce la precedente. Una foto in Famiglia
-riarchiviata in Viaggi e poi tenuta e' in Famiglia, e l'archivio torna a
-dirlo. Non e' annullabile, perche' non c'e' nulla a cui tornare: la mossa
-verso Viaggi e' scartata e quel che resta era gia' vero.
+- La migrazione: contare le proposte dopo l'apertura e confrontarle con le
+  arretrate note. Se ne mancano, il criterio di `proposeUnfinishedWork` va
+  rivisto, non la tabella.
+- Scartare dalla principale e dalla Coda: le foto devono tornare com'erano.
+- Tieni su una foto gia' in categoria: deve restare in categoria e l'Annulla
+  non deve comparire.
+- Un backup fatto con la v11, se ne esiste uno, reimportato nella v12.
 
 ### Cosa non e' stato fatto
 
 - **Storia delle decisioni**: scartata di proposito. La storia dei percorsi la
   copre quasi tutta, perche' una categoria e' una cartella.
-- Il piano completo, con le alternative valutate, e' in `PIANO-SPOOL.md`.
+- Il piano completo e' in `PIANO-PROPOSTE.md`; `PIANO-SPOOL.md` resta come
+  registro delle alternative valutate per la v10.
 
 ## Fase 3 — funzionalità richieste, non ancora scritte
 

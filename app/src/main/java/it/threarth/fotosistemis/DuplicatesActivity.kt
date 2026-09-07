@@ -22,9 +22,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.dedup.DuplicateFinder
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.port.PhotoSource
 import it.threarth.fotosistemis.core.review.FolderTree
@@ -61,6 +63,7 @@ class DuplicatesActivity : AppCompatActivity() {
 
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var proposals: ProposalRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
     private lateinit var systemBin: SystemBinHandover
@@ -91,6 +94,7 @@ class DuplicatesActivity : AppCompatActivity() {
         val database = AndroidDatabase(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        proposals = ProposalRepository(database, stateRepository)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
         systemBin = SystemBinHandover(this, photoSource, stateRepository) { search() }
@@ -128,16 +132,17 @@ class DuplicatesActivity : AppCompatActivity() {
 
         thread {
             val decisions = stateRepository.loadAll().getOrElse { emptyMap() }
+            val proposed = proposals.loadAll().getOrElse { emptyMap() }
             val handedOver = stateRepository.handedToSystemBin().getOrElse { emptySet() }
 
             // A photo already thrown away is not a duplicate to weigh
             // against the copy that was kept: offering it could propose
             // keeping the discarded one and binning the survivor.
             //
-            // Being decided for the bin and being in it are not two cases
-            // but one, in two moments: the decision is written at once, the
-            // file moves when Android grants it. Both are excluded by the
-            // decision, whether or not it has been carried out.
+            // Being asked for the bin and being in it are not two cases
+            // but one, in two moments: the proposal is written at once, the
+            // file moves when Android grants it and the proposal becomes
+            // the truth. Both moments are excluded.
             //
             // Apart from those, one case that really is different: an
             // immovable original handed to Android's bin after its copy was
@@ -153,7 +158,8 @@ class DuplicatesActivity : AppCompatActivity() {
                 .filterNot {
                     FolderTree.isWithin(it.relativePath, ReviewSession.DELETION_STAGING_PATH) ||
                             it.photoId in handedOver ||
-                            decisions[it.photoId]?.status == ReviewStatus.TRASHED
+                            decisions[it.photoId]?.status == ReviewStatus.TRASHED ||
+                            proposed[it.photoId]?.action == Proposal.Action.TRASH
                 }
 
             // What makes one copy worth more than another: whether work has
@@ -319,13 +325,12 @@ class DuplicatesActivity : AppCompatActivity() {
         }
         if (pending.isEmpty()) return
 
-        // Written before the files move, as everywhere else in this app: the
-        // decision is the user's and holds even if Android refuses the move.
-        // Without it a copy would land in the bin marked as nothing, and the
-        // screens that ask "what did you decide about this?" would find no
-        // answer for a photo the user had plainly decided about.
+        // Proposed before the files move, as everywhere else in this app:
+        // the decision is the user's and holds even if Android refuses the
+        // move. It becomes the truth when the copy actually reaches the bin;
+        // until then it waits in the queue like any other request.
         for (move in pending) {
-            stateRepository.record(move.photo, ReviewStatus.TRASHED, null)
+            proposals.propose(move.photo, Proposal.Action.TRASH, null)
         }
 
         try {

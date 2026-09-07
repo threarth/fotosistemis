@@ -4,7 +4,7 @@ import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
-import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.model.Proposal
 import java.util.Calendar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,7 +49,7 @@ class MovePlannerTest {
         val move = MovePlanner.toBin(photo())
 
         assertEquals(ReviewSession.DELETION_STAGING_PATH, move.destinationRelativePath)
-        assertEquals(ReviewStatus.TRASHED, move.status)
+        assertEquals(Proposal.Action.TRASH, move.action)
         assertNull(move.newDisplayName)
     }
 
@@ -69,7 +69,7 @@ class MovePlannerTest {
 
         assertEquals("DCIM/Camera/", move.destinationRelativePath)
         assertEquals("IMG_0001.jpg", move.newDisplayName)
-        assertEquals(ReviewStatus.KEPT, move.status)
+        assertEquals(Proposal.Action.RESTORE, move.action)
     }
 
     @Test
@@ -88,29 +88,34 @@ class MovePlannerTest {
         assertTrue(MovePlanner.isHome(photo(name = STAMPED_NAME), origin))
     }
 
+    private fun proposal(action: Proposal.Action, destinationId: Long? = null) =
+        Proposal(1, action, destinationId, proposedAt = 0)
+
     @Test
-    fun `owed work plans the same move the screen would`() {
-        val filed = MovePlanner.forOwed(photo(), ReviewStatus.CATEGORIZED, family, YEAR_PATTERN, null)
+    fun `a proposal plans the same move the screen would`() {
+        val filed = MovePlanner.plan(
+            photo(), proposal(Proposal.Action.FILE, family.id), family, YEAR_PATTERN, null
+        )
         assertEquals(MovePlanner.toCategory(photo(), family, YEAR_PATTERN), filed)
 
-        val binned = MovePlanner.forOwed(photo(), ReviewStatus.TRASHED, null, YEAR_PATTERN, null)
+        val binned = MovePlanner.plan(photo(), proposal(Proposal.Action.TRASH), null, YEAR_PATTERN, null)
         assertEquals(MovePlanner.toBin(photo()), binned)
     }
 
     @Test
-    fun `owed work that cannot be planned is null rather than wrong`() {
+    fun `a proposal that cannot be planned is null rather than wrong`() {
         assertNull(
             "No category, no move",
-            MovePlanner.forOwed(photo(), ReviewStatus.CATEGORIZED, null, YEAR_PATTERN, null)
+            MovePlanner.plan(photo(), proposal(Proposal.Action.FILE, 99), null, YEAR_PATTERN, null)
         )
         assertNull(
             "No origin, no restore",
-            MovePlanner.forOwed(photo(), ReviewStatus.KEPT, null, YEAR_PATTERN, null)
+            MovePlanner.plan(photo(), proposal(Proposal.Action.RESTORE), null, YEAR_PATTERN, null)
         )
         assertNull(
             "Already home, nothing to restore",
-            MovePlanner.forOwed(
-                photo(), ReviewStatus.KEPT, null, YEAR_PATTERN,
+            MovePlanner.plan(
+                photo(), proposal(Proposal.Action.RESTORE), null, YEAR_PATTERN,
                 PhotoStateRepository.Location("DCIM/Camera/", "IMG_0001.jpg")
             )
         )

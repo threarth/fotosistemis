@@ -1,6 +1,8 @@
 package it.threarth.fotosistemis
 
 import it.threarth.fotosistemis.core.data.Schema
+import it.threarth.fotosistemis.core.model.Proposal
+import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.port.Database
 import org.json.JSONArray
 import org.json.JSONObject
@@ -50,6 +52,16 @@ class BackupRepository(
         const val KEY_YEAR_PATTERN = "yearFolderPattern"
 
         /**
+         * Columns a v10/v11 backup carried on each decision, before the
+         * pending ones were lifted into proposals (schema v12). Read here
+         * only to convert such a file; the schema no longer has them.
+         */
+        const val OBSOLETE_PENDING = "pending"
+        const val OBSOLETE_PREVIOUS_STATUS = "previous_status"
+        const val OBSOLETE_PREVIOUS_DESTINATION_ID = "previous_destination_id"
+        const val PENDING_TRUE = "1"
+
+        /**
          * Tables copied, in an order that reads naturally when inspected.
          *
          * Everything the user has told the app, and nothing the app can
@@ -60,6 +72,7 @@ class BackupRepository(
             Schema.TABLE_PHOTOS,
             Schema.TABLE_DESTINATIONS,
             Schema.TABLE_PHOTO_STATE,
+            Schema.TABLE_PROPOSALS,
             Schema.TABLE_TAGS,
             Schema.TABLE_PHOTO_TAGS,
             Schema.TABLE_PHOTO_PATHS,
@@ -82,16 +95,17 @@ class BackupRepository(
                 Schema.COLUMN_ID, Schema.COLUMN_LABEL, Schema.COLUMN_RELATIVE_PATH,
                 Schema.COLUMN_YEAR_SUBFOLDER, Schema.COLUMN_SORT_ORDER
             ),
-            // Including whether each decision has been carried out: a
-            // backup that dropped it would restore work still owed as
-            // though it had been done, and the files would never move.
-            // And the decision a pending one replaced, so that discarding
-            // after a restore still gives the old decision back.
+            // The truth about each photo, and apart from it what is still
+            // asked: a backup that folded the two together would restore
+            // work still owed as though it had been done, and the files
+            // would never move.
             Schema.TABLE_PHOTO_STATE to listOf(
                 Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STATUS,
-                Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT,
-                Schema.COLUMN_PENDING, Schema.COLUMN_PREVIOUS_STATUS,
-                Schema.COLUMN_PREVIOUS_DESTINATION_ID
+                Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT
+            ),
+            Schema.TABLE_PROPOSALS to listOf(
+                Schema.COLUMN_PHOTO_ID, Schema.COLUMN_ACTION,
+                Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_PROPOSED_AT
             ),
             Schema.TABLE_TAGS to listOf(Schema.COLUMN_ID, Schema.COLUMN_NAME),
             Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_PHOTO_ID, Schema.COLUMN_TAG_ID),
@@ -161,11 +175,14 @@ class BackupRepository(
                 database.execute("DELETE FROM $table")
                 restored += restoreTable(table, document.optJSONArray(table))
             }
-            // A file written before decisions were marked as owed or done
-            // says nothing about which is which. The migration answered
-            // that from where each photograph sits, and the same answer is
-            // asked for here; the default alone would call it all done.
-            if (!carriesPending(document)) Schema.classifyOwedWork(database)
+            // Older files keep the work still owed in other shapes, or not
+            // at all; the same answers the migrations gave are given here.
+            when {
+                document.has(Schema.TABLE_PROPOSALS) -> Unit
+                carriesPending(document) ->
+                    liftPendingDecisions(document.getJSONArray(Schema.TABLE_PHOTO_STATE))
+                else -> Schema.proposeUnfinishedWork(database)
+            }
             restored
         }
 
@@ -174,12 +191,67 @@ class BackupRepository(
         Summary(rows, TABLES.size)
     }
 
-    /** True when the decisions in [document] say whether they were done. */
+    /**
+     * True when the decisions in [document] were written by schema v10 or
+     * v11, which marked each one as done or still pending.
+     */
     private fun carriesPending(document: JSONObject): Boolean {
-        val states = document.optJSONArray(Schema.TABLE_PHOTO_STATE) ?: return true
-        if (states.length() == 0) return true
-        return states.getJSONObject(0).has(Schema.COLUMN_PENDING)
+        val states = document.optJSONArray(Schema.TABLE_PHOTO_STATE) ?: return false
+        if (states.length() == 0) return false
+        return states.getJSONObject(0).has(OBSOLETE_PENDING)
     }
+
+    /**
+     * Turns the pending decisions of a v10/v11 file into proposals, the
+     * way the v12 migration did on the phone.
+     *
+     * The truth-only insert above kept the pending rows as if they were
+     * done; each is put back as what it was: a request, over the decision
+     * it replaced when the file remembers one, over nothing otherwise.
+     */
+    private fun liftPendingDecisions(states: JSONArray) {
+        for (index in 0 until states.length()) {
+            val row = states.getJSONObject(index)
+            if (row.optString(OBSOLETE_PENDING) != PENDING_TRUE) continue
+            val photoId = row.getString(Schema.COLUMN_PHOTO_ID)
+            val outcome = ReviewStatus.fromStoredValue(row.optString(Schema.COLUMN_STATUS))
+            val action = Proposal.Action.entries.firstOrNull { it.outcome == outcome } ?: continue
+
+            database.execute(
+                "INSERT OR REPLACE INTO ${Schema.TABLE_PROPOSALS} " +
+                        "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_ACTION}, " +
+                        "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_PROPOSED_AT}) " +
+                        "VALUES (?, ?, ?, ?)",
+                listOf(
+                    photoId, action.storedValue,
+                    row.nullableString(Schema.COLUMN_DESTINATION_ID),
+                    row.nullableString(Schema.COLUMN_UPDATED_AT)
+                )
+            )
+            restorePreviousTruth(row, photoId)
+        }
+    }
+
+    /** The decision a pending one replaced becomes the truth again, or none does. */
+    private fun restorePreviousTruth(row: JSONObject, photoId: String) {
+        val previous = row.nullableString(OBSOLETE_PREVIOUS_STATUS)
+        if (previous == null) {
+            database.execute(
+                "DELETE FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+                listOf(photoId)
+            )
+            return
+        }
+        database.execute(
+            "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_STATUS} = ?, " +
+                    "${Schema.COLUMN_DESTINATION_ID} = ? WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+            listOf(previous, row.nullableString(OBSOLETE_PREVIOUS_DESTINATION_ID), photoId)
+        )
+    }
+
+    /** The value under [name], or null when the row lacks it or holds JSON null. */
+    private fun JSONObject.nullableString(name: String): String? =
+        if (isNull(name)) null else getString(name)
 
     /** Reads a whole table into JSON objects keyed by column name. */
     private fun dumpTable(table: String): JSONArray {
@@ -196,10 +268,11 @@ class BackupRepository(
     /**
      * Inserts the rows of [values] into [table], returning how many.
      *
-     * Only the columns a row carries are named in its insert. A column the
-     * file predates — `pending` on a decision, say — is then filled by the
+     * Only the columns a row carries, and the schema still has, are named
+     * in its insert. A column the file predates is then filled by the
      * schema's own default rather than by NULL, which the column may well
-     * refuse; and NULL would have been the wrong answer anyway.
+     * refuse; a column the schema has since dropped is read separately,
+     * where its meaning is converted, and not inserted at all.
      */
     private fun restoreTable(table: String, values: JSONArray?): Int {
         if (values == null) return 0

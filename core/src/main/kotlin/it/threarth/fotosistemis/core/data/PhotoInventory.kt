@@ -3,6 +3,7 @@ package it.threarth.fotosistemis.core.data
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.ReviewSession
 import it.threarth.fotosistemis.core.reorg.Reorganizer
@@ -183,7 +184,6 @@ class PhotoInventory(private val database: Database) {
                     "ON s.${Schema.COLUMN_PHOTO_ID} = p.${Schema.COLUMN_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
                     "AND s.${Schema.COLUMN_STATUS} = ? " +
-                    "AND s.${Schema.COLUMN_PENDING} = 0 " +
                     "AND s.${Schema.COLUMN_DESTINATION_ID} IS NOT NULL " +
                     // Said outright rather than left to follow from a photo
                     // in the bin having no category. Reorganising is what
@@ -241,8 +241,8 @@ class PhotoInventory(private val database: Database) {
      * which for a photo that cannot be moved is never an answer at all.
      */
     fun loadPendingTrash(): Result<List<PhotoRecord>> = runCatching {
-        loadOwedWork().getOrThrow()
-            .filter { it.status == ReviewStatus.TRASHED }
+        loadProposed().getOrThrow()
+            .filter { it.proposal.action == Proposal.Action.TRASH }
             .map { it.photo }
     }
 
@@ -348,42 +348,39 @@ class PhotoInventory(private val database: Database) {
         }.toMap()
     }
 
-    /** One decision still owed: the photo, and what was decided about it. */
-    data class OwedWork(
-        val photo: PhotoRecord,
-        val status: ReviewStatus,
-        val destinationId: Long?
-    )
+    /** One proposal still owed, with the photo it is about. */
+    data class Proposed(val photo: PhotoRecord, val proposal: Proposal)
 
     /**
-     * Every decision taken and not yet carried out.
+     * Every proposal, with its photo, for photos still on the phone.
      *
      * The one place that answers "what is still owed", of every kind at
      * once. Deriving it per kind — deletions from one query, filings from
      * another — is how the queue came to show half its contents and the
      * user came to distrust the count.
      */
-    fun loadOwedWork(): Result<List<OwedWork>> = runCatching {
-        val rows = database.query(
-            "SELECT s.${Schema.COLUMN_PHOTO_ID} AS pid, s.${Schema.COLUMN_STATUS} AS status, " +
-                    "s.${Schema.COLUMN_DESTINATION_ID} AS destination " +
-                    "FROM ${Schema.TABLE_PHOTO_STATE} s " +
+    fun loadProposed(): Result<List<Proposed>> = runCatching {
+        val proposals = database.query(
+            "SELECT r.${Schema.COLUMN_PHOTO_ID}, r.${Schema.COLUMN_ACTION}, " +
+                    "r.${Schema.COLUMN_DESTINATION_ID}, r.${Schema.COLUMN_PROPOSED_AT} " +
+                    "FROM ${Schema.TABLE_PROPOSALS} r " +
                     "JOIN ${Schema.TABLE_PHOTOS} p ON p.${Schema.COLUMN_ID} = " +
-                    "s.${Schema.COLUMN_PHOTO_ID} " +
-                    "WHERE s.${Schema.COLUMN_PENDING} = 1 " +
-                    "AND p.${Schema.COLUMN_MISSING_SINCE} IS NULL"
+                    "r.${Schema.COLUMN_PHOTO_ID} " +
+                    "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL"
         ).mapNotNull { row ->
-            val photoId = row.getLong("pid") ?: return@mapNotNull null
-            val status = ReviewStatus.fromStoredValue(row.getString("status"))
+            val photoId = row.getLong(Schema.COLUMN_PHOTO_ID) ?: return@mapNotNull null
+            val action = Proposal.Action.fromStoredValue(row.getString(Schema.COLUMN_ACTION))
                 ?: return@mapNotNull null
-            Triple(photoId, status, row.getLong("destination"))
+            Proposal(
+                photoId, action, row.getLong(Schema.COLUMN_DESTINATION_ID),
+                row.getLong(Schema.COLUMN_PROPOSED_AT) ?: 0L
+            )
         }
-        if (rows.isEmpty()) return@runCatching emptyList()
+        if (proposals.isEmpty()) return@runCatching emptyList()
 
-        val byId = loadRecords(rows.map { it.first }).getOrThrow().associateBy { it.photoId }
-        rows.mapNotNull { (photoId, status, destination) ->
-            byId[photoId]?.let { OwedWork(it, status, destination) }
-        }
+        val byId = loadRecords(proposals.map { it.photoId }).getOrThrow()
+            .associateBy { it.photoId }
+        proposals.mapNotNull { proposal -> byId[proposal.photoId]?.let { Proposed(it, proposal) } }
     }
 
     /** Ids of every photo whose date the user has contradicted. */
@@ -418,10 +415,9 @@ class PhotoInventory(private val database: Database) {
                     "JOIN ${Schema.TABLE_DESTINATIONS} d ON d.${Schema.COLUMN_ID} = " +
                     "s.${Schema.COLUMN_DESTINATION_ID} " +
                     "WHERE p.${Schema.COLUMN_MISSING_SINCE} IS NULL " +
-                    // Carried out only: a decision still owed is work to do,
-                    // not a photo in the wrong place. Mixing the two made
-                    // the check report the queue as if it were damage.
-                    "AND s.${Schema.COLUMN_PENDING} = 0 " +
+                    // Only what the truth says is filed: a proposal still
+                    // owed is work to do, not a photo in the wrong place,
+                    // and it is in the other table.
                     "AND p.${Schema.COLUMN_RELATIVE_PATH} NOT LIKE " +
                     "d.${Schema.COLUMN_RELATIVE_PATH} || '/%' " +
                     // A photo the platform will not let us move was copied
@@ -457,7 +453,11 @@ class PhotoInventory(private val database: Database) {
         originalPhotoId: Long,
         newMediaId: Long,
         relativePath: String,
-        displayName: String
+        displayName: String,
+
+        /** What is true of the copy: it was made to be exactly this. */
+        status: ReviewStatus,
+        destinationId: Long?
     ): Result<Long> = runCatching {
         database.transaction {
             val now = System.currentTimeMillis()
@@ -482,15 +482,15 @@ class PhotoInventory(private val database: Database) {
                 )
             )
 
-            // The same decision, verbatim: the copy is that photograph, and
-            // deciding it again is work the user has already done.
+            // The copy is that photograph, already where the proposal about
+            // the original asked it to be: written as truth from the start,
+            // since deciding it again is work the user has already done.
             database.execute(
                 "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
                         "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
                         "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}) " +
-                        "SELECT ?, ${Schema.COLUMN_STATUS}, ${Schema.COLUMN_DESTINATION_ID}, ? " +
-                        "FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
-                listOf(copyId, now, originalPhotoId)
+                        "VALUES (?, ?, ?, ?)",
+                listOf(copyId, status.storedValue, destinationId, now)
             )
             copyId
         }

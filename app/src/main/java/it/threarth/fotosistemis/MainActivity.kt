@@ -39,6 +39,7 @@ import it.threarth.fotosistemis.core.data.IgnoredRepository
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.data.RatingRepository
 import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
@@ -46,6 +47,7 @@ import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.port.PhotoSource as PhotoSourcePort
 import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.review.PhotoFilter
@@ -152,6 +154,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var inventory: PhotoInventory
     private lateinit var stateRepository: PhotoStateRepository
+    private lateinit var proposalRepository: ProposalRepository
     private lateinit var tagRepository: TagRepository
     private lateinit var destinationRepository: DestinationRepository
     private lateinit var mover: BatchMover
@@ -391,6 +394,7 @@ class MainActivity : AppCompatActivity() {
         photoSource = MediaStorePhotoSource(this)
         inventory = PhotoInventory(database)
         stateRepository = PhotoStateRepository(database)
+        proposalRepository = ProposalRepository(database, stateRepository)
         ratings = RatingRepository(database)
         tagRepository = TagRepository(database)
         destinationRepository = DestinationRepository(database)
@@ -398,7 +402,9 @@ class MainActivity : AppCompatActivity() {
         systemBin = SystemBinHandover(this, photoSource, stateRepository) {
             refreshFolders()
         }
-        session = ReviewSession(stateRepository, tagRepository) { settings.yearFolderPattern }
+        session = ReviewSession(stateRepository, proposalRepository, tagRepository) {
+            settings.yearFolderPattern
+        }
 
         buildScopeSpinner()
         wireActions()
@@ -974,9 +980,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Photo ids sitting directly in [folder] that nobody has decided about. */
+    /** Photo ids sitting directly in [folder] that nobody has decided about, or asked anything of. */
     private fun undecidedIn(folder: String): List<Long> {
-        val decided = stateRepository.loadAll().getOrElse { emptyMap() }.keys
+        val decided = stateRepository.loadAll().getOrElse { emptyMap() }.keys +
+                proposalRepository.loadAll().getOrElse { emptyMap() }.keys
 
         return inventory.loadForAdoption().getOrElse { emptyList() }
             .filter { it.relativePath.trim('/').equals(folder, ignoreCase = true) }
@@ -1039,8 +1046,8 @@ class MainActivity : AppCompatActivity() {
             val photos = inventory.loadRecords(photoIds).getOrElse { emptyList() }
             val filed = stateRepository
                 // The photos are already in that folder: naming it a
-                // category moves nothing, so nothing is owed.
-                .recordAll(photos, ReviewStatus.CATEGORIZED, destinationId, pending = false)
+                // category moves nothing, so it is true as it is said.
+                .recordAll(photos, ReviewStatus.CATEGORIZED, destinationId)
                 .getOrElse { 0 }
 
             runOnUiThread {
@@ -1086,7 +1093,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun undoFiling(photoIds: List<Long>, createdCategory: Boolean, label: String) {
         thread {
-            val forgotten = stateRepository.forgetAll(photoIds).map { it.count }.getOrElse { 0 }
+            val forgotten = stateRepository.forgetAll(photoIds).getOrElse { 0 }
             if (createdCategory) {
                 destinationRepository.loadAll().getOrElse { emptyList() }
                     .firstOrNull { it.label == label }
@@ -1223,7 +1230,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshWaitingCount() {
         thread {
-            val owed = inventory.loadOwedWork().getOrElse { emptyList() }.size
+            val owed = inventory.loadProposed().getOrElse { emptyList() }.size
             runOnUiThread {
                 findViewById<Button>(R.id.drawerQueueButton).text =
                     getString(R.string.action_queue, owed)
@@ -1822,11 +1829,12 @@ class MainActivity : AppCompatActivity() {
             val photos = photoSource.listPhotos(null)
                 .mapCatching { inventory.reconcile(it).getOrThrow().first }
             val states = stateRepository.loadAll()
+            val proposals = proposalRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()
             runOnUiThread {
                 if (generation != loadGeneration) return@runOnUiThread
-                onLoaded(filter, photos, states, tags, origins)
+                onLoaded(filter, photos, states, proposals, tags, origins)
             }
         }
     }
@@ -1836,6 +1844,7 @@ class MainActivity : AppCompatActivity() {
         filter: PhotoFilter,
         photos: Result<List<PhotoRecord>>,
         states: Result<Map<Long, PhotoStateRepository.StoredState>>,
+        proposals: Result<Map<Long, Proposal>>,
         tags: Result<Map<Long, List<String>>>,
         origins: Result<Map<Long, PhotoStateRepository.Location>>
     ) {
@@ -1850,14 +1859,17 @@ class MainActivity : AppCompatActivity() {
                 branches.any { FolderTree.isWithin(photo.relativePath, it) }
             }
         val loadedStates = states.getOrElse { return showError(it) }
+        val loadedProposals = proposals.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
         // Kept so the periods can be redrawn after a decision without
-        // reading the whole archive again.
+        // reading the whole archive again. A photo is shown as what is
+        // asked of it, or failing that as what has happened to it.
         loadedForPeriods = loadedPhotos
         decidedInSession.clear()
         loadedStates.forEach { (id, state) -> decidedInSession[id] = state.status }
+        loadedProposals.forEach { (id, proposal) -> decidedInSession[id] = proposal.shownStatus }
 
         showCascadeCaption(loadedPhotos.size)
         rebuildPeriodSpinner(loadedForPeriods, decidedInSession)
@@ -1869,7 +1881,7 @@ class MainActivity : AppCompatActivity() {
         // empties the screen and leaves no way to take anything back out.
         val visible =
             if (workingInBin()) inPeriod
-            else inPeriod.filter { filter.accepts(loadedStates[it.photoId]?.status) }
+            else inPeriod.filter { filter.accepts(decidedInSession[it.photoId]) }
 
         ratingByPhoto = ratings.loadAll().getOrElse { emptyMap() }
         takeFingerprints()
@@ -1878,7 +1890,9 @@ class MainActivity : AppCompatActivity() {
         // What "apply" covers is the period and the folders, whatever the
         // state filter hides: the photos just decided have left the screen,
         // and they are exactly the ones waiting to be moved.
-        session.load(visible, loadedStates, loadedTags, loadedOrigins, scope = inPeriod)
+        session.load(
+            visible, loadedStates, loadedProposals, loadedTags, loadedOrigins, scope = inPeriod
+        )
         render()
         if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
     }
@@ -1950,7 +1964,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Notes the new state and redraws the periods it changed. */
     private fun rememberDecision(photoId: Long) {
-        val status = session.statusOf(photoId)
+        val status = session.shownStatus(photoId)
         if (status == null) decidedInSession.remove(photoId)
         else decidedInSession[photoId] = status
 
@@ -2256,7 +2270,7 @@ class MainActivity : AppCompatActivity() {
         thread {
             val result = mover.applyAll(plan)
             val applied = plan.filterNot { it in result.failed }
-            session.commitRestores(applied)
+            session.noteRestored(applied)
             runOnUiThread {
                 setBusy(false)
                 toast(getString(R.string.restore_done, result.succeeded))
@@ -2656,9 +2670,10 @@ class MainActivity : AppCompatActivity() {
     /**
      * Empties the queue after saying what that costs.
      *
-     * Photos queued for a category or for deletion go back to unseen; those
-     * merely kept stay kept, because keeping is a decision already made and
-     * nothing was going to be written for it anyway.
+     * Every request in hand is withdrawn, and the photos go on being what
+     * the archive says they are: never seen, filed, in the bin. Those
+     * merely kept stay kept, because keeping is a decision already made
+     * and nothing was going to be written for it anyway.
      */
     private fun confirmDiscardQueue() {
         val queued = session.pendingCount
