@@ -87,8 +87,15 @@ quelle con una `previous_status` tornano alla precedente, le altre spariscono.
 Poi `photo_state` viene ricostruita con le sole quattro colonne. Sempre, da
 qualunque versione, `proposeUnfinishedWork`: ogni verita' il cui file non e'
 dove la verita' dice diventa una proposta — catalogata ma fuori dalla cartella,
-eliminata ma fuori dal cestino, tenuta ma dentro il cestino (stesse esclusioni
-della v10: le copie WhatsApp e il cestino di Android). Idempotente.
+eliminata ma fuori dal cestino, tenuta ma dentro il cestino (esclusioni: le
+copie WhatsApp in categoria e le consegne al cestino di Android). Idempotente.
+
+La v13 (7 settembre, sera) ha tolto l'esclusione "copiata nel cestino app":
+sul telefono c'erano 7 WhatsApp del 5 settembre "eliminate" sulla carta,
+copiate nel cestino app, cestino poi svuotato, originali ancora nella cartella
+WhatsApp. Per una WhatsApp la copia nel cestino era la strada sbagliata; ora
+tornano in Coda e vanno al cestino Android col consenso. `migrateToVersion13`
+rilancia `proposeUnfinishedWork`.
 
 La Coda mostra anche le proposte che non si possono eseguire (categoria
 cancellata, origine sconosciuta, foto gia' al suo posto), con il motivo: si
@@ -100,9 +107,10 @@ convertito all'import allo stesso modo; un file pre-v10 passa da
 
 ### Da provare sul telefono
 
-- La migrazione: contare le proposte dopo l'apertura e confrontarle con le
-  arretrate note. Se ne mancano, il criterio di `proposeUnfinishedWork` va
-  rivisto, non la tabella.
+- ~~La migrazione: contare le proposte dopo l'apertura~~ Fatto il 7 settembre:
+  14 proposte, tutte le `pending` v11 (WhatsApp da eliminare mai consegnate),
+  nessuna dal criterio. Verita' controllate contro il filesystem: coerenti,
+  salvo le 7 sopra. La v13 deve mostrarne 7 in Coda all'apertura.
 - Scartare dalla principale e dalla Coda: le foto devono tornare com'erano.
 - Tieni su una foto gia' in categoria: deve restare in categoria e l'Annulla
   non deve comparire.

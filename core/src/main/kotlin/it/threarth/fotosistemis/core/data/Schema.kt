@@ -26,8 +26,10 @@ object Schema {
      * v7 lets a photo be rated without deciding anything else about it.
      * v10 tells decisions taken from decisions carried out.
      * v11 keeps the carried-out decision a pending one replaced.
+     * v12 separates what is asked of a photo from what is true of it.
+     * v13 no longer takes a copy made into the bin for a deletion done.
      */
-    const val VERSION = 12
+    const val VERSION = 13
 
     const val TABLE_PHOTOS = "photos"
 
@@ -327,6 +329,17 @@ object Schema {
         if (oldVersion < 8) migrateToVersion8(database)
         // v9 added a table, and createTables above has already made it.
         if (oldVersion < 12) migrateToVersion12(database)
+        if (oldVersion < 13) migrateToVersion13(database)
+    }
+
+    /**
+     * v13 asks the classification again with a stricter rule for deletions.
+     *
+     * The rule is re-runnable, so asking twice costs nothing and finds
+     * only what the v12 rule had let through.
+     */
+    private fun migrateToVersion13(database: Database) {
+        proposeUnfinishedWork(database)
     }
 
     /** v8 lets the user contradict a photo's recorded date. */
@@ -453,7 +466,18 @@ object Schema {
         convertToProposals(database, unfinished, "file")
     }
 
-    /** Thrown away, but neither in our bin nor handed to Android's. */
+    /**
+     * Thrown away, but neither in our bin nor handed to Android's.
+     *
+     * A copy made into the bin does not count as done (v13; v12 had let it).
+     * The only photos that ever reached the bin by copy are the ones the
+     * platform will not let us move, WhatsApp's, and for those a copy in
+     * the bin is the wrong outcome: the original still sits in its folder
+     * taking the room, and the bin is emptied sooner or later. Seven such
+     * photos were found "deleted" on paper and present on the phone. The
+     * proposal this makes hands the original to Android's bin, which is
+     * where a deleted WhatsApp photo goes.
+     */
     private fun proposeUnfinishedDeletions(database: Database) {
         val unfinished = "SELECT s.$COLUMN_PHOTO_ID FROM $TABLE_PHOTO_STATE s " +
                 "WHERE s.$COLUMN_STATUS = 'trashed' " +
@@ -463,13 +487,7 @@ object Schema {
                 "AND p.$COLUMN_RELATIVE_PATH NOT LIKE '$BIN_PATH%') " +
                 "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp " +
                 "WHERE pp.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
-                "AND pp.$COLUMN_KIND = 'system_bin') " +
-                // Nor copied into the bin, which is how photos that could
-                // not be moved used to get there.
-                "AND NOT EXISTS (SELECT 1 FROM $TABLE_PHOTO_PATHS pp2 " +
-                "WHERE pp2.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
-                "AND pp2.$COLUMN_KIND = 'moved' " +
-                "AND pp2.$COLUMN_PATH LIKE '$BIN_PATH%')"
+                "AND pp.$COLUMN_KIND = 'system_bin')"
         convertToProposals(database, unfinished, "trash")
     }
 
