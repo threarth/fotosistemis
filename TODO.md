@@ -151,116 +151,78 @@ Tutto il giro fatto con la v13 installata:
 - Il piano completo e' in `PIANO-PROPOSTE.md`; `PIANO-SPOOL.md` resta come
   registro delle alternative valutate per la v10.
 
-## Fase 3 — funzionalità richieste, non ancora scritte
+## Fase 3 — funzionalità richieste
 
-**Niente di questa fase si scrive prima di aver fatto il giro di controllo sul
-dispositivo, in cima a questo file.** Le verifiche che contiene decidono come
-vanno scritte piu' di una di queste voci, e scriverle prima significa doverle
-rifare.
+Rivista voce per voce contro il codice il 7 settembre 2026: quasi tutto era
+gia' stato scritto, spesso in una forma diversa da quella immaginata qui.
+Restano aperte due voci in fondo.
 
-- [ ] **Anteprima con checkbox prima di Applica.** Una sezione per le foto
-      che vanno in eliminazione, una per quelle che si spostano, ogni voce
-      con una casella per escluderla. Escludere annulla la transazione per
-      quella foto e la riporta a *mantenuta*.
-      Metà del lavoro è fatta: `PhotoPreviewActivity` esiste ed è stata
-      scritta per essere riusata qui.
-- [ ] **Rinomina delle cartelle** con riallineamento del database.
-      Assorbita dalla riorganizzazione del filesystem, sezione qui sotto:
-      è lo stesso motore, perché per MediaStore rinominare una cartella
-      significa riscrivere il percorso di ogni foto che contiene, e la
-      cartella vuota può restare.
-- [ ] **Controlla integrità del database.** Verifica che le foto stiano dove
-      l'ultimo percorso registrato dice, e ripara: le righe il cui `media_id`
-      non risolve più vanno riagganciate tramite il riconoscimento a cascata.
-- [ ] **Avanzamento della riconciliazione.** Fatto a meta': la riga di stato
-      ora dice cosa sta facendo e un avviso riporta il risultato. Manca un
-      avanzamento vero — su 24.000 foto resta un'attesa lunga con un numero
-      solo all'inizio e uno alla fine.
-- [ ] **Leggere l'EXIF direttamente**, con `ExifInterface`, invece di fidarsi
-      di `datetaken`. MediaStore restituisce `NULL` anche su file che l'EXIF
-      ce l'hanno: sulle WhatsApp fino a fine 2024 l'ora vera è dentro il file,
-      e recuperarla trasformerebbe qualche migliaio di `_000000__` nell'orario
-      giusto. Il timbro si aggiornerebbe da solo, perché l'EXIF batte il nome
-      file nell'ordine di fiducia.
-- [ ] **Backup automatico**, almeno settimanale.
-- [ ] **Cartella madre** che precompila il percorso di una nuova
-      destinazione.
-- [ ] **Percorso precompilato** con il modello scelto.
-- [ ] **Pagina di aiuto.** Serve più di quanto sembri: cinque comportamenti
-      non si deducono guardando l'app, in particolare che *Da eliminare* non
-      elimina, e che senza svuotare da Google Foto la copia nel cloud resta.
-- [ ] **Ricerca duplicati, di due tipi diversi.**
-
-      *Copie identiche* — lo schema è già pronto: `size_bytes`, `date_taken`,
-      `width`, `height` bastano per una query, e `content_hash` esiste ed è
-      vuoto, da riempire solo sulle candidate incerte.
+- [x] **Anteprima prima di Applica.** Fatta come `QueueActivity`: le due
+      meta' (da eliminare, da spostare), ogni foto visibile, *Annulla* sulle
+      scelte e *Annulla tutte*. Niente caselle: annullare riporta la foto
+      alla decisione di prima, che e' cio' che la casella avrebbe fatto.
+- [x] **Rinomina delle cartelle.** Assorbita da `ReorganizeActivity`, come
+      previsto: si rinomina la categoria, e il motore riscrive percorso e
+      nome di ogni foto.
+- [x] **Controlla integrità del database.** Coperta in due pezzi: i
+      controlli *non catalogate in categoria* e *catalogate fuori posto*
+      (`CheckActivity`) verificano che le foto stiano dove l'inventario
+      dice; il riaggancio dei `media_id` morti lo fa gia' la riconciliazione
+      a cascata, forzabile con *Ricostruisci l'inventario*. Un pulsante
+      unico "controlla e ripara" non e' stato fatto di proposito: ogni
+      controllo deve dire dove guarda e mostrare le foto prima di toccarle,
+      e un pulsante unico lo nasconderebbe.
+- [x] **Avanzamento della riconciliazione.** `ScanProgress`: barra
+      determinata dove il totale e' noto, che gira dove non lo e'.
+- ~~**Leggere l'EXIF direttamente**~~ Cancellata il 7 settembre 2026: la
+      premessa era sbagliata. Verificato sul telefono leggendo le intestazioni
+      dei file: le WhatsApp fino al 2023 hanno l'EXIF e l'indice ne ha gia'
+      la data (6.870 foto, `date_source = EXIF`); quelle da meta' 2024 in poi
+      non hanno nessun segmento EXIF — WhatsApp le spoglia dei metadati prima
+      di salvarle (6.976 foto, taglio netto a luglio 2024). Non c'e' niente
+      da leggere: per le recenti l'unica data e' quella nel nome, il giorno
+      di ricezione, che e' quella gia' usata.
+- [x] **Backup automatico.** `FotosistemisBackupAgent`, con l'interruttore
+      *Backup su account Google*: e' Android a decidere quando, di solito
+      una volta al giorno. Resta da ripulire `backup_rules.xml`, che e'
+      ancora il file di esempio commentato — funziona (senza regole entra
+      tutto), ma non dice niente.
+- [x] **Cartella madre** — `settings.destinationRoot`, pulsante in
+      `DestinationsActivity`.
+- [x] **Percorso precompilato** — una nuova categoria parte da
+      `destinationRoot + "/"`, con l'esempio del modello sotto.
+- [x] **Pagina di aiuto.** `HelpActivity`, 7 settembre 2026: prima voce del
+      menu, diciotto sezioni, tutto in `strings.xml`. Apre con le tre cose
+      che non si deducono dall'app: non cancella mai, le decisioni stanno
+      nell'inventario, niente rete.
+- [x] **Ricerca duplicati, copie identiche.** `DuplicateFinder` +
+      `DuplicatesActivity`: prima le dimensioni, poi i byte solo dove
+      coincidono, impronte calcolate a lotti di 40 in sottofondo.
+- [ ] **Ricerca duplicati, copie ricompresse.**
 
       *Copie ricompresse* — la foto scattata col telefono e poi mandata su
       WhatsApp: stessa immagine, byte diversi, dimensione diversa, hash
-      diverso. Nessun confronto esatto la prende. Il timbro nel nome porta
-      ora `_from_whatsapp`, quindi la ricerca può partire di lì: per ogni
-      categoria, prendere le foto marcate come venute da WhatsApp e cercare
-      le candidate **fra le altre della stessa categoria**, che è un insieme
-      piccolo. Il confronto vero richiede un'impronta percettiva (tipo pHash)
+      diverso. Nessun confronto esatto la prende. La provenienza da WhatsApp
+      si ricava dal percorso d'origine in `photo_paths` (nessun marcatore
+      `_from_whatsapp` nel nome: non e' mai stato scritto), quindi la
+      ricerca può partire di lì: per ogni categoria, prendere le foto venute
+      da WhatsApp e cercare le candidate **fra le altre della stessa
+      categoria**, che è un insieme piccolo. Il confronto vero richiede un'impronta percettiva (tipo pHash)
       che riconosca la stessa immagine ridimensionata: fattibile senza
       dipendenze, ma è un lavoro a sé.
 
-## Riorganizzazione del filesystem — piano approvato, non ancora scritto
+## Riorganizzazione del filesystem — scritta
 
-Il layout su disco è una proiezione del database, non uno stato da custodire:
-avendo foto, percorsi, nomi e date in `photos`, la disposizione si ricalcola
-quando serve. Da qui una voce di menu **Riorganizza sul filesystem**, che
-mostra la situazione e permette, per ogni categoria, di rinominarla, di
-scegliere fra file piatti e sottocartelle per anno, e di riscrivere i nomi
-con un prefisso di data.
+Il piano approvato qui e' stato eseguito: `core/reorg/FileNamer.kt`,
+`core/reorg/Reorganizer.kt`, `Source.ESTIMATED`, `DISPLAY_NAME` scritto nella
+stessa `update` del percorso, `createWriteRequest` a blocchi
+(`MAX_FILES_PER_CONSENT`), `ReorganizeActivity`, `FileNamerTest` e
+`ReorganizerTest`. Il comportamento e' documentato in *Decisioni prese*.
 
-Il bisogno è concreto: la galleria di Android genera un album per cartella, e
-le sottocartelle per anno moltiplicano gli album fino a rendere l'archivio
-ingestibile. Appiattendo però si perde l'ordine, perché il nome originale
-ordina per dispositivo e non per tempo — `PXL_2024…` finisce prima di
-`Screenshot_2018…`. Il prefisso restituisce l'ordine che la cartella dava.
-
-### Prerequisiti
-
-L'adozione delle foto già ordinate deve essere girata sul telefono: se il
-database non rispecchia il disco, la riorganizzazione lavora su una mappa
-sbagliata. Servono anche le due misure ai punti 6 e 7 in cima a questo file.
-
-### File toccati
-
-| file | modifica |
-| --- | --- |
-| `core/model/CaptureDateResolver.kt` | nuovo `Source.ESTIMATED`; `readOwnPrefix()` che legge il marcatore e distingue la tilde; ordine di qualità delle sorgenti |
-| `core/data/Schema.kt` | **v6**: `original_display_name` su `photos`, con `ALTER TABLE ADD COLUMN` sotto `hasColumn()` come le migrazioni esistenti |
-| `core/data/PhotoInventory.kt` | in `update()`, mai sostituire una data con una di qualità inferiore; scrivere `original_display_name` una volta sola, prima della prima rinomina |
-| `core/reorg/FileNamer.kt` *(nuovo)* | `strip()` e `apply()` del marcatore, contatore per i pari-secondo, troncamento del gambo oltre 255 byte |
-| `core/reorg/Reorganizer.kt` *(nuovo)* | stato attuale più scelte per categoria, in uscita la lista degli spostamenti con percorso **e** nome. Nessun I/O |
-| `app/MediaStorePhotoSource.kt` | `DISPLAY_NAME` accanto a `RELATIVE_PATH`, nella stessa `update` |
-| `app/BatchMover.kt` | `createWriteRequest` a blocchi: il binder non regge migliaia di URI in una chiamata sola |
-| `app/ReorganizeActivity.kt` *(nuovo)* | schermata, layout e stringhe |
-| test | `FileNamerTest`, `ReorganizerTest`, più casi in `CaptureDateResolverTest` per marcatore, tilde e non regressione |
-
-L'enum è salvato per `.name` e riletto con `firstOrNull { it.name == ... }`:
-aggiungere un valore non invalida le righe esistenti.
-
-### La schermata
-
-Una riga per categoria — nome, numero di foto, disposizione attuale, percorso
-d'esempio — e per ciascuna rinomina, piatto o per anno, prefisso sì o no.
-
-Prima di applicare, un riepilogo: quante foto si spostano, quante si
-rinominano, la ripartizione per `date_source` riusando `describeSources`,
-quante prendono la tilde, e i grappoli. Un grappolo è un gruppo di foto che
-condividono lo stesso giorno in `FILE_TIMESTAMP`: quattrocento foto con la
-stessa data non sono una giornata di scatti, sono un'importazione, e vanno
-riconosciute come tale prima di scriverne la data nel nome. Poi *Guarda le
-foto*, poi *Applica*.
-
-### Quello che il piano non fa
-
-Non indovina le date sbagliate: le congela e le segnala. Correggerle — a mano,
-o deducendole dall'anno della cartella, che è pur sempre un'affermazione umana
-— è lavoro successivo.
+Unica differenza dal piano: la colonna `original_display_name` non e' mai
+stata aggiunta. Il nome originale si recupera togliendo il timbro
+(`CaptureDateResolver.stripStamp`) e, per il ripristino, dalla storia dei
+percorsi in `photo_paths`, che tiene anche il nome.
 
 ## Com'è fatto l'archivio, misurato il 31 agosto 2026
 
@@ -286,10 +248,12 @@ WhatsApp.
 `categoria/anno-categoria`. `storage-0` sono 1.350 foto in cartelle a evento
 senza livello anno: non sono adottabili, vanno riviste una a una.
 
-**Le foto WhatsApp hanno perso l'EXIF verso fine 2024**, ma quelle precedenti
-ce l'hanno ancora, con l'ora esatta. Verificato su dieci foto sparse su otto
-anni. **MediaStore però restituisce `datetaken=NULL` anche per quelle**, quindi
-l'app cade sul nome file e ottiene il giorno giusto con ora `00:00:00`.
+**Le foto WhatsApp hanno perso l'EXIF a luglio 2024**, ma quelle precedenti
+ce l'hanno ancora, con l'ora esatta. *Corretto il 7 settembre 2026 leggendo
+le intestazioni di tutti i file: il taglio e' netto a luglio 2024, non "fine
+2024".* Allora MediaStore restituiva `datetaken=NULL` anche per quelle e l'app
+cadeva sul nome file; dal 4 settembre l'inventario legge l'EXIF da solo e le
+6.870 foto fino al 2023 hanno la loro ora vera (`date_source = EXIF`).
 
 **Tutte le WhatsApp hanno `date_modified` del 31 luglio 2026**, dentro una
 finestra di dieci ore: è il trasferimento. Se il nome file si perdesse, quelle
@@ -436,10 +400,10 @@ un'interruzione a meta' puo' rovinare la fotografia. Sarebbe l'unica
 operazione dell'app capace di distruggerne una: oggi non sa nemmeno
 cancellarle.
 
-Sull'archivio vero non servirebbe comunque. Delle 15.609 foto WhatsApp, 8.869
-sono anteriori a ottobre 2024 e l'EXIF **ce l'hanno gia', con l'ora vera**: e'
-MediaStore a non indicizzarlo, quindi li' il lavoro e' leggere, non scrivere.
-Le 6.739 successive non hanno EXIF e il nome da' solo il giorno: scriverlo
+Sull'archivio vero non servirebbe comunque. Delle foto WhatsApp, quelle fino
+a giugno 2024 l'EXIF **ce l'hanno gia', con l'ora vera**, e dal 4 settembre
+l'inventario lo legge da solo (6.870 con `date_source = EXIF`). Le 6.976
+successive non hanno EXIF e il nome da' solo il giorno: scriverlo
 significherebbe mettere un `00:00:00` inventato nel campo che ogni altra app
 tratta come verita'. Nel nome del file quello stesso `000000` e' tollerabile,
 perche' un nome e' dichiaratamente un'etichetta; nell'EXIF sarebbe

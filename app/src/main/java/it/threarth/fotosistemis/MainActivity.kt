@@ -535,6 +535,7 @@ class MainActivity : AppCompatActivity() {
                 azione()
             }
         }
+        voce(R.id.drawerHelpButton) { startActivity(Intent(this, HelpActivity::class.java)) }
         voce(R.id.drawerSourceButton) { editSourceRoots() }
         voce(R.id.drawerOutputButton) {
             startActivity(Intent(this, DestinationsActivity::class.java))

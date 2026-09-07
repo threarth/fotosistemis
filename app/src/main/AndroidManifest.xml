@@ -81,6 +81,11 @@
             android:name=".ReorganizeActivity"
             android:exported="false"
             android:label="@string/reorganize_title" />
+
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false"
+            android:label="@string/help_title" />
     </application>
 
 </manifest>
