@@ -1213,15 +1213,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Keeps the queue entry in the drawer honest about how much is waiting. */
+    /**
+     * Keeps the queue entry in the drawer honest about how much is waiting.
+     *
+     * Everything owed, of every kind: the same answer the queue screen
+     * gives, so the number on the button is the number of rows behind it.
+     * It used to add the photos found out of place, which are done rather
+     * than owed, and count nothing that was.
+     */
     private fun refreshWaitingCount() {
         thread {
-            val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
-                .getOrElse { emptyList() }.size
-            val fuoriPosto = inventory.loadMisplaced().getOrElse { emptyList() }.size
+            val owed = inventory.loadOwedWork().getOrElse { emptyList() }.size
             runOnUiThread {
                 findViewById<Button>(R.id.drawerQueueButton).text =
-                    getString(R.string.action_queue, cestino + fuoriPosto)
+                    getString(R.string.action_queue, owed)
             }
         }
     }
@@ -1870,7 +1875,10 @@ class MainActivity : AppCompatActivity() {
         takeFingerprints()
         refreshSuspectDates()
         checkFiledFolders()
-        session.load(visible, loadedStates, loadedTags, loadedOrigins)
+        // What "apply" covers is the period and the folders, whatever the
+        // state filter hides: the photos just decided have left the screen,
+        // and they are exactly the ones waiting to be moved.
+        session.load(visible, loadedStates, loadedTags, loadedOrigins, scope = inPeriod)
         render()
         if (visible.isEmpty()) explainEmptyResult(loadedPhotos, inPeriod.size, period)
     }
@@ -2293,7 +2301,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun markAlreadyHandedOver() {
         thread {
-            val waiting = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+            val waiting = inventory.loadPendingTrash()
                 .getOrElse { emptyList() }
             if (waiting.isEmpty()) return@thread
 
@@ -2425,7 +2433,7 @@ class MainActivity : AppCompatActivity() {
             else R.string.action_date_wrong
         )
         openExternalButton.isEnabled = !busy && hasPhoto
-        undoButton.isEnabled = !busy && session.pendingCount > 0
+        undoButton.isEnabled = !busy && session.canUndo
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {
             destinationActions.getChildAt(index).isEnabled = canDecide
@@ -2696,17 +2704,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Reports the batch and keeps what failed for another attempt.
+     * Reports the batch and reloads, so the queue is read back from what is
+     * still owed.
      *
-     * Everything that fails now is worth retrying: the one failure that was
-     * permanent — a photo in another app's folder — is copied instead of
-     * moved, so it no longer fails at all.
+     * What failed is not kept aside for another attempt: the reload finds
+     * it, still owed, and queues it again. Everything that fails now is
+     * worth retrying: the one failure that was permanent — a photo in
+     * another app's folder — is copied instead of moved, so it no longer
+     * fails at all.
      */
     private fun onMovesApplied(result: BatchMover.BatchResult) {
         setBusy(false)
-        if (result.failed.isEmpty()) {
-            toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
-        } else {
+        // Both kinds end in the same place, for the same reason: the app
+        // cannot move these files, and leaving the original beside its copy
+        // would double the archive instead of ordering it.
+        val toHandOver = result.forSystemBin + result.copiedOriginals
+        reportBatch(result, handedOver = toHandOver.size)
+
+        // Only now, and only if the writing got somewhere. A batch that
+        // failed entirely leaves the user where they were, with the work
+        // still in front of them. A batch made only of photos for Android's
+        // bin got somewhere too: the handover is what those needed.
+        val follow = afterApplying
+        afterApplying = null
+        if (follow != null && (result.succeeded > 0 || toHandOver.isNotEmpty())) follow()
+        if (toHandOver.isNotEmpty()) {
+            systemBin.offer(toHandOver, copied = result.copiedOriginals.size)
+        }
+        refreshFolders()
+    }
+
+    /**
+     * Says what the batch did. A batch that was all photos for Android's
+     * bin moved nothing itself, and "0 moves" would read as a failure when
+     * the consent dialog about to appear is the whole of the work.
+     */
+    private fun reportBatch(result: BatchMover.BatchResult, handedOver: Int) {
+        if (result.failed.isNotEmpty()) {
             toast(
                 getString(
                     R.string.message_partial,
@@ -2715,24 +2749,9 @@ class MainActivity : AppCompatActivity() {
                     result.firstError ?: ""
                 )
             )
+        } else if (result.succeeded > 0 || handedOver == 0) {
+            toast(getString(R.string.message_applied, result.succeeded, result.totalMillis))
         }
-
-        session.retainFailedMoves(result.failed)
-
-        // Only now, and only if the writing got somewhere. A batch that
-        // failed entirely leaves the user where they were, with the work
-        // still in front of them.
-        val follow = afterApplying
-        afterApplying = null
-        if (follow != null && result.succeeded > 0) follow()
-        // Both kinds end in the same place, for the same reason: the app
-        // cannot move these files, and leaving the original beside its copy
-        // would double the archive instead of ordering it.
-        val toHandOver = result.forSystemBin + result.copiedOriginals
-        if (toHandOver.isNotEmpty()) {
-            systemBin.offer(toHandOver, copied = result.copiedOriginals.size)
-        }
-        refreshFolders()
     }
 
     /**

@@ -341,8 +341,24 @@ object Schema {
                         "INTEGER NOT NULL DEFAULT 0"
             )
         }
+        classifyOwedWork(database)
+    }
 
-        // Filed, but not in the folder its category names.
+    /**
+     * Marks as owed every decision the photographs show was never carried
+     * out, by the rules of the v10 migration.
+     *
+     * Public because a backup written before v10 carries decisions with no
+     * such mark, and restoring one has to ask the same question the
+     * migration asked, or the whole backlog comes back as done.
+     */
+    fun classifyOwedWork(database: Database) {
+        markOwedFilings(database)
+        markOwedDeletions(database)
+    }
+
+    /** Filed, but not in the folder its category names. */
+    private fun markOwedFilings(database: Database) {
         database.execute(
             "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
                     "WHERE $COLUMN_STATUS = 'categorized' " +
@@ -366,8 +382,10 @@ object Schema {
                     "AND pp.$COLUMN_KIND = 'moved' " +
                     "AND pp.$COLUMN_PATH LIKE d2.$COLUMN_RELATIVE_PATH || '/%')"
         )
+    }
 
-        // Thrown away, but neither in our bin nor handed to Android's.
+    /** Thrown away, but neither in our bin nor handed to Android's. */
+    private fun markOwedDeletions(database: Database) {
         database.execute(
             "UPDATE $TABLE_PHOTO_STATE SET $COLUMN_PENDING = 1 " +
                     "WHERE $COLUMN_STATUS = 'trashed' " +

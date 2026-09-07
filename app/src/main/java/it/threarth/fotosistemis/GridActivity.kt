@@ -25,6 +25,7 @@ import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
@@ -116,7 +117,11 @@ class GridActivity : AppCompatActivity() {
         destinationRepository = DestinationRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
-        systemBin = SystemBinHandover(this, photoSource, stateRepository) { finish() }
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) {
+            // Handed over or not, the files have moved: the caller re-reads.
+            setResult(RESULT_OK)
+            finish()
+        }
         settings = AppSettings(this)
 
         photos = pendingPhotos
@@ -197,15 +202,18 @@ class GridActivity : AppCompatActivity() {
         return button
     }
 
-    /** Files every chosen tile into [destination], and queues the moves. */
+    /**
+     * Files every chosen tile into [destination], and queues the moves.
+     *
+     * Planned by the same planner as the review screen, so a photo filed
+     * from a tile gets the stamped name it would have got one at a time.
+     */
     private fun fileInto(destination: Destination) {
         forEachSelected { photo ->
-            val target = destination.pathFor(photo.dateTakenMillis, settings.yearFolderPattern)
             stateRepository.record(photo, ReviewStatus.CATEGORIZED, destination.id)
             decided[photo.photoId] = destination.label
-            queued[photo.photoId] = ReviewSession.PendingMove(
-                photo, target, ReviewStatus.CATEGORIZED, destination.id
-            )
+            queued[photo.photoId] =
+                MovePlanner.toCategory(photo, destination, settings.yearFolderPattern)
         }
     }
 
@@ -213,9 +221,7 @@ class GridActivity : AppCompatActivity() {
         forEachSelected { photo ->
             stateRepository.record(photo, ReviewStatus.TRASHED, null)
             decided[photo.photoId] = getString(R.string.grid_trash_label)
-            queued[photo.photoId] = ReviewSession.PendingMove(
-                photo, ReviewSession.DELETION_STAGING_PATH, ReviewStatus.TRASHED, null
-            )
+            queued[photo.photoId] = MovePlanner.toBin(photo)
         }
     }
 

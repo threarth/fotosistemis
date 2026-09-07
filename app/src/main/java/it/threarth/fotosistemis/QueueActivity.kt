@@ -21,16 +21,22 @@ import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
 /**
  * Everything decided and not yet carried out, photo by photo.
  *
- * A decision is written the instant it is taken; carrying it out can fail, be
- * refused, or be lost when a session ends. The two drift apart silently, and
+ * A decision is written the instant it is taken; carrying it out waits for
+ * apply, and can fail or be refused when it comes. Nothing is lost between
+ * the two — the decision is in the database until it is carried out — but
  * a count alone cannot be checked: seeing the pictures is what tells a right
  * decision from a wrong one before either is made permanent.
+ *
+ * Two halves. Deletions on one side; on the other every move into a
+ * folder, which is the filings and also the restores still owed to the
+ * bin's photos, because a restore moves a file just as a filing does.
  */
 class QueueActivity : AppCompatActivity() {
 
@@ -89,16 +95,15 @@ class QueueActivity : AppCompatActivity() {
         load()
     }
 
-    /** Reads both halves of the waiting work and turns them into moves. */
+    /** Reads the waiting work and turns it into moves, split in two. */
     private fun load() {
         progress.startSpinning()
         thread {
-            val cestino = readTrash()
-            val fuoriPosto = readMisplaced()
+            val moves = readOwed()
             runOnUiThread {
                 progress.stop()
-                trash = cestino
-                misplaced = fuoriPosto
+                trash = moves.filter { it.status == ReviewStatus.TRASHED }
+                misplaced = moves.filter { it.status != ReviewStatus.TRASHED }
                 if (trash.isEmpty() && misplaced.isNotEmpty()) showingTrash = false
                 redraw()
             }
@@ -106,46 +111,29 @@ class QueueActivity : AppCompatActivity() {
     }
 
     /**
-     * Deletions still owed: decided, and the file has not moved yet.
-     */
-    private fun readTrash(): List<ReviewSession.PendingMove> = owed()
-        .filter { it.status == ReviewStatus.TRASHED }
-        .map { work ->
-            ReviewSession.PendingMove(
-                photo = work.photo,
-                destinationRelativePath = ReviewSession.DELETION_STAGING_PATH,
-                status = ReviewStatus.TRASHED,
-                destinationId = null
-            )
-        }
-
-    /**
-     * Filings still owed: a category chosen, the file not yet moved.
+     * Everything owed, planned the same way the review screen plans it.
      *
      * Read from what the archive says is owed, not deduced from where each
      * photo happens to be. Deducing it showed only half the queue — the
-     * deletions — and left every filing waiting invisibly.
+     * deletions — and left every filing waiting invisibly. And planned by
+     * the one planner, so a filing carried out from here gets the same
+     * stamped name it would have got from the review screen.
      */
-    private fun readMisplaced(): List<ReviewSession.PendingMove> {
+    private fun readOwed(): List<ReviewSession.PendingMove> {
         val byId: Map<Long, Destination> = destinations.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
+        val origins = stateRepository.loadOriginalPaths().getOrElse { emptyMap() }
 
-        return owed()
-            .filter { it.status == ReviewStatus.CATEGORIZED }
-            .mapNotNull { work ->
-                val destination = byId[work.destinationId] ?: return@mapNotNull null
-                val target = destination.pathFor(
-                    work.photo.dateTakenMillis, settings.yearFolderPattern
-                )
-                ReviewSession.PendingMove(
-                    work.photo, target, ReviewStatus.CATEGORIZED, destination.id
-                )
-            }
+        return inventory.loadOwedWork().getOrElse { emptyList() }.mapNotNull { work ->
+            MovePlanner.forOwed(
+                work.photo,
+                work.status,
+                byId[work.destinationId],
+                settings.yearFolderPattern,
+                origins[work.photo.photoId]
+            )
+        }
     }
-
-    /** Read once per pass: both halves come from the same answer. */
-    private fun owed(): List<PhotoInventory.OwedWork> =
-        inventory.loadOwedWork().getOrElse { emptyList() }
 
     private fun redraw() {
         val shown = if (showingTrash) trash else misplaced
@@ -183,11 +171,14 @@ class QueueActivity : AppCompatActivity() {
             val result = mover.applyAll(moves)
             runOnUiThread {
                 toast(getString(R.string.queue_carried_out, result.succeeded, result.failed.size))
-                // The original of a copy cannot be moved and would leave
-                // the picture on the phone twice: Android's bin is the only
-                // place it can go, and only if the user agrees.
-                if (result.copiedOriginals.isNotEmpty()) {
-                    systemBin.offer(result.copiedOriginals, result.copiedOriginals.size)
+                // Photos the app cannot move: the original of a copy, which
+                // would leave the picture on the phone twice, and a photo
+                // decided against inside another app's folder. Android's
+                // bin is the only place either can go, and only if the user
+                // agrees. Refusing used to leave them owed for ever.
+                val handover = result.forSystemBin + result.copiedOriginals
+                if (handover.isNotEmpty()) {
+                    systemBin.offer(handover, result.copiedOriginals.size)
                 }
                 load()
             }

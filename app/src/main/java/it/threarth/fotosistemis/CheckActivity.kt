@@ -19,6 +19,7 @@ import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
@@ -49,10 +50,15 @@ class CheckActivity : AppCompatActivity() {
         private const val PROGRESS_EVERY = 25
     }
 
-    /** One finding: the photograph, and what would be done about it. */
+    /**
+     * One finding: the photograph, and what would be done about it.
+     *
+     * [move] is set when the remedy moves the file; [destinationId] when it
+     * only records which category the photo already sits in.
+     */
     private data class Finding(
         val photo: PhotoRecord,
-        val destinationPath: String?,
+        val move: ReviewSession.PendingMove?,
         val destinationId: Long?,
         val caption: String
     )
@@ -63,6 +69,7 @@ class CheckActivity : AppCompatActivity() {
     private lateinit var ignored: IgnoredRepository
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var mover: BatchMover
+    private lateinit var systemBin: SystemBinHandover
     private lateinit var settings: AppSettings
 
     private lateinit var check: IgnoredRepository.Check
@@ -91,6 +98,7 @@ class CheckActivity : AppCompatActivity() {
         ignored = IgnoredRepository(database)
         photoSource = MediaStorePhotoSource(this)
         mover = BatchMover(this, photoSource, stateRepository, inventory)
+        systemBin = SystemBinHandover(this, photoSource, stateRepository) { run() }
         settings = AppSettings(this)
 
         check = IgnoredRepository.Check.entries
@@ -175,7 +183,7 @@ class CheckActivity : AppCompatActivity() {
             val folder = holderOf(photo.relativePath, folders) ?: return@mapNotNull null
             Finding(
                 photo = photo,
-                destinationPath = null,
+                move = null,
                 destinationId = folder.id,
                 caption = getString(R.string.check_row_file_under, folder.label)
             )
@@ -198,12 +206,16 @@ class CheckActivity : AppCompatActivity() {
 
         return entries.mapNotNull { entry ->
             val destination = byId[entry.destinationId] ?: return@mapNotNull null
-            val target = destination.pathFor(entry.captureMillis, settings.yearFolderPattern)
+            val photo = records[entry.photoId] ?: return@mapNotNull null
+            // The same plan the review screen would make, stamped name
+            // included: a photo put right by a check must end up exactly
+            // as it would have had it been filed from the start.
+            val move = MovePlanner.toCategory(photo, destination, settings.yearFolderPattern)
+            val target = move.destinationRelativePath
             if (entry.relativePath == target) return@mapNotNull null
             if (target.trim('/') in reached[entry.photoId].orEmpty()) return@mapNotNull null
 
-            val photo = records[entry.photoId] ?: return@mapNotNull null
-            Finding(photo, target, destination.id, getString(R.string.move_to, target))
+            Finding(photo, move, destination.id, getString(R.string.move_to, target))
         }
     }
 
@@ -330,12 +342,7 @@ class CheckActivity : AppCompatActivity() {
 
     /** Moving files needs the system's permission, whoever asked for it. */
     private fun askConsent() {
-        pending = findings.mapNotNull { finding ->
-            val target = finding.destinationPath ?: return@mapNotNull null
-            ReviewSession.PendingMove(
-                finding.photo, target, ReviewStatus.CATEGORIZED, finding.destinationId
-            )
-        }
+        pending = findings.mapNotNull { it.move }
         if (pending.isEmpty()) return
 
         try {
@@ -357,7 +364,14 @@ class CheckActivity : AppCompatActivity() {
             runOnUiThread {
                 setBusy(false)
                 toast(getString(R.string.check_applied, result.succeeded, result.failed.size))
-                run()
+                // A photo the app could only copy leaves its original
+                // behind, and that has nowhere to go but Android's bin.
+                val handover = result.forSystemBin + result.copiedOriginals
+                if (handover.isNotEmpty()) {
+                    systemBin.offer(handover, result.copiedOriginals.size)
+                } else {
+                    run()
+                }
             }
         }
     }

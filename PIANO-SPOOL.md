@@ -1,6 +1,6 @@
 # Piano: le decisioni non ancora eseguite
 
-Stato: **proposta, non implementata.** Da approvare prima di scrivere codice.
+Stato: **implementato** (schema v10, colonna `pending` — la strada B con `pending` al posto di `applied_at`, come deciso). Applicare in parti scritto il 7 settembre 2026. Lo stato del lavoro e cio' che resta da provare sono in `TODO.md`; questo file resta come registro delle alternative valutate.
 
 ## Il problema
 

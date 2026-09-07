@@ -28,6 +28,7 @@ import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.port.PhotoSource
 import it.threarth.fotosistemis.core.review.FolderTree
+import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
 
@@ -314,11 +315,7 @@ class DuplicatesActivity : AppCompatActivity() {
             group.copies
                 .filter { it.photoId != keeping[index] }
                 .mapNotNull { byId[it.photoId] }
-                .map { photo ->
-                    ReviewSession.PendingMove(
-                        photo, ReviewSession.DELETION_STAGING_PATH, ReviewStatus.TRASHED, null
-                    )
-                }
+                .map { MovePlanner.toBin(it) }
         }
         if (pending.isEmpty()) return
 

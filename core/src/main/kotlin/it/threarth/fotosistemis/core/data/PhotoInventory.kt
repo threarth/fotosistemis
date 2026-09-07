@@ -240,9 +240,7 @@ class PhotoInventory(private val database: Database) {
      * this one used to be deduced from where the photo happened to be —
      * which for a photo that cannot be moved is never an answer at all.
      */
-    fun loadPendingTrash(
-        @Suppress("UNUSED_PARAMETER") stagingPath: String = ""
-    ): Result<List<PhotoRecord>> = runCatching {
+    fun loadPendingTrash(): Result<List<PhotoRecord>> = runCatching {
         loadOwedWork().getOrThrow()
             .filter { it.status == ReviewStatus.TRASHED }
             .map { it.photo }

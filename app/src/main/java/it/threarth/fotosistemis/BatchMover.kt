@@ -3,7 +3,6 @@ package it.threarth.fotosistemis
 import android.content.Context
 import android.content.IntentSender
 import android.provider.MediaStore
-import android.net.Uri
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.ReviewStatus
@@ -42,13 +41,6 @@ class BatchMover(
         val totalMillis: Long,
         val firstError: String?,
 
-        /**
-         * Originals of photos that were copied instead of moved.
-         *
-         * They still exist, holding the same picture twice. Removing them is
-         * a deletion, which is the user's to allow, so they are handed back
-         * rather than dealt with here.
-         */
         /**
          * Photos that had to be copied, whose originals are still there.
          *
@@ -99,60 +91,23 @@ class BatchMover(
         var succeeded = 0
         val failed = ArrayList<ReviewSession.PendingMove>()
         var firstError: String? = null
-
-        val startedAt = System.currentTimeMillis()
         val originals = ArrayList<ReviewSession.PendingMove>()
         val toSystemBin = ArrayList<ReviewSession.PendingMove>()
+
+        val startedAt = System.currentTimeMillis()
         for (move in moves) {
-            // A photo the platform will not let us move, decided against:
-            // copying it into our own bin would leave the picture on the
-            // phone twice, and the original is the one that takes the room.
-            // Android's own bin is the only place it can go, so it is handed
-            // over — and the user is told it is a different bin, with a
-            // different rule, that empties itself.
-            if (PhotoSource.isImmovable(move.photo.relativePath) &&
-                move.status == ReviewStatus.TRASHED
-            ) {
-                toSystemBin.add(move)
-                continue
-            }
-
-            // Where the platform forbids a move and the photo is being
-            // filed, copy: the boundary is not crossed, a new file is
-            // simply written on this side of it.
-            if (PhotoSource.isImmovable(move.photo.relativePath)) {
-                copyOne(move).fold(
-                    onSuccess = { succeeded++; originals.add(move) },
-                    onFailure = { error ->
-                        failed.add(move)
-                        if (firstError == null) firstError = describe(move, error)
-                    }
-                )
-                continue
-            }
-
-            photoSource.move(
-                move.photo,
-                move.destinationRelativePath,
-                move.newDisplayName
-            ).fold(
-                onSuccess = {
+            when (val outcome = applyOne(move)) {
+                Outcome.MOVED -> succeeded++
+                Outcome.COPIED -> {
                     succeeded++
-                    val name = move.newDisplayName ?: move.photo.displayName
-                    // One transaction for the three facts this produces:
-                    // where the photo now is, that it went there, and that
-                    // the work is no longer owed. Written apart, a death
-                    // between them leaves a photo called filed whose folder
-                    // was never updated.
-                    stateRepository.markCarriedOut(
-                        move.photo.photoId, move.destinationRelativePath, name
-                    )
-                },
-                onFailure = { error ->
-                    failed.add(move)
-                    if (firstError == null) firstError = describe(move, error)
+                    originals.add(move)
                 }
-            )
+                Outcome.FOR_SYSTEM_BIN -> toSystemBin.add(move)
+                is Outcome.Failed -> {
+                    failed.add(move)
+                    if (firstError == null) firstError = describe(move, outcome.error)
+                }
+            }
         }
 
         return BatchResult(
@@ -166,12 +121,64 @@ class BatchMover(
         )
     }
 
+    /** What became of one move. */
+    private sealed interface Outcome {
+        data object MOVED : Outcome
+        data object COPIED : Outcome
+        data object FOR_SYSTEM_BIN : Outcome
+        data class Failed(val error: Throwable) : Outcome
+    }
+
     /**
-     * Copies one photo and points our record at the copy.
+     * Carries out one move the way the photo's folder allows.
      *
-     * The record has to follow before the original is deleted, or everything
-     * decided about the photo would be left attached to a file about to
-     * disappear.
+     * A photo the platform will not let us move, decided against: copying
+     * it into our own bin would leave the picture on the phone twice, and
+     * the original is the one that takes the room. Android's own bin is the
+     * only place it can go, so it is handed over — and the user is told it
+     * is a different bin, with a different rule, that empties itself.
+     *
+     * Where the platform forbids a move and the photo is being filed, copy:
+     * the boundary is not crossed, a new file is simply written on this
+     * side of it.
+     */
+    private fun applyOne(move: ReviewSession.PendingMove): Outcome {
+        val immovable = PhotoSource.isImmovable(move.photo.relativePath)
+        if (immovable && move.status == ReviewStatus.TRASHED) return Outcome.FOR_SYSTEM_BIN
+
+        return if (immovable) {
+            copyOne(move).fold({ Outcome.COPIED }, { Outcome.Failed(it) })
+        } else {
+            moveOne(move).fold({ Outcome.MOVED }, { Outcome.Failed(it) })
+        }
+    }
+
+    /**
+     * Moves one photo and writes down that it went.
+     *
+     * One transaction for the three facts this produces: where the photo
+     * now is, that it went there, and that the work is no longer owed.
+     * Written apart, a death between them leaves a photo called filed whose
+     * folder was never updated. And if the writing fails, the move counts
+     * as failed even though the file went: the archive still owes it, and
+     * will offer it again, which is the truth.
+     */
+    private fun moveOne(move: ReviewSession.PendingMove): Result<Unit> {
+        val name = move.newDisplayName ?: move.photo.displayName
+        return photoSource.move(move.photo, move.destinationRelativePath, name)
+            .mapCatching {
+                stateRepository.markCarriedOut(
+                    move.photo.photoId, move.destinationRelativePath, name
+                ).getOrThrow()
+            }
+    }
+
+    /**
+     * Copies one photo and records the copy as the photograph now.
+     *
+     * The copy gets its own row, carrying the decision from the start; the
+     * original keeps its own row and is marked done without having moved,
+     * since the inventory must not be told it went anywhere.
      */
     private fun copyOne(move: ReviewSession.PendingMove): Result<Unit> {
         val name = move.newDisplayName ?: move.photo.displayName
@@ -186,10 +193,6 @@ class BatchMover(
                 // than letting the user find it there by accident.
                 if (!copy.captureDateWritten) inventory.markDateSuspect(copyId, true)
 
-                // The original could not be moved, so the copy is the
-                // photograph now: the work is done and no longer owed. But
-                // the original did not go anywhere, and the inventory must
-                // not be told that it did.
                 stateRepository.markCarriedOut(
                     move.photo.photoId, move.destinationRelativePath, name,
                     relocated = false

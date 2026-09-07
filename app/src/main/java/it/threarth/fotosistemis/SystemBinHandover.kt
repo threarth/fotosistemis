@@ -78,8 +78,17 @@ class SystemBinHandover(
                 else activity.getString(R.string.system_bin_message, photos.size)
             )
             .setPositiveButton(R.string.system_bin_do) { _, _ -> ask() }
-            .setNegativeButton(R.string.action_cancel) { _, _ -> pending = emptyList() }
+            // Declining is an answer too, and whoever asked is waiting for
+            // one: a grid that stayed open on a refusal had nothing left
+            // to show.
+            .setNegativeButton(R.string.action_cancel) { _, _ -> decline() }
+            .setOnCancelListener { decline() }
             .show()
+    }
+
+    private fun decline() {
+        pending = emptyList()
+        onFinished()
     }
 
     /** Android asks; the app only proposes, and never destroys. */
@@ -96,8 +105,8 @@ class SystemBinHandover(
                 ).build()
             )
         } catch (error: Exception) {
-            pending = emptyList()
             toast(activity.getString(R.string.message_error, error.message.orEmpty()))
+            decline()
         }
     }
 

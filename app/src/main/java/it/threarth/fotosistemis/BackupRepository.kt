@@ -37,6 +37,11 @@ class BackupRepository(
          * Raised to 2 with the photos inventory: a v1 file keys decisions by
          * platform id, which no longer identifies anything, so restoring one
          * would silently attach them to the wrong photographs.
+         *
+         * Not raised since, though tables and columns have been added: a
+         * file missing them still restores, with the table left empty and
+         * the column at its schema default, which is what the data meant
+         * before the column existed.
          */
         const val BACKUP_VERSION = 2
 
@@ -44,14 +49,22 @@ class BackupRepository(
         const val KEY_EXPORTED_AT = "exportedAt"
         const val KEY_YEAR_PATTERN = "yearFolderPattern"
 
-        /** Tables copied, in an order that reads naturally when inspected. */
+        /**
+         * Tables copied, in an order that reads naturally when inspected.
+         *
+         * Everything the user has told the app, and nothing the app can
+         * find out again by reading the phone: the sync bookkeeping is
+         * left out because the next start rebuilds it.
+         */
         val TABLES = listOf(
             Schema.TABLE_PHOTOS,
             Schema.TABLE_DESTINATIONS,
             Schema.TABLE_PHOTO_STATE,
             Schema.TABLE_TAGS,
             Schema.TABLE_PHOTO_TAGS,
-            Schema.TABLE_PHOTO_PATHS
+            Schema.TABLE_PHOTO_PATHS,
+            Schema.TABLE_PHOTO_RATINGS,
+            Schema.TABLE_IGNORED
         )
 
         /** Columns to read back, per table, in the order they are inserted. */
@@ -63,7 +76,7 @@ class BackupRepository(
                 Schema.COLUMN_MEDIA_TYPE, Schema.COLUMN_WIDTH, Schema.COLUMN_HEIGHT,
                 Schema.COLUMN_DURATION_MILLIS, Schema.COLUMN_CONTENT_HASH,
                 Schema.COLUMN_FIRST_SEEN_AT, Schema.COLUMN_LAST_SEEN_AT,
-                Schema.COLUMN_MISSING_SINCE
+                Schema.COLUMN_MISSING_SINCE, Schema.COLUMN_DATE_SUSPECT
             ),
             Schema.TABLE_DESTINATIONS to listOf(
                 Schema.COLUMN_ID, Schema.COLUMN_LABEL, Schema.COLUMN_RELATIVE_PATH,
@@ -79,9 +92,18 @@ class BackupRepository(
             ),
             Schema.TABLE_TAGS to listOf(Schema.COLUMN_ID, Schema.COLUMN_NAME),
             Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_PHOTO_ID, Schema.COLUMN_TAG_ID),
+            // With the name each path was recorded under: without it a
+            // restore from the bin would put the folder back and leave the
+            // stamped name, and the photo would count as still away.
             Schema.TABLE_PHOTO_PATHS to listOf(
                 Schema.COLUMN_ID, Schema.COLUMN_PHOTO_ID, Schema.COLUMN_PATH,
-                Schema.COLUMN_KIND, Schema.COLUMN_RECORDED_AT
+                Schema.COLUMN_DISPLAY_NAME, Schema.COLUMN_KIND, Schema.COLUMN_RECORDED_AT
+            ),
+            Schema.TABLE_PHOTO_RATINGS to listOf(
+                Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STARS, Schema.COLUMN_UPDATED_AT
+            ),
+            Schema.TABLE_IGNORED to listOf(
+                Schema.COLUMN_PHOTO_ID, Schema.COLUMN_CHECK, Schema.COLUMN_RECORDED_AT
             )
         )
     }
@@ -136,12 +158,24 @@ class BackupRepository(
                 database.execute("DELETE FROM $table")
                 restored += restoreTable(table, document.optJSONArray(table))
             }
+            // A file written before decisions were marked as owed or done
+            // says nothing about which is which. The migration answered
+            // that from where each photograph sits, and the same answer is
+            // asked for here; the default alone would call it all done.
+            if (!carriesPending(document)) Schema.classifyOwedWork(database)
             restored
         }
 
         document.optString(KEY_YEAR_PATTERN).takeIf { it.isNotBlank() }
             ?.let { settings.yearFolderPattern = it }
         Summary(rows, TABLES.size)
+    }
+
+    /** True when the decisions in [document] say whether they were done. */
+    private fun carriesPending(document: JSONObject): Boolean {
+        val states = document.optJSONArray(Schema.TABLE_PHOTO_STATE) ?: return true
+        if (states.length() == 0) return true
+        return states.getJSONObject(0).has(Schema.COLUMN_PENDING)
     }
 
     /** Reads a whole table into JSON objects keyed by column name. */
@@ -156,19 +190,28 @@ class BackupRepository(
         return rows
     }
 
-    /** Inserts the rows of [values] into [table], returning how many. */
+    /**
+     * Inserts the rows of [values] into [table], returning how many.
+     *
+     * Only the columns a row carries are named in its insert. A column the
+     * file predates — `pending` on a decision, say — is then filled by the
+     * schema's own default rather than by NULL, which the column may well
+     * refuse; and NULL would have been the wrong answer anyway.
+     */
     private fun restoreTable(table: String, values: JSONArray?): Int {
         if (values == null) return 0
-        val columns = COLUMNS.getValue(table)
-        val placeholders = columns.joinToString(", ") { "?" }
-        val sql = "INSERT OR REPLACE INTO $table (${columns.joinToString(", ")}) " +
-                "VALUES ($placeholders)"
+        val known = COLUMNS.getValue(table)
 
         for (index in 0 until values.length()) {
             val row = values.getJSONObject(index)
-            database.execute(sql, columns.map { column ->
-                if (row.has(column)) row.getString(column) else null
-            })
+            val present = known.filter { row.has(it) }
+            if (present.isEmpty()) continue
+            val placeholders = present.joinToString(", ") { "?" }
+            database.execute(
+                "INSERT OR REPLACE INTO $table (${present.joinToString(", ")}) " +
+                        "VALUES ($placeholders)",
+                present.map { row.getString(it) }
+            )
         }
         return values.length()
     }

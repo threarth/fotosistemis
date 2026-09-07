@@ -5,10 +5,7 @@
 
     <!-- Filters -->
     <string name="folder_all">tutte le cartelle di origine</string>
-    <string name="folder_entry">%1$s (%2$d)</string>
-    <string name="folder_removable">SD: %1$s</string>
     <string name="apply_title_blocked">%1$d file · %2$d NON spostabili</string>
-    <string name="message_applied_blocked">%1$d foto spostate. %2$d restano dove sono: stanno nella cartella di un\'altra app e Android non lascia portarle fuori. Sono comunque catalogate, ed escono dalla coda.</string>
     <string name="action_queue">Coda (%1$d)</string>
     <string name="action_staging_plain">Cestino fotosistemis</string>
     <string name="menu_dangerous">Con cautela</string>
@@ -26,11 +23,9 @@
     <string name="suspect_clear_title">Togliere il segno?</string>
     <string name="suspect_clear_message">%1$s\n\nLa foto smette di risultare fra quelle con data sbagliata. Nessun file viene toccato.</string>
     <string name="suspect_row_taken">scattata (secondo il file) %1$s</string>
-    <string name="repair_dates_do">Sistema le date</string>
     <string name="cascade_counting">…</string>
     <string name="filed_check_title">Nelle cartelle catalogate</string>
     <string name="filed_check_message">%1$d foto stanno dentro una cartella di categoria senza essere catalogate, e %2$d sono catalogate ma non nella cartella che la loro categoria indica.\n\nNiente e\' stato spostato: e\' solo un controllo.</string>
-    <string name="filed_check_open">Apri la coda</string>
     <string name="filed_check_strangers">Vedi le non catalogate</string>
     <string name="filed_check_misplaced">Vedi le fuori posto</string>
     <string name="photo_folder">in %1$s  ·  tocca per farne una categoria</string>
@@ -43,13 +38,8 @@
     <string name="folder_category_join">Esiste gia\' la categoria \"%1$s\". Non ne creo una seconda: catalogo le %2$d foto di questa cartella sotto quella che c\'e\' gia\'.\n\nLe foto restano dove sono: non vengono spostate ne\' rinominate.</string>
     <string name="folder_category_join_do">Catalogale li\'</string>
     <string name="action_repair_dates">Controlla: le date</string>
-    <string name="repair_dates_title">Date da sistemare</string>
-    <string name="repair_dates_message">Controllate %1$d foto catalogate. Di queste, %2$d hanno una data che non torna.\n\nLa data di una foto sta in tre posti e devono dire tutti la stessa cosa: dentro il file (EXIF, quello che vale su PC e Google Foto), sulla data del file (quella che legge la galleria del telefono) e nell\'archivio di Android.\n\nNon tornano:\n%3$s\n\nPosso sistemarne %4$d, quelle create dall\'app. Le altre %5$d non sono nostre e non le tocco: sono contate, non modificate.\n\nUn EXIF che dice una data diversa non lo sovrascrivo: te lo segnalo e decidi tu. Nessuna foto viene spostata, rinominata o cancellata.</string>
-    <string name="repair_dates_done">%1$d sistemate e ricontrollate. %2$d restano da guardare: le trovi in \"Date sbagliate\".</string>
-    <string name="repair_dates_none">Controllate %1$d foto: le date tornano tutte, in tutti e tre i posti.</string>
     <string name="action_check_folders">Controlla: non catalogate in categoria</string>
     <string name="filed_check_clean">Cartelle catalogate in ordine: dentro c\'e\' solo roba catalogata, e sta dove la sua categoria dice.</string>
-    <string name="trash_unaddressable">%1$d foto non sono raggiungibili sul dispositivo e restano fuori: l\'app le ricorda, ma Android non sa piu\' dove siano.</string>
     <string name="bin_title">Cestino fotosistemis</string>
     <string name="bin_open">Apri il cestino</string>
     <string name="bin_expiry_unknown">data non dichiarata</string>
@@ -151,7 +141,6 @@
     <string name="grid_nothing">Nessuna foto da mostrare in griglia con i filtri attuali.</string>
     <string name="scope_label">Filtro</string>
     <string name="folder_bin_row">Cestino fotosistemis (%1$d)</string>
-    <string name="folder_bin_hint">Le foto che hai deciso di buttare. Aprendolo lavori li\' dentro: scorri a sinistra per riprenderne una.</string>
     <string name="folder_with_count">%1$s  ·  %2$s foto</string>
     <string name="period_range_chosen">Intervallo scelto  %1$d/%2$d</string>
     <string name="period_done_title">%1$s: finito</string>
@@ -173,27 +162,13 @@
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
     <string name="queue_showing_sorted">Da spostare (%1$d) — tocca per vedere le altre</string>
     <string name="queue_carried_out">%1$d sistemate, %2$d non riuscite.</string>
-    <string name="queue_action_title">%1$d foto in attesa</string>
-    <string name="queue_action_trash">Le hai segnate da eliminare, ma non sono mai arrivate nel cestino.</string>
-    <string name="queue_action_sorted">Le hai archiviate in una categoria, ma i file non sono ancora nella sua cartella.</string>
     <string name="queue_carry_out">Sistemale ora</string>
     <string name="queue_call_off">Annulla le decisioni</string>
     <string name="queue_call_off_message">Annullare fa tornare %1$d foto NON CATALOGATE: le decisioni prese su di loro vengono dimenticate e le foto ricompaiono fra quelle da catalogare.\n\nNessun file viene toccato: quelle foto non sono mai state spostate, ed e\' questo il motivo per cui sono ancora in attesa.</string>
     <string name="queue_called_off">%1$d decisioni annullate: le foto tornano da catalogare.</string>
-    <string name="queue_title">Cosa aspetta di essere sistemato</string>
-    <string name="queue_trash">Da eliminare — %1$d foto</string>
-    <string name="queue_categorised">Da spostare nella loro categoria — %1$d foto</string>
-    <string name="queue_empty">Niente in attesa: ogni decisione presa e\' stata eseguita.</string>
-    <string name="cleanup_title">Originali da eliminare</string>
-    <string name="cleanup_message">%1$d foto sono state COPIATE nel cestino di fotosistemis, perche\' Android non lascia spostare i file dalla cartella di un\'altra app come WhatsApp.\n\nOra la stessa immagine e\' sul telefono due volte: la copia nel cestino e l\'originale dentro WhatsApp.\n\n1. Toccando \"Elimina gli originali\" sara\' ANDROID a chiederti conferma, mostrandoti le foto.\n2. Le copie restano nel cestino, e da li\' puoi sempre riprenderle se hai cambiato idea.\n3. Quando vorrai eliminarle davvero, svuota il cestino da Google Foto: e\' l\'unico modo per togliere anche la copia caricata nel cloud.</string>
-    <string name="cleanup_delete">Elimina gli originali</string>
-    <string name="cleanup_keep">Tienili</string>
-    <string name="cleanup_done">%1$d originali eliminati.</string>
-    <string name="cleanup_kept">%1$d originali lasciati dove sono: la foto risulta due volte.</string>
     <string name="immovable_title">Foto che non si possono spostare</string>
     <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, come WhatsApp. Android non lascia portare fuori da li\' un file, qualunque permesso si abbia.\n\nVerranno quindi COPIATE nella cartella giusta, con la loro data di scatto. Finita la copia ti sara\' chiesto se eliminare gli originali: a chiedertelo sara\' Android, mostrandoti le foto.\n\nSe rifiuti, la foto resta sul telefono due volte e la trovi cosi\' anche in Posizioni.</string>
     <string name="discard_title">Scarta la coda</string>
-    <string name="discard_message_old">%1$d foto in coda tornano NON VISTE: non verranno spostate ne\' eliminate, e ricompariranno fra quelle da rivedere.\n\nNessun file viene toccato: la coda non ha ancora scritto niente sul disco.\n\nLe foto che avevi semplicemente mantenuto restano mantenute.</string>
     <string name="discard_done">Coda svuotata: %1$d foto tornate da rivedere.</string>
     <string name="pending_drop_all">Scarta</string>
     <string name="period_any">Tutti i periodi  %1$d/%2$d</string>
@@ -225,10 +200,7 @@
     <string name="restore_explain">Cosa comporta</string>
     <string name="restore_explained">Riportare indietro %1$d foto significa tre cose insieme:\n\n1. i file tornano nella cartella in cui l\'app li ha visti la prima volta;\n2. riprendono il NOME che avevano allora, quindi perdono la data messa nel nome;\n3. risultano MANTENUTE, non piu\' archiviate in una categoria.\n\n"Tutte" vuol dire tutte le foto che i filtri stanno mostrando adesso: senza filtri, l\'intero archivio. Guarda le miniature prima di confermare.</string>
     <string name="restore_title">Riporta dove si trovava</string>
-    <string name="restore_current">Solo questa foto</string>
-    <string name="restore_all">Tutte le ripristinabili (%1$d)</string>
     <string name="restore_none">Nessuna foto ha un percorso originale noto.</string>
-    <string name="restore_confirm">Ripristinare %1$d elementi nella cartella di origine?</string>
     <string name="restore_done">%1$d foto ripristinate.</string>
     <string name="action_destinations">Categorie</string>
 
@@ -248,7 +220,6 @@
     <string name="pattern_title">Nome sottocartella anno</string>
     <string name="pattern_example">Esempio: %1$s/%2$s/ — vale per tutte le categorie</string>
     <string name="roots_hint_with_report">Riconciliazione: %1$s.\n\nTocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
-    <string name="roots_hint_tree_old">Tocca una cartella per aprirla, la casella per sceglierla. Scegliendone una prendi anche tutto quello che c\'è sotto.</string>
     <string name="action_adopt">Riconosci foto gia\' ordinate</string>
     <string name="adopt_choose_title">Quali di queste sono categorie?</string>
     <string name="adopt_category_new">%1$s — %2$d foto (nuova)</string>
@@ -274,8 +245,6 @@
     <string name="backup_import_title">Sostituire i dati?</string>
     <string name="backup_import_message">L\'importazione sostituisce cartelle, tag, foto gia\' viste e storico percorsi con quelli del file. Il lavoro fatto dopo questo backup va perso.</string>
     <string name="destination_pattern_help">Segnaposto: {anno} e {etichetta}. Google Foto mostra solo l\'ultimo livello, quindi un semplice {anno} apparirebbe uguale per tutte le cartelle.</string>
-    <string name="destination_with_year">con sottocartella anno</string>
-    <string name="destination_without_year">senza sottocartella anno</string>
     <string name="destination_invalid">Etichetta e percorso sono obbligatori.</string>
     <string name="destination_delete_title">Eliminare la cartella?</string>
     <string name="destination_delete_message">Rimuove solo la scorciatoia \"%1$s\". Le foto gia\' archiviate restano dove sono.</string>
@@ -313,7 +282,6 @@
     <string name="cloud_backup_off">Backup escluso: Android non ricevera\' nulla da questa app.</string>
     <string name="roots_title">Cartelle di origine</string>
     <string name="destination_year_short">anno</string>
-    <string name="folder_chosen">%1$s</string>
     <string name="folder_title">Folder</string>
     <string name="destination_empty">nessuna foto</string>
     <string name="destination_count">%1$d foto</string>
@@ -325,8 +293,6 @@
     <string name="merge_delete_anyway">Elimina comunque</string>
     <string name="merge_done">%1$d foto spostate in %2$s.</string>
     <string name="merge_nowhere">%1$d foto sono archiviate qui e non c\'e\' un\'altra categoria in cui spostarle. Creane una prima.</string>
-    <string name="action_advanced">Avanzate…</string>
-    <string name="advanced_title">Avanzate</string>
     <string name="destination_root_line">Ogni categoria vive dentro %1$s/. Le nuove nascono li\'.</string>
     <string name="menu_title">Avanzate</string>
     <string name="action_queue_plain">Coda</string>
@@ -336,7 +302,6 @@
     <string name="action_source">Source</string>
     <string name="roots_entry">%1$s  (%2$d)</string>
     <string name="roots_none">Nessuna cartella con foto. Attendi la fine della riconciliazione.</string>
-    <string name="folder_subtree">%1$s — tutte le sottocartelle (%2$d)</string>
     <string name="roots_whole_device">Tutte le foto del dispositivo</string>
     <string name="destination_root_title">Cartella di destinazione</string>
     <string name="action_destination_root">Cartella madre</string>
@@ -360,9 +325,7 @@
     <string name="placement_thumb_description">Anteprima della foto</string>
     <string name="placement_fix_all">Sistema tutte le foto fuori posto</string>
     <string name="placement_fix_none">Niente da sistemare: sono tutte al loro posto.</string>
-    <string name="placement_entry">%1$s · %2$s</string>
     <string name="placement_title">Posizione delle foto</string>
-    <string name="action_placement_short">Posizioni</string>
     <string name="action_placement">Dove sono le foto catalogate</string>
     <string name="placement_summary">%1$d foto catalogate · %2$d al loro posto · %3$d da spostare</string>
     <string name="placement_only_wrong">Mostra solo quelle da spostare</string>
@@ -375,7 +338,6 @@
     <string name="move_to">a   %1$s</string>
     <string name="reorganize_list">Elenco dei file</string>
     <string name="reorganize_list_title">%1$d file da spostare</string>
-    <string name="reorganize_move_line">%1$s\n→ %2$s</string>
     <string name="reorganize_show_settled">Mostra anche le %1$d categorie gia\' a posto (nessuna foto da spostare)</string>
     <string name="reorganize_hide_settled">Nascondi le %1$d categorie gia\' a posto</string>
     <string name="reorganize_all_settled">Tutte le categorie sono a posto: ogni foto e\' nella cartella della sua categoria.</string>
@@ -418,5 +380,4 @@
     <string name="message_consent_refused">Consenso rifiutato: nessuna modifica applicata.</string>
     <string name="message_error">Errore: %1$s</string>
     <string name="message_queue_empty">Coda vuota.</string>
-    <string name="message_no_destinations">Nessuna cartella configurata. Aprine una da \"Cartelle…\".</string>
 </resources>

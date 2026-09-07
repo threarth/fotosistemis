@@ -99,7 +99,7 @@ class PlacementActivity : AppCompatActivity() {
         val byId: Map<Long, Destination> = repository.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
 
-        val cestino = inventory.loadPendingTrash(ReviewSession.DELETION_STAGING_PATH)
+        val cestino = inventory.loadPendingTrash()
             .getOrElse { emptyList() }
             .map { photo ->
                 Row(
