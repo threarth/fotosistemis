@@ -23,37 +23,34 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-        <!-- Scope on the left, the folder being worked on beside it. The two
-             answer different questions: where the archive lives, and where the
-             work is right now. -->
+        <!-- The folder governs everything under it: the periods offered are
+             the periods of the photos in that folder, and the state filter
+             counts only those. The indent says so at a glance. -->
+        <!-- The menu, back as a button beside the folder.
+             Opening it by dragging from the left edge works only where
+             nothing else claims that edge, and it claims it silently: a way
+             in that cannot be found is not a way in. The drag still works;
+             this is the half of it that can be seen. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/menuButton"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_margin="3dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
                 android:text="@string/action_menu" />
 
-            <Button
-                android:id="@+id/stagingButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
-                android:text="@string/action_staging" />
-        </LinearLayout>
-
-        <!-- The folder governs everything under it: the periods offered are
-             the periods of the photos in that folder, and the state filter
-             counts only those. The indent says so at a glance. -->
         <Button
             android:id="@+id/folderButton"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"
             android:layout_margin="3dp"
             android:drawableStart="@drawable/ic_folder"
@@ -64,69 +61,48 @@
             android:paddingEnd="16dp"
             android:singleLine="true"
             android:text="@string/folder_all" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="14dp"
-            android:background="@drawable/cascade_rule"
+            android:background="@drawable/filter_box"
+            android:layout_marginEnd="3dp"
+            android:paddingEnd="6dp"
             android:orientation="vertical"
             android:paddingStart="10dp"
             android:paddingTop="4dp"
             android:paddingBottom="4dp">
 
+
+            <!-- Period, filter and the two ways of looking, on one line.
+                 Each was on a line of its own and together they pushed the
+                 photograph off the screen. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/cascadeCaption"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textSize="11sp" />
-
-                <!-- Gives the photograph the whole screen. The selector is
-                     read once and then in the way. -->
-                <Button
-                    android:id="@+id/gridButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="3dp"
-                    android:minWidth="0dp"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:text="@string/action_grid" />
-
-                <Button
-                    android:id="@+id/fullScreenButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="3dp"
-                    android:minWidth="0dp"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:text="@string/action_full_screen" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
                 <Spinner
                     android:id="@+id/periodSpinner"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:layout_weight="3" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:contentDescription="@string/scope_label"
+                    android:src="@drawable/ic_funnel" />
 
                 <Spinner
                     android:id="@+id/scopeSpinner"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:layout_weight="2" />
+
             </LinearLayout>
         </LinearLayout>
 
@@ -136,27 +112,40 @@
             android:layout_marginTop="4dp"
             android:orientation="horizontal">
 
-            <Button
-                android:id="@+id/pickRangeButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
-                android:text="@string/action_pick_range" />
-
-            <Button
-                android:id="@+id/reloadButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
-                android:text="@string/action_reload" />
-
        </LinearLayout>
         </LinearLayout>
 
     <!-- Determinate where the total is known, spinning where it is not:
          a bar that lies about progress is worse than no bar. -->
+    <!-- Not filters but ways of looking at what the filters chose, so they
+         sit under the box rather than inside it. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/gridButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:minWidth="0dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="@string/action_grid" />
+
+        <Button
+            android:id="@+id/fullScreenButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:minWidth="0dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="@string/action_full_screen" />
+    </LinearLayout>
+
     <ProgressBar
         android:id="@+id/mainProgress"
         style="?android:attr/progressBarStyleHorizontal"
@@ -166,43 +155,28 @@
         android:layout_marginBottom="4dp"
         android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:textSize="12sp"
-            tools:text="0 / 0" />
-
-        <TextView
-            android:id="@+id/photoInfo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            tools:text="IMG_0001.jpg" />
-
-        <!-- Rating and the print mark: both act on the photo in view and
-             neither advances, so a judgement can be made without committing to
-             where the photo goes. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
+            android:layout_marginTop="4dp"
             android:orientation="horizontal">
 
-            <LinearLayout
-                android:id="@+id/starBar"
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingEnd="8dp"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                tools:text="12 / 480" />
+
+            <TextView
+                android:id="@+id/photoInfo"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="horizontal" />
-
-            <Button
-                android:id="@+id/printButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:text="@string/action_print_tag" />
+                android:textSize="12sp"
+                tools:text="IMG_0001.jpg" />
         </LinearLayout>
 
         <!-- Where the photograph actually lives. Scrolling through an
@@ -312,6 +286,33 @@
                 android:textStyle="bold" />
         </FrameLayout>
 
+        <!-- Rating and the print mark: both act on the photo in view and
+             neither advances, so a judgement can be made without committing
+             to where the photo goes. Beneath the picture, because that is
+             what they are about. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/starBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/printButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/action_print_tag" />
+        </LinearLayout>
+
         <!-- One button per destination folder, built from the database. -->
         <HorizontalScrollView
             android:layout_width="match_parent"
@@ -325,6 +326,10 @@
                 android:orientation="horizontal" />
         </HorizontalScrollView>
 
+        <!-- Tag and the date verdict are the two things said about a photo
+             without moving it, so they sit together and take only the width
+             they need. Opening it elsewhere is a different kind of act and
+             goes to the end. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -332,26 +337,37 @@
 
             <Button
                 android:id="@+id/tagButton"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
+                android:layout_margin="2dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
                 android:text="@string/action_tag" />
 
             <Button
                 android:id="@+id/dateButton"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
+                android:layout_margin="2dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
                 android:text="@string/action_date_wrong" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
             <Button
                 android:id="@+id/openExternalButton"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_weight="1"
+                android:layout_margin="2dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
                 android:text="@string/action_open_external" />
         </LinearLayout>
 

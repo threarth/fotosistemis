@@ -20,6 +20,7 @@ class AppSettings(context: Context) {
         private const val KEY_YEAR_FOLDER_PATTERN = "year_folder_pattern"
         private const val KEY_SOURCE_ROOTS = "source_roots"
         private const val KEY_WHOLE_DEVICE = "whole_device_as_source"
+        private const val KEY_SOURCE_CHOSEN = "source_chosen"
         private const val KEY_DESTINATION_ROOT = "destination_root"
         private const val KEY_BACKUP_TO_CLOUD = "backup_to_cloud"
 
@@ -82,6 +83,17 @@ class AppSettings(context: Context) {
      * Kept apart from an empty root list so that turning it off restores the
      * roots the user had chosen instead of losing them.
      */
+    /**
+     * True once the user has said where their photos live.
+     *
+     * Kept across runs, not per session: the question is worth asking on a
+     * fresh install, when the app knows nothing, and is an interruption
+     * every time after that. The answer can always be changed from the menu.
+     */
+    var sourceChosen: Boolean
+        get() = preferences.getBoolean(KEY_SOURCE_CHOSEN, false)
+        set(value) = preferences.edit().putBoolean(KEY_SOURCE_CHOSEN, value).apply()
+
     var wholeDeviceAsSource: Boolean
         get() = preferences.getBoolean(KEY_WHOLE_DEVICE, false)
         set(value) = preferences.edit().putBoolean(KEY_WHOLE_DEVICE, value).apply()

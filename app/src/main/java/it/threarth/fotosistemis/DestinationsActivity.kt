@@ -95,7 +95,6 @@ class DestinationsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.destinationRootButton).setOnClickListener {
             editDestinationRoot()
         }
-        findViewById<Button>(R.id.advancedButton).setOnClickListener { showAdvanced() }
 
         // Opened from the menu to run one function: go straight to it.
         when (intent.getStringExtra(EXTRA_ACTION)) {
@@ -152,30 +151,6 @@ class DestinationsActivity : AppCompatActivity() {
      * beside "add a category" they read as equally ordinary, which they are
      * not.
      */
-    private fun showAdvanced() {
-        val voci = arrayOf<CharSequence>(
-            getString(R.string.action_adopt),
-            getString(R.string.action_reorganize),
-            getString(R.string.action_placement),
-            getString(R.string.action_export),
-            getString(R.string.action_import),
-            getString(R.string.action_cloud_backup)
-        )
-        AlertDialog.Builder(this)
-            .setTitle(R.string.advanced_title)
-            .setItems(voci) { _, which ->
-                when (which) {
-                    0 -> previewAdoption()
-                    1 -> startActivity(Intent(this, ReorganizeActivity::class.java))
-                    2 -> startActivity(Intent(this, PlacementActivity::class.java))
-                    3 -> startExport()
-                    4 -> confirmImport()
-                    else -> editCloudBackup()
-                }
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
 
     /**
      * Writes a backup wherever the user chooses.
@@ -357,10 +332,34 @@ class DestinationsActivity : AppCompatActivity() {
 
     private fun editDestination(destination: Destination) {
         showEditor(destination) { label, path, yearSubfolder ->
+            val moved = path.trim('/') != destination.relativePath.trim('/')
             repository.update(destination.id, label, path, yearSubfolder)
                 .onFailure { showError(it) }
-                .onSuccess { refresh() }
+                .onSuccess {
+                    refresh()
+                    if (moved) explainPathChange(destination.label)
+                }
         }
+    }
+
+    /**
+     * Says what changing a category's folder did, and what it did not do.
+     *
+     * It changed where the category points. It did not touch a single file:
+     * the photographs already filed are still in the old folder, and from
+     * this moment they count as being out of place — which is a state the
+     * app has a screen for, and a thing the user should hear now rather
+     * than discover as a warning later.
+     */
+    private fun explainPathChange(label: String) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.destination_moved_title)
+            .setMessage(getString(R.string.destination_moved_message, label))
+            .setPositiveButton(R.string.destination_moved_reorganize) { _, _ ->
+                startActivity(Intent(this, ReorganizeActivity::class.java))
+            }
+            .setNegativeButton(R.string.destination_moved_later, null)
+            .show()
     }
 
     /**

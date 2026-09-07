@@ -102,6 +102,12 @@ class MainActivity : AppCompatActivity() {
         /** How many folder names fit on the button before summarising. */
         const val FOLDER_NAMES_ON_BUTTON = 2
 
+        /** Room either side of a category's name, in pixels. */
+        const val PILL_PADDING = 44
+
+        /** Air between one pill and the next. */
+        const val PILL_SPACING_DP = 3
+
         const val STAR_TEXT_SIZE = 22f
         const val STAR_PADDING = 10
 
@@ -190,7 +196,6 @@ class MainActivity : AppCompatActivity() {
     /** Stars per photo, read once and kept in step with what is written. */
     private var ratingByPhoto: Map<Long, Int> = emptyMap()
 
-    private lateinit var stagingButton: Button
     private lateinit var openExternalButton: Button
     private lateinit var undoButton: Button
     private lateinit var applyButton: Button
@@ -225,6 +230,15 @@ class MainActivity : AppCompatActivity() {
      * screen means, and loading first would show a set the user never chose.
      */
     private var sourceAsked = false
+
+    /** The photos the period counts are built from. */
+    private var loadedForPeriods: List<PhotoRecord> = emptyList()
+
+    /** What has been decided about them, kept in step as work is done. */
+    private val decidedInSession = HashMap<Long, ReviewStatus>()
+
+    /** Periods already congratulated, so the offer is made once. */
+    private val periodsOffered = HashSet<PhotoFilter.Period.Month>()
 
     /**
      * The scope dialog while it is up.
@@ -421,7 +435,6 @@ class MainActivity : AppCompatActivity() {
     private fun onStagingCountRefreshed(counted: Int) {
         if (counted == stagingCount) return
         stagingCount = counted
-        stagingButton.text = getString(R.string.action_staging, stagingCount)
         findViewById<Button>(R.id.drawerTrashButton).text =
             getString(R.string.action_staging, stagingCount)
         refreshWaitingCount()
@@ -443,6 +456,9 @@ class MainActivity : AppCompatActivity() {
         periodSpinner = findViewById(R.id.periodSpinner)
         scopeSpinner = findViewById(R.id.scopeSpinner)
         mediaStage = findViewById(R.id.mediaStage)
+        // The picture takes the frame's rounded corners instead of
+        // squaring them off at the edges.
+        mediaStage.clipToOutline = true
         previewAdjacent = findViewById(R.id.previewAdjacent)
         actionFlash = findViewById(R.id.actionFlash)
         tagButton = findViewById(R.id.tagButton)
@@ -456,7 +472,6 @@ class MainActivity : AppCompatActivity() {
         starBar = findViewById(R.id.starBar)
         buildStarBar()
 
-        stagingButton = findViewById(R.id.stagingButton)
         openExternalButton = findViewById(R.id.openExternalButton)
         undoButton = findViewById(R.id.undoButton)
         applyButton = findViewById(R.id.applyButton)
@@ -471,6 +486,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun bindDrawer() {
         val drawer = findViewById<DrawerLayout>(R.id.drawer)
+        drawer.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED)
         findViewById<Button>(R.id.menuButton).setOnClickListener { drawer.open() }
 
         fun voce(id: Int, azione: () -> Unit) {
@@ -542,12 +558,12 @@ class MainActivity : AppCompatActivity() {
         printButton.setOnClickListener { togglePrintTag() }
         bindDrawer()
 
-        stagingButton.setOnClickListener { showStagingFolder() }
         openExternalButton.setOnClickListener { openCurrentExternally() }
         undoButton.setOnClickListener { applyDecision { session.undoLastMove() } }
         applyButton.setOnClickListener { startApply() }
-        findViewById<Button>(R.id.reloadButton).setOnClickListener { reload() }
-        findViewById<Button>(R.id.pickRangeButton).setOnClickListener { pickDateRange() }
+        // Neither button survives: reloading happens by itself whenever
+        // anything changes, and a date range is a period, so it is chosen
+        // among the periods rather than beside them.
     }
 
     /**
@@ -1230,14 +1246,19 @@ class MainActivity : AppCompatActivity() {
      */
     private fun <T> withinSourceRoots(items: List<T>, path: (T) -> String): List<T> {
         val roots = settings.effectiveSourceRoots()
-        if (roots.isEmpty()) return items
 
         return items.filter { item ->
             val relative = path(item).trim('/')
-            // The bin is never part of the work: a photo waiting there has
-            // been decided, and offering it again as something to sort is
-            // asking a question that already has an answer.
+            // The bin is never part of the work, whatever the scope is: a
+            // photo waiting there has been decided, and offering it again as
+            // something to sort asks a question that already has an answer.
+            //
+            // Outside the filter below on purpose. That returned early when
+            // no roots were chosen — which is what "the whole device" means
+            // — and the bin came back into the review through the one scope
+            // that was supposed to be the widest, not the least careful.
             if (relative.startsWith(stagingPath(), ignoreCase = true)) return@filter false
+            if (roots.isEmpty()) return@filter true
 
             roots.any { relative.startsWith(it, ignoreCase = true) }
         }
@@ -1306,6 +1327,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Stores the chosen folders and reloads what is now in scope. */
     private fun saveSourceRoots(chosen: Set<String>, wholeDevice: Boolean) {
+        settings.sourceChosen = true
         settings.wholeDeviceAsSource = wholeDevice
         settings.sourceRoots = chosen.sorted()
 
@@ -1324,7 +1346,6 @@ class MainActivity : AppCompatActivity() {
         stagingCount = folders
             .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
             .sumOf { it.photoCount }
-        stagingButton.text = getString(R.string.action_staging, stagingCount)
 
         val offered = withinSourceRoots(folders)
         // Roots that match nothing look exactly like an empty phone, and the
@@ -1335,9 +1356,10 @@ class MainActivity : AppCompatActivity() {
 
         showWorkingFolder()
 
-        // First folders of the session: ask what is in scope, and load only
-        // once there is an answer.
-        if (!sourceAsked) {
+        // Asked once, on a fresh install, when the app knows nothing about
+        // where the photos live. After that it is an interruption between
+        // the user and their archive, and the answer is in the menu.
+        if (!sourceAsked && !settings.sourceChosen) {
             sourceAsked = true
             editSourceRoots(atStartup = true)
             return
@@ -1349,7 +1371,6 @@ class MainActivity : AppCompatActivity() {
 
     /** The button says what is being worked on, or that it is everything. */
     private fun showWorkingFolder() {
-        folderButton.text = chosenFoldersLabel()
         showCascadeCaption(null)
     }
 
@@ -1374,19 +1395,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Says out loud what the indent already shows: period and state speak
-     * only about the folder above them, and about [photoCount] photos.
+     * Puts the count on the button itself.
+     *
+     * It used to be repeated underneath, in a caption saying the same
+     * folders and the same number a second time. Null while the folder has
+     * just changed and nothing has been counted: announcing zero would be
+     * stating a number nobody measured.
      */
     private fun showCascadeCaption(photoCount: Int?) {
-        val dove =
-            if (preferredSubtrees.isEmpty()) getString(R.string.cascade_everything)
-            else chosenFoldersLabel()
-        // Null while the folder has changed and nothing has been counted yet:
-        // announcing zero photos would be stating a number nobody measured.
         val quante = photoCount?.toString() ?: getString(R.string.cascade_counting)
-
-        findViewById<TextView>(R.id.cascadeCaption).text =
-            getString(R.string.cascade_caption, dove, quante)
+        folderButton.text =
+            getString(R.string.folder_with_count, chosenFoldersLabel(), quante)
     }
 
     /**
@@ -1429,39 +1448,47 @@ class MainActivity : AppCompatActivity() {
         val form = LayoutInflater.from(this).inflate(R.layout.dialog_folder_tree, null)
         val everything = form.findViewById<CheckBox>(R.id.wholeDeviceCheck)
         everything.setText(R.string.folder_all)
+        form.findViewById<TextView>(R.id.folderTreeHint).setText(R.string.roots_hint_tree)
+
+        // The bin has its own row above the tree, not a place in it: what is
+        // in there was decided against, and sorting the rubbish alongside
+        // the archive is not what the tree is for.
+        val binRow = form.findViewById<Button>(R.id.binRow)
+        binRow.text = getString(R.string.folder_bin_row, stagingCount)
+        binRow.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            R.drawable.ic_folder, 0, 0, 0
+        )
         everything.isChecked = preferredSubtrees.isEmpty()
 
         val chosen = LinkedHashSet(preferredSubtrees)
 
-        // "Everything" and a chosen folder are alternatives, and behave like
-        // it in both directions: ticking one clears the other. Among the
-        // folders themselves there is no such rule — an archive split by a
-        // phone transfer has the same photographs under two roots, and being
-        // made to take one at a time would describe the split instead of
-        // helping undo it.
+        // "All" ticks every box, the way a spreadsheet filter does: it is
+        // the same choice said shortly, so the tree shows what it means
+        // rather than going blank and asking to be trusted. Unticking any
+        // one of them unticks "all" — because then it is no longer all.
         val adapter = FolderTreeAdapter(
             this, candidates, chosen,
-            onPicked = { everything.isChecked = chosen.isEmpty() }
+            onPicked = { everything.isChecked = chosen.size == candidates.size }
         )
         form.findViewById<ListView>(R.id.folderTree).adapter = adapter
         adapter.revealSelection()
 
-        adapter.setEnabled(!everything.isChecked)
         everything.setOnCheckedChangeListener { _, checked ->
-            adapter.setEnabled(!checked)
-            if (checked && chosen.isNotEmpty()) {
-                chosen.clear()
-                adapter.notifyDataSetChanged()
-            }
+            chosen.clear()
+            if (checked) chosen.addAll(candidates.map { it.relativePath })
+            adapter.notifyDataSetChanged()
         }
+        everything.isChecked = chosen.size == candidates.size
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.folder_title)
             .setView(form)
             .setPositiveButton(R.string.action_save) { _, _ ->
-                // The folders win when there are any: a tick left over from
-                // before must never discard a choice just made.
-                val scelte = LinkedHashSet(chosen)
+                // Everything ticked means no restriction at all, which is
+                // what an empty set says everywhere else in the app.
+                val scelte =
+                    if (chosen.size == candidates.size) LinkedHashSet()
+                    else LinkedHashSet(chosen)
                 if (scelte != preferredSubtrees) {
                     changeFilter { preferredSubtrees = scelte }
                     buildDestinationButtons()
@@ -1469,7 +1496,13 @@ class MainActivity : AppCompatActivity() {
                 showWorkingFolder()
             }
             .setNegativeButton(R.string.action_cancel, null)
-            .show()
+            .create()
+
+        binRow.setOnClickListener {
+            dialog.dismiss()
+            showStagingFolder()
+        }
+        dialog.show()
     }
 
     /**
@@ -1483,7 +1516,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun rebuildPeriodSpinner(
         photos: List<PhotoRecord>,
-        states: Map<Long, PhotoStateRepository.StoredState>
+        states: Map<Long, ReviewStatus>
     ) {
         val counts = LinkedHashMap<PhotoFilter.Period.Month, Int>()
         val reviewed = LinkedHashMap<PhotoFilter.Period.Month, Int>()
@@ -1509,8 +1542,17 @@ class MainActivity : AppCompatActivity() {
 
         val rebuilt = ArrayList<PhotoFilter.Period>()
         val items = ArrayList<TintedSpinnerAdapter.Item>()
+        // "All" carries the same two numbers as every month below it:
+        // without them the one line that covers the whole archive was the
+        // only one that did not say how much of it had been done.
+        val seenEverywhere = reviewed.values.sum()
         rebuilt.add(PhotoFilter.Period.Any)
-        items.add(TintedSpinnerAdapter.Item(getString(R.string.period_any, photos.size), null))
+        items.add(
+            TintedSpinnerAdapter.Item(
+                getString(R.string.period_any, seenEverywhere, photos.size),
+                colourOf(seenEverywhere, photos.size)
+            )
+        )
 
         for (month in ordered) {
             rebuilt.add(month)
@@ -1518,11 +1560,33 @@ class MainActivity : AppCompatActivity() {
             val seen = reviewed[month] ?: 0
             items.add(monthItem(month, seen, total))
         }
-        items.add(TintedSpinnerAdapter.Item(getString(R.string.period_custom_range), null))
+        // The chosen range carries the same two numbers as every month
+        // above it, once there is a range to count. Until then it is an
+        // invitation, and an invitation has nothing to count.
+        val range = customRange
+        if (range == null) {
+            items.add(TintedSpinnerAdapter.Item(getString(R.string.period_custom_range), null))
+        } else {
+            val inRange = photos.filter { it.dateTakenMillis in range.fromMillis..range.toMillis }
+            val seen = inRange.count { states.containsKey(it.photoId) }
+            items.add(
+                TintedSpinnerAdapter.Item(
+                    getString(R.string.period_range_chosen, seen, inRange.size),
+                    colourOf(seen, inRange.size)
+                )
+            )
+        }
 
-        // Rebuilding the adapter emits a selection event, which would load
-        // again and rebuild again. Touch it only when the months changed.
-        if (rebuilt == offeredPeriods && periodSpinner.adapter != null) return
+        // The same months can carry different numbers — a photo filed since
+        // the last load changes how much of its month is done — so the rows
+        // are refreshed in place. Only a change in the months themselves
+        // justifies a new adapter, which announces a selection and would
+        // reload and rebuild for ever.
+        val adapter = periodSpinner.adapter
+        if (rebuilt == offeredPeriods && adapter is TintedSpinnerAdapter) {
+            adapter.replaceAll(items)
+            return
+        }
 
         offeredPeriods.clear()
         offeredPeriods.addAll(rebuilt)
@@ -1534,6 +1598,13 @@ class MainActivity : AppCompatActivity() {
      * when none has, amber in between. The symbol carries the same meaning,
      * so the row still reads without relying on colour.
      */
+    /** Green when a period is finished, red when untouched, amber between. */
+    private fun colourOf(seen: Int, total: Int): Int = when {
+        total > 0 && seen == total -> R.color.month_done
+        seen == 0 -> R.color.month_todo
+        else -> R.color.month_partial
+    }
+
     private fun monthItem(
         month: PhotoFilter.Period.Month,
         seen: Int,
@@ -1545,11 +1616,7 @@ class MainActivity : AppCompatActivity() {
             seen == 0 -> R.string.month_mark_todo
             else -> R.string.month_mark_partial
         }
-        val colorRes = when {
-            done -> R.color.month_done
-            seen == 0 -> R.color.month_todo
-            else -> R.color.month_partial
-        }
+        val colorRes = colourOf(seen, total)
         val label = getString(
             R.string.period_month,
             "%02d-%d".format(month.month, month.year),
@@ -1581,7 +1648,12 @@ class MainActivity : AppCompatActivity() {
 
         periodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                val chosen = offeredPeriods.getOrNull(pos) ?: customRange ?: PhotoFilter.Period.Any
+                // The last entry is the custom range: choosing it asks for
+                // the dates, because a range is a period and belongs among
+                // them rather than behind a button of its own.
+                if (pos >= offeredPeriods.size) return pickDateRange()
+
+                val chosen = offeredPeriods.getOrNull(pos) ?: PhotoFilter.Period.Any
                 if (chosen == preferredPeriod) return
                 changeFilter { preferredPeriod = chosen }
             }
@@ -1628,12 +1700,39 @@ class MainActivity : AppCompatActivity() {
         }
 
         for (destination in destinations) {
-            val button = Button(this)
-            button.text = destination.label
-            button.setOnClickListener { applyDecision { session.fileCurrent(destination) } }
-            destinationActions.addView(button)
+            destinationActions.addView(
+                categoryPill(destination.label) {
+                    applyDecision { session.fileCurrent(destination) }
+                }
+            )
         }
         updateButtonState()
+    }
+
+    /**
+     * A category as a pill: rounded, white on blue, sized to its name.
+     *
+     * A category is a label to be attached to a photograph, and a label is
+     * not a rectangle. Built here rather than in the layout because there
+     * is one per category and the categories are read from the database.
+     */
+    private fun categoryPill(label: String, action: () -> Unit): Button {
+        val button = Button(this)
+        button.text = label
+        button.isAllCaps = false
+        button.setBackgroundResource(R.drawable.category_pill)
+        button.setTextColor(ContextCompat.getColor(this, R.color.white))
+        button.minWidth = 0
+        button.minimumWidth = 0
+        button.setPadding(PILL_PADDING, 0, PILL_PADDING, 0)
+        button.setOnClickListener { action() }
+
+        val spacing = (PILL_SPACING_DP * resources.displayMetrics.density).toInt()
+        button.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(spacing, spacing, spacing, spacing) }
+        return button
     }
 
     /** The deletion folder, without its trailing separator. */
@@ -1744,8 +1843,14 @@ class MainActivity : AppCompatActivity() {
         val loadedTags = tags.getOrElse { return showError(it) }
         val loadedOrigins = origins.getOrElse { return showError(it) }
 
+        // Kept so the periods can be redrawn after a decision without
+        // reading the whole archive again.
+        loadedForPeriods = loadedPhotos
+        decidedInSession.clear()
+        loadedStates.forEach { (id, state) -> decidedInSession[id] = state.status }
+
         showCascadeCaption(loadedPhotos.size)
-        rebuildPeriodSpinner(loadedPhotos, loadedStates)
+        rebuildPeriodSpinner(loadedForPeriods, decidedInSession)
         val period = currentFilter().resolvePeriodMillis()
         val inPeriod = if (period == null) loadedPhotos
         else loadedPhotos.filter { it.dateTakenMillis in period }
@@ -1806,11 +1911,103 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Runs a decision, reports failure, and refreshes the screen. */
+    /**
+     * Performs a decision and keeps the month counts honest.
+     *
+     * The periods say how much of each month has been decided, and they
+     * were built once when the photos loaded: filing a photo left its month
+     * saying what it had said before, for the rest of the session. A month
+     * that stays red however much work is done is a month nobody believes.
+     */
     private fun applyDecision(decision: () -> Result<Unit>) {
         if (busy) return
+
+        val deciding = session.current()?.photoId
         decision().onFailure { showError(it) }
+        if (deciding != null) rememberDecision(deciding)
         render()
     }
+
+    /** Notes the new state and redraws the periods it changed. */
+    private fun rememberDecision(photoId: Long) {
+        val status = session.statusOf(photoId)
+        if (status == null) decidedInSession.remove(photoId)
+        else decidedInSession[photoId] = status
+
+        rebuildPeriodSpinner(loadedForPeriods, decidedInSession)
+        offerNextPeriodIfDone()
+    }
+
+    /**
+     * When a period has nothing left undecided, offers the next one.
+     *
+     * The work is done a month at a time and the end of one is invisible:
+     * the last photo is decided, the screen empties, and the user is left
+     * to go and find where to carry on. Both directions are offered because
+     * an archive is worked through in both — forward from where the sorting
+     * stopped, backward from today into the past.
+     *
+     * Only once per period, and never for a range the user chose by hand:
+     * a chosen range is an answer to a question they asked, not a step in a
+     * sequence somebody else laid out.
+     */
+    private fun offerNextPeriodIfDone() {
+        val current = preferredPeriod as? PhotoFilter.Period.Month ?: return
+        if (current in periodsOffered) return
+
+        val inPeriod = loadedForPeriods.filter { monthOf(it) == current }
+        if (inPeriod.isEmpty() || inPeriod.any { it.photoId !in decidedInSession }) return
+
+        periodsOffered.add(current)
+        val months = offeredPeriods.filterIsInstance<PhotoFilter.Period.Month>()
+        val here = months.indexOf(current)
+        if (here < 0) return
+
+        // The list runs newest first, so the entry after this one is older.
+        val older = months.getOrNull(here + 1)
+        val newer = months.getOrNull(here - 1)
+        if (older == null && newer == null) return
+
+        askNextPeriod(current, older, newer)
+    }
+
+    /** Asks which way to carry on, naming both neighbours. */
+    private fun askNextPeriod(
+        done: PhotoFilter.Period.Month,
+        older: PhotoFilter.Period.Month?,
+        newer: PhotoFilter.Period.Month?
+    ) {
+        val builder = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.period_done_title, monthName(done)))
+            .setMessage(R.string.period_done_message)
+            .setNegativeButton(R.string.period_done_stay, null)
+
+        older?.let {
+            builder.setPositiveButton(getString(R.string.period_done_older, monthName(it))) { _, _ ->
+                changeFilter { preferredPeriod = it }
+            }
+        }
+        newer?.let {
+            builder.setNeutralButton(getString(R.string.period_done_newer, monthName(it))) { _, _ ->
+                changeFilter { preferredPeriod = it }
+            }
+        }
+        builder.show()
+    }
+
+    /** The month a photo falls in, for grouping and comparing. */
+    private fun monthOf(photo: PhotoRecord): PhotoFilter.Period.Month {
+        val calendar = Calendar.getInstance()
+        calendar.timeInMillis = photo.dateTakenMillis
+
+        return PhotoFilter.Period.Month(
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.YEAR)
+        )
+    }
+
+    private fun monthName(month: PhotoFilter.Period.Month): String =
+        "%02d-%d".format(month.month, month.year)
 
     /** Adds a tag to the current photo, or removes one already present. */
     /**
@@ -2144,10 +2341,9 @@ class MainActivity : AppCompatActivity() {
         photoInfo.text = describe(photo)
         showStars()
         printButton.isEnabled = !busy && session.current() != null
-        photoTags.text = getString(
-            R.string.photo_tags,
-            session.currentTags().joinToString(", ").ifEmpty { getString(R.string.tag_none) }
-        )
+        val tags = session.currentTags().joinToString(", ")
+        photoTags.text = getString(R.string.photo_tags, tags)
+        photoTags.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
         loadPreview(photo)
     }
 
@@ -2162,7 +2358,6 @@ class MainActivity : AppCompatActivity() {
             else R.string.action_date_wrong
         )
         openExternalButton.isEnabled = !busy && hasPhoto
-        stagingButton.isEnabled = !busy && stagingCount > 0
         undoButton.isEnabled = !busy && session.pendingCount > 0
         applyButton.isEnabled = !busy && session.pendingCount > 0
         for (index in 0 until destinationActions.childCount) {

@@ -130,6 +130,15 @@ class ReviewSession(
 
     fun currentStatus(): ReviewStatus? = current()?.let { storedStates[it.photoId]?.status }
 
+    /**
+     * What has been decided about [photoId], as far as this session knows.
+     *
+     * The session already keeps every decision it has taken, so a screen
+     * showing how much of a month is done can ask here instead of going
+     * back to the database after every swipe.
+     */
+    fun statusOf(photoId: Long): ReviewStatus? = storedStates[photoId]?.status
+
     /** Destination the current photo was filed into, if any. */
     fun currentDestinationId(): Long? = current()?.let { storedStates[it.photoId]?.destinationId }
 

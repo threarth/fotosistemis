@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A category reads as a label to be attached to a photograph, and a label
+     is not a rectangle. Rounded fully, so the shape holds at any height. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/brand_blue_light" />
+            <corners android:radius="100dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/brand_blue_dark" />
+            <corners android:radius="100dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/brand_blue" />
+            <corners android:radius="100dp" />
+        </shape>
+    </item>
+</selector>

@@ -4,6 +4,27 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- The bin first, and apart: it is not one folder among the others,
+         and it is where a photo goes when it has been decided against. -->
+    <Button
+        android:id="@+id/binRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:drawablePadding="10dp"
+        android:gravity="center_vertical|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginTop="8dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        android:background="@color/brand_blue_light" />
+
     <CheckBox
         android:id="@+id/wholeDeviceCheck"
         android:layout_width="match_parent"

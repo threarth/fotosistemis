@@ -4,8 +4,6 @@
     <!-- Every user-facing string lives here, never inline in code or layout. -->
 
     <!-- Filters -->
-    <string name="action_pick_range">Date</string>
-    <string name="action_reload">Refresh</string>
     <string name="folder_all">tutte le cartelle di origine</string>
     <string name="folder_entry">%1$s (%2$d)</string>
     <string name="folder_removable">SD: %1$s</string>
@@ -98,12 +96,10 @@
     <string name="check_running">Controllo in corso…</string>
     <string name="check_progress">Controllo in corso: %1$d di %2$d</string>
     <string name="roots_entry_detail">%1$s\nqui %2$d · sotto %3$d</string>
-    <string name="cascade_caption">%1$s\n%2$s foto</string>
-    <string name="cascade_everything">Tutte le cartelle di origine</string>
     <string name="action_full_screen">⛶</string>
     <string name="action_full_screen_exit">⤢</string>
     <string name="full_screen_hint">Schermo intero. Premi Indietro per rivedere i selettori.</string>
-    <string name="swipe_legend_bin">scorri: \u2190 conserva (torna dov\'era) · \u2191 successiva · \u2193 precedente</string>
+    <string name="swipe_legend_bin">\u2190 conserva: torna dov\'era\n\u2191 successiva\u2003\u2003\u2193 precedente</string>
     <string name="trash_already_here">E\' gia\' nel cestino. Da qui si puo\' solo conservarla, scorrendo a sinistra.</string>
     <string name="system_bin_copied">%1$d foto di WhatsApp sono state COPIATE nella loro categoria, perche\' Android non lascia spostare i file di un\'altra app. Adesso stanno sul telefono due volte, e l\'originale e\' quello che occupa lo spazio.\n\nMando gli originali (%2$d in tutto) nel CESTINO DI SISTEMA di Android. La copia nella categoria resta.\n\nAttenzione, e\' un cestino diverso: non e\' quello di fotosistemis, non e\' sotto il controllo dell\'app, si svuota da solo dopo 30 giorni, e per recuperarle si passa dalla galleria. Android ti chiedera\' conferma.</string>
     <string name="reorganize_from_label">DOVE SONO ORA</string>
@@ -156,6 +152,21 @@
     <string name="grid_applied">%1$d sistemate, %2$d non riuscite.</string>
     <string name="grid_where">%1$s · %2$d foto</string>
     <string name="grid_nothing">Nessuna foto da mostrare in griglia con i filtri attuali.</string>
+    <string name="scope_label">Filtro</string>
+    <string name="folder_bin_row">Cestino fotosistemis (%1$d)</string>
+    <string name="folder_bin_hint">Le foto che hai deciso di buttare. Aprendolo lavori li\' dentro: scorri a sinistra per riprenderne una.</string>
+    <string name="folder_with_count">%1$s  ·  %2$s foto</string>
+    <string name="period_range_chosen">Intervallo scelto  %1$d/%2$d</string>
+    <string name="period_done_title">%1$s: finito</string>
+    <string name="period_done_message">Ogni foto di questo periodo ha la sua decisione. Vuoi continuare da un altro periodo?</string>
+    <string name="period_done_older">Piu\' vecchio: %1$s</string>
+    <string name="period_done_newer">Piu\' recente: %1$s</string>
+    <string name="period_done_stay">Resto qui</string>
+    <string name="destination_moved_title">La categoria punta altrove</string>
+    <string name="destination_moved_message">%1$s ora indica una cartella diversa.\n\nDa adesso ci finiranno SOLO LE FOTO CHE CATALOGHERAI D\'ORA IN POI. Nessun file e\' stato spostato: le foto gia\' catalogate sono rimaste nella cartella vecchia, e da questo momento risultano fuori posto.\n\nPer spostare anche quelle devi passare da RIORGANIZZA SUL FILESYSTEM, che ti mostra prima cosa succederebbe e poi lo fa. Oppure lascia stare: le ritrovi quando vuoi nel controllo \"catalogate fuori posto\".</string>
+    <string name="destination_moved_reorganize">Riorganizza ora</string>
+    <string name="destination_moved_later">Piu\' tardi</string>
+    <string name="action_menu">\u2630</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
@@ -184,16 +195,16 @@
     <string name="discard_message">%1$d foto in coda tornano NON VISTE: non verranno spostate ne\' eliminate, e ricompariranno fra quelle da rivedere.\n\nNessun file viene toccato: la coda non ha ancora scritto niente sul disco.\n\nLe foto che avevi semplicemente mantenuto restano mantenute.</string>
     <string name="discard_done">Coda svuotata: %1$d foto tornate da rivedere.</string>
     <string name="pending_drop_all">Scarta</string>
-    <string name="period_any">Period: all (%1$d)</string>
+    <string name="period_any">Tutti i periodi  %1$d/%2$d</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>
     <string name="month_mark_done">\u2713</string>
     <string name="month_mark_partial">\u25D0</string>
     <string name="month_mark_todo">\u25CB</string>
-    <string name="swipe_legend">scorri: \u2190 mantieni · \u2192 da eliminare · \u2191 successiva · \u2193 precedente</string>
+    <string name="swipe_legend">\u2190 mantieni\u2003\u2003\u2192 da eliminare\n\u2191 successiva\u2003\u2003\u2193 precedente</string>
     <string name="flash_keep">Mantenuta</string>
     <string name="flash_trash">Da eliminare</string>
     <string name="period_any_plain">qualsiasi periodo</string>
-    <string name="period_custom_range">Intervallo scelto</string>
+    <string name="period_custom_range">Scegli un intervallo di date…</string>
     <string name="scope_to_sort">Da catalogare</string>
     <string name="scope_sorted">Gia\' catalogate</string>
     <string name="scope_every">Tutte</string>
@@ -218,7 +229,7 @@
     <string name="restore_none">Nessuna foto ha un percorso originale noto.</string>
     <string name="restore_confirm">Ripristinare %1$d elementi nella cartella di origine?</string>
     <string name="restore_done">%1$d foto ripristinate.</string>
-    <string name="action_destinations">Output…</string>
+    <string name="action_destinations">Categorie</string>
 
     <!-- Generic -->
     <string name="action_save">Salva</string>
@@ -226,7 +237,7 @@
     <string name="action_delete">Elimina</string>
 
     <!-- Destinations -->
-    <string name="destinations_title">Output</string>
+    <string name="destinations_title">Categorie</string>
     <string name="destinations_hint">Le categorie definite. Tocca una riga per modificarla o eliminarla; eliminarla toglie solo la scorciatoia, le foto restano dove sono.</string>
     <string name="destination_new">Nuova categoria</string>
     <string name="destination_edit">Modifica categoria</string>
@@ -272,7 +283,6 @@
     <string name="tag_name_hint">Tag, es. festaTommy2024</string>
     <string name="tag_add_title">Aggiungi tag</string>
     <string name="tag_remove_title">Rimuovi tag</string>
-    <string name="tag_none">nessun tag</string>
 
     <!-- Status and messages -->
     <string name="preview_description">Foto in revisione</string>
@@ -317,7 +327,6 @@
     <string name="action_advanced">Avanzate…</string>
     <string name="advanced_title">Avanzate</string>
     <string name="destination_root_line">Ogni categoria vive dentro %1$s/. Le nuove nascono li\'.</string>
-    <string name="action_menu">☰</string>
     <string name="menu_title">Avanzate</string>
     <string name="action_queue_plain">Coda</string>
     <string name="action_rescan">Ricostruisci l\'inventario</string>

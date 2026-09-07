@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The photograph's own frame: rounded and clearly drawn, so the picture
-     reads as a thing set apart from the controls rather than as the next
-     item in a list of them. -->
+<!-- Period and filter belong together and to the folder above them: one
+     rounded box says so more plainly than an indent and a rule. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/white" />
     <stroke
         android:width="2dp"
         android:color="@color/brand_blue" />
-    <corners android:radius="18dp" />
+    <corners android:radius="14dp" />
 </shape>

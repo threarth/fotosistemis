@@ -17,7 +17,7 @@ import androidx.core.content.ContextCompat
  */
 class TintedSpinnerAdapter(
     context: Context,
-    private val items: List<Item>
+    private var items: List<Item>
 ) : ArrayAdapter<String>(
     context,
     android.R.layout.simple_spinner_item,
@@ -26,6 +26,22 @@ class TintedSpinnerAdapter(
 
     /** One row: its text and the colour it should be drawn in. */
     data class Item(val label: String, val colorRes: Int?)
+
+    /**
+     * Replaces the rows without replacing the adapter.
+     *
+     * Handing a spinner a new adapter makes it announce a selection, which
+     * reloads, which rebuilds, which announces again. So the rows that only
+     * changed their numbers are updated in place: the same months, saying
+     * how much of each is now done.
+     */
+    fun replaceAll(fresh: List<Item>) {
+        items = fresh
+        setNotifyOnChange(false)
+        clear()
+        addAll(fresh.map { it.label })
+        notifyDataSetChanged()
+    }
 
     /** Colour of a row that carries no state of its own. */
     private val defaultColor: Int = TypedValue().let { value ->

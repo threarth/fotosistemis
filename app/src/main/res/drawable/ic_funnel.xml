@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A funnel: what the state filter does is narrow, and the word for it
+     changed every time it was written. The shape does not. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="18dp"
+    android:height="18dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/ink">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,4h18l-7,8.5v6.2l-4,2.3v-8.5z" />
+</vector>
