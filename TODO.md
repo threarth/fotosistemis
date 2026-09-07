@@ -110,6 +110,16 @@ selezioni MediaStore usano `LIKE ... ESCAPE`. `StorageCaseProbe` fa `stat` di
 `Pictures` e `pictures` all'avvio e avvisa una volta sola se gli inode
 differiscono; non cambia comportamento.
 
+I periodi contano anche le foto andate via. Prima la tendina dei periodi
+nasceva dalle sole foto presenti nelle cartelle scelte, e un mese finito —
+originali WhatsApp consegnati al cestino di Android, foto DCIM tutte
+catalogate — spariva invece di restare in verde (i WhatsApp 2018 del 6
+settembre). `PhotoInventory.loadDeparted` legge le foto con una verita' che
+non stanno piu' nella cartella d'origine (prima `original` in `photo_paths`)
+o mancano dal telefono; `PeriodTally` (core, con test) le somma alle presenti
+sotto la cartella da cui vengono, come decise, contandone una sola volta chi
+si e' solo spostata dentro le cartelle. Un mese svuotato legge `n/n`.
+
 La Coda mostra anche le proposte che non si possono eseguire (categoria
 cancellata, origine sconosciuta, foto gia' al suo posto), con il motivo: si
 annullano con la lista in cui stanno, non si eseguono mai.
@@ -126,6 +136,8 @@ convertito all'import allo stesso modo; un file pre-v10 passa da
   salvo le 7 sopra. La v13 deve mostrarne 7 in Coda all'apertura.
 - Dopo la v13 la Sorgente deve mostrare un solo `Pictures/Famiglia`, e
   nessun avviso sulle maiuscole all'avvio.
+- Con la sorgente WhatsApp, i mesi 2018-07..10 devono comparire in verde
+  (23, 35, 34, 6 foto, tutte decise).
 - Scartare dalla principale e dalla Coda: le foto devono tornare com'erano.
 - Tieni su una foto gia' in categoria: deve restare in categoria e l'Annulla
   non deve comparire.

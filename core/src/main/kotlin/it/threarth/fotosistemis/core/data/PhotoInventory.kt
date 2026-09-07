@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis.core.data
 
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
+import it.threarth.fotosistemis.core.model.FolderPath
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.Proposal
@@ -356,6 +357,48 @@ class PhotoInventory(private val database: Database) {
 
     /** One proposal still owed, with the photo it is about. */
     data class Proposed(val photo: PhotoRecord, val proposal: Proposal)
+
+    /** A decided photo that no longer sits where the app first found it. */
+    data class Departed(val photoId: Long, val originPath: String, val dateTakenMillis: Long)
+
+    /**
+     * Every decided photo that has left the folder it was first seen in,
+     * whether moved elsewhere or gone from the phone.
+     *
+     * New feature. The periods are counted from the photos present in the
+     * chosen folders, so a month whose photos have all been filed away, or
+     * handed to the bin, vanished from the list the moment it was finished
+     * — the opposite of what finishing should look like. These are the
+     * photos that make such a month whole again: they count under the
+     * folder they came from, as work done.
+     */
+    fun loadDeparted(): Result<List<Departed>> = runCatching {
+        val departed = ArrayList<Departed>()
+        val judged = HashSet<Long>()
+        database.query(
+            "SELECT p.${Schema.COLUMN_ID}, p.${Schema.COLUMN_RELATIVE_PATH}, " +
+                    "p.${Schema.COLUMN_DATE_TAKEN}, p.${Schema.COLUMN_MISSING_SINCE}, " +
+                    "o.${Schema.COLUMN_PATH} AS origin " +
+                    "FROM ${Schema.TABLE_PHOTOS} p " +
+                    "JOIN ${Schema.TABLE_PHOTO_STATE} s ON s.${Schema.COLUMN_PHOTO_ID} = " +
+                    "p.${Schema.COLUMN_ID} " +
+                    "JOIN ${Schema.TABLE_PHOTO_PATHS} o ON o.${Schema.COLUMN_PHOTO_ID} = " +
+                    "p.${Schema.COLUMN_ID} AND o.${Schema.COLUMN_KIND} = ? " +
+                    "ORDER BY o.${Schema.COLUMN_RECORDED_AT} ASC",
+            listOf(PhotoStateRepository.PathKind.ORIGINAL.storedValue)
+        ).forEach { row ->
+            val photoId = row.getLong(Schema.COLUMN_ID) ?: return@forEach
+            // Oldest wins, as in loadOriginalPaths: the first location
+            // recorded is the original one, and the only one judged.
+            if (!judged.add(photoId)) return@forEach
+            val origin = row.getString("origin") ?: return@forEach
+            val here = row.getString(Schema.COLUMN_RELATIVE_PATH).orEmpty()
+            val gone = row.getLong(Schema.COLUMN_MISSING_SINCE) != null
+            if (!gone && FolderPath.sameFolder(here, origin)) return@forEach
+            departed.add(Departed(photoId, origin, row.getLong(Schema.COLUMN_DATE_TAKEN) ?: 0L))
+        }
+        departed
+    }
 
     /**
      * Every proposal, with its photo, for photos still on the phone.

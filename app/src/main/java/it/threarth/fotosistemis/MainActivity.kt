@@ -51,6 +51,7 @@ import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.FolderTree
+import it.threarth.fotosistemis.core.review.PeriodTally
 import it.threarth.fotosistemis.core.review.PhotoFilter
 import it.threarth.fotosistemis.core.review.ReviewSession
 import androidx.core.content.ContextCompat
@@ -237,6 +238,9 @@ class MainActivity : AppCompatActivity() {
 
     /** The photos the period counts are built from. */
     private var loadedForPeriods: List<PhotoRecord> = emptyList()
+
+    /** The decided photos that left those folders; see [PeriodTally]. */
+    private var departedForPeriods: List<PhotoInventory.Departed> = emptyList()
 
     /** What has been decided about them, kept in step as work is done. */
     private val decidedInSession = HashMap<Long, ReviewStatus>()
@@ -1555,47 +1559,29 @@ class MainActivity : AppCompatActivity() {
         photos: List<PhotoRecord>,
         states: Map<Long, ReviewStatus>
     ) {
-        val counts = LinkedHashMap<PhotoFilter.Period.Month, Int>()
-        val reviewed = LinkedHashMap<PhotoFilter.Period.Month, Int>()
-        val calendar = Calendar.getInstance()
-        for (photo in photos) {
-            calendar.timeInMillis = photo.dateTakenMillis
-            val month = PhotoFilter.Period.Month(
-                calendar.get(Calendar.MONTH) + 1,
-                calendar.get(Calendar.YEAR)
-            )
-            counts[month] = (counts[month] ?: 0) + 1
-            // Keyed by our own id, not the platform's: they stopped being
-            // the same number in v5, and looking one up by the other found
-            // nothing, so a month stayed red however much had been done.
-            if (states.containsKey(photo.photoId)) {
-                reviewed[month] = (reviewed[month] ?: 0) + 1
-            }
-        }
-
-        val ordered = counts.keys.sortedWith(
-            compareByDescending<PhotoFilter.Period.Month> { it.year }.thenByDescending { it.month }
-        )
+        // Keyed by our own id, not the platform's: they stopped being the
+        // same number in v5, and looking one up by the other found nothing,
+        // so a month stayed red however much had been done.
+        val tally = PeriodTally.of(photos, departedForPeriods, states)
 
         val rebuilt = ArrayList<PhotoFilter.Period>()
         val items = ArrayList<TintedSpinnerAdapter.Item>()
         // "All" carries the same two numbers as every month below it:
         // without them the one line that covers the whole archive was the
         // only one that did not say how much of it had been done.
-        val seenEverywhere = reviewed.values.sum()
+        val everywhere = tally.everywhere
         rebuilt.add(PhotoFilter.Period.Any)
         items.add(
             TintedSpinnerAdapter.Item(
-                getString(R.string.period_any, seenEverywhere, photos.size),
-                colourOf(seenEverywhere, photos.size)
+                getString(R.string.period_any, everywhere.seen, everywhere.total),
+                colourOf(everywhere.seen, everywhere.total)
             )
         )
 
-        for (month in ordered) {
+        for (month in tally.months) {
             rebuilt.add(month)
-            val total = counts[month] ?: 0
-            val seen = reviewed[month] ?: 0
-            items.add(monthItem(month, seen, total))
+            val count = tally.of(month)
+            items.add(monthItem(month, count.seen, count.total))
         }
         // The chosen range carries the same two numbers as every month
         // above it, once there is a range to count. Until then it is an
@@ -1604,12 +1590,11 @@ class MainActivity : AppCompatActivity() {
         if (range == null) {
             items.add(TintedSpinnerAdapter.Item(getString(R.string.period_custom_range), null))
         } else {
-            val inRange = photos.filter { it.dateTakenMillis in range.fromMillis..range.toMillis }
-            val seen = inRange.count { states.containsKey(it.photoId) }
+            val inRange = tally.between(range.fromMillis, range.toMillis)
             items.add(
                 TintedSpinnerAdapter.Item(
-                    getString(R.string.period_range_chosen, seen, inRange.size),
-                    colourOf(seen, inRange.size)
+                    getString(R.string.period_range_chosen, inRange.seen, inRange.total),
+                    colourOf(inRange.seen, inRange.total)
                 )
             )
         }
@@ -1844,11 +1829,25 @@ class MainActivity : AppCompatActivity() {
             val proposals = proposalRepository.loadAll()
             val tags = tagRepository.loadAssignments()
             val origins = stateRepository.loadOriginalPaths()
+            val departed = inventory.loadDeparted()
             runOnUiThread {
                 if (generation != loadGeneration) return@runOnUiThread
-                onLoaded(filter, photos, states, proposals, tags, origins)
+                onLoaded(filter, photos, states, proposals, tags, origins, departed)
             }
         }
+    }
+
+    /**
+     * Keeps what sits in the folders being worked on.
+     *
+     * Chosen folders win over the source scope, the bin included: if it
+     * was picked on purpose, it is exactly what should be shown.
+     */
+    private fun <T> withinScope(items: List<T>, path: (T) -> String): List<T> {
+        val branches = preferredSubtrees
+        if (branches.isEmpty()) return withinSourceRoots(items, path)
+
+        return items.filter { item -> branches.any { FolderTree.isWithin(path(item), it) } }
     }
 
     /** Applies the review-state axis of the filter and shows the first photo. */
@@ -1858,18 +1857,12 @@ class MainActivity : AppCompatActivity() {
         states: Result<Map<Long, PhotoStateRepository.StoredState>>,
         proposals: Result<Map<Long, Proposal>>,
         tags: Result<Map<Long, List<String>>>,
-        origins: Result<Map<Long, PhotoStateRepository.Location>>
+        origins: Result<Map<Long, PhotoStateRepository.Location>>,
+        departed: Result<List<PhotoInventory.Departed>>
     ) {
         setBusy(false)
         val loaded = photos.getOrElse { return showError(it) }
-        // Chosen folders win over the source scope, the bin included: if it
-        // was picked on purpose, it is exactly what should be shown.
-        val branches = preferredSubtrees
-        val loadedPhotos =
-            if (branches.isEmpty()) withinSourceRoots(loaded)
-            else loaded.filter { photo ->
-                branches.any { FolderTree.isWithin(photo.relativePath, it) }
-            }
+        val loadedPhotos = withinScope(loaded) { it.relativePath }
         val loadedStates = states.getOrElse { return showError(it) }
         val loadedProposals = proposals.getOrElse { return showError(it) }
         val loadedTags = tags.getOrElse { return showError(it) }
@@ -1879,6 +1872,9 @@ class MainActivity : AppCompatActivity() {
         // reading the whole archive again. A photo is shown as what is
         // asked of it, or failing that as what has happened to it.
         loadedForPeriods = loadedPhotos
+        departedForPeriods = withinScope(departed.getOrElse { return showError(it) }) {
+            it.originPath
+        }
         decidedInSession.clear()
         loadedStates.forEach { (id, state) -> decidedInSession[id] = state.status }
         loadedProposals.forEach { (id, proposal) -> decidedInSession[id] = proposal.shownStatus }
@@ -2097,15 +2093,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The month a photo falls in, for grouping and comparing. */
-    private fun monthOf(photo: PhotoRecord): PhotoFilter.Period.Month {
-        val calendar = Calendar.getInstance()
-        calendar.timeInMillis = photo.dateTakenMillis
-
-        return PhotoFilter.Period.Month(
-            calendar.get(Calendar.MONTH) + 1,
-            calendar.get(Calendar.YEAR)
-        )
-    }
+    private fun monthOf(photo: PhotoRecord): PhotoFilter.Period.Month =
+        PeriodTally.monthOf(photo.dateTakenMillis)
 
     private fun monthName(month: PhotoFilter.Period.Month): String =
         "%02d-%d".format(month.month, month.year)
