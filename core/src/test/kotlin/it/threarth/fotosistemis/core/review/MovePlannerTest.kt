@@ -120,4 +120,28 @@ class MovePlannerTest {
             )
         )
     }
+
+    @Test
+    fun `the obstacle names what keeps a proposal from being planned`() {
+        val home = PhotoStateRepository.Location("DCIM/Camera/", "IMG_0001.jpg")
+        assertEquals(
+            MovePlanner.Obstacle.NO_CATEGORY,
+            MovePlanner.obstacle(photo(), proposal(Proposal.Action.FILE, 99), null, null)
+        )
+        assertEquals(
+            MovePlanner.Obstacle.NO_ORIGIN,
+            MovePlanner.obstacle(photo(), proposal(Proposal.Action.RESTORE), null, null)
+        )
+        assertEquals(
+            MovePlanner.Obstacle.ALREADY_HOME,
+            MovePlanner.obstacle(photo(), proposal(Proposal.Action.RESTORE), null, home)
+        )
+        assertNull(MovePlanner.obstacle(photo(), proposal(Proposal.Action.TRASH), null, null))
+        assertNull(
+            MovePlanner.obstacle(photo(folder = "Pictures/x/"), proposal(Proposal.Action.RESTORE), null, home)
+        )
+        assertNull(
+            MovePlanner.obstacle(photo(), proposal(Proposal.Action.FILE, family.id), family, null)
+        )
+    }
 }

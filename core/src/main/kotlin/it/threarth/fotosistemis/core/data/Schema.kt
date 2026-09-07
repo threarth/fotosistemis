@@ -410,7 +410,8 @@ object Schema {
      * not, and the app carried the backlog without being able to name it.
      * Each such row is examined rather than assumed: filed under a category
      * means sitting in that category's folder, thrown away means sitting
-     * in the bin or handed to Android's. A row that says otherwise is not
+     * in the bin or handed to Android's, kept means not sitting in the
+     * bin. A row that says otherwise is not
      * a truth but a request, and becomes one — the row goes, a proposal
      * takes its place. Re-runnable: what it has already converted it no
      * longer finds.
@@ -422,6 +423,7 @@ object Schema {
     fun proposeUnfinishedWork(database: Database) {
         proposeUnfinishedFilings(database)
         proposeUnfinishedDeletions(database)
+        proposeUnfinishedRestores(database)
     }
 
     /** Filed, but not in the folder its category names. */
@@ -432,7 +434,10 @@ object Schema {
                 "JOIN $TABLE_DESTINATIONS d ON d.$COLUMN_ID = s.$COLUMN_DESTINATION_ID " +
                 "WHERE p.$COLUMN_ID = s.$COLUMN_PHOTO_ID " +
                 "AND p.$COLUMN_MISSING_SINCE IS NULL " +
-                "AND p.$COLUMN_RELATIVE_PATH NOT LIKE d.$COLUMN_RELATIVE_PATH || '/%') " +
+                // The folder is compared without its trailing slash, whether
+                // or not it was saved with one: a doubled slash would match
+                // nothing, and every filing would come back as owed.
+                "AND p.$COLUMN_RELATIVE_PATH NOT LIKE rtrim(d.$COLUMN_RELATIVE_PATH, '/') || '/%') " +
                 // Unless it was copied there. A photo the platform will not
                 // let us move never leaves its folder, so where it is can
                 // never say the work was done — only the record of the copy
@@ -444,7 +449,7 @@ object Schema {
                 "JOIN $TABLE_DESTINATIONS d2 ON d2.$COLUMN_ID = s.$COLUMN_DESTINATION_ID " +
                 "WHERE pp.$COLUMN_PHOTO_ID = s.$COLUMN_PHOTO_ID " +
                 "AND pp.$COLUMN_KIND = 'moved' " +
-                "AND pp.$COLUMN_PATH LIKE d2.$COLUMN_RELATIVE_PATH || '/%')"
+                "AND pp.$COLUMN_PATH LIKE rtrim(d2.$COLUMN_RELATIVE_PATH, '/') || '/%')"
         convertToProposals(database, unfinished, "file")
     }
 
@@ -466,6 +471,23 @@ object Schema {
                 "AND pp2.$COLUMN_KIND = 'moved' " +
                 "AND pp2.$COLUMN_PATH LIKE '$BIN_PATH%')"
         convertToProposals(database, unfinished, "trash")
+    }
+
+    /**
+     * Kept, but sitting in the app's bin.
+     *
+     * A kept photo is one left where it was, and nothing is ever left in
+     * the bin: the row can only be a restore that failed before the app
+     * learned to write the request down apart from the outcome.
+     */
+    private fun proposeUnfinishedRestores(database: Database) {
+        val unfinished = "SELECT s.$COLUMN_PHOTO_ID FROM $TABLE_PHOTO_STATE s " +
+                "WHERE s.$COLUMN_STATUS = 'kept' " +
+                "AND EXISTS (SELECT 1 FROM $TABLE_PHOTOS p " +
+                "WHERE p.$COLUMN_ID = s.$COLUMN_PHOTO_ID " +
+                "AND p.$COLUMN_MISSING_SINCE IS NULL " +
+                "AND p.$COLUMN_RELATIVE_PATH LIKE '$BIN_PATH%')"
+        convertToProposals(database, unfinished, "restore")
     }
 
     /**

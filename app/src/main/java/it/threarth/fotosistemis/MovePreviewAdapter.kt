@@ -48,22 +48,25 @@ class MovePreviewAdapter(
             moves: List<ReviewSession.PendingMove>,
             photoSource: MediaStorePhotoSource
         ): MovePreviewAdapter {
-            val rows = moves.map { move ->
-                val name = move.newDisplayName ?: move.photo.displayName
-                Row(
-                    photo = move.photo,
-                    title = name,
-                    first = context.getString(
-                        R.string.move_from,
-                        move.photo.relativePath + move.photo.displayName
-                    ),
-                    second = context.getString(
-                        R.string.move_to,
-                        move.destinationRelativePath + name
-                    )
-                )
-            }
+            val rows = moves.map { rowFor(context, it) }
             return MovePreviewAdapter(context, rows, photoSource)
+        }
+
+        /** The card for one move: the name it will have, from here, to there. */
+        fun rowFor(context: Context, move: ReviewSession.PendingMove): Row {
+            val name = move.newDisplayName ?: move.photo.displayName
+            return Row(
+                photo = move.photo,
+                title = name,
+                first = context.getString(
+                    R.string.move_from,
+                    move.photo.relativePath + move.photo.displayName
+                ),
+                second = context.getString(
+                    R.string.move_to,
+                    move.destinationRelativePath + name
+                )
+            )
         }
     }
 

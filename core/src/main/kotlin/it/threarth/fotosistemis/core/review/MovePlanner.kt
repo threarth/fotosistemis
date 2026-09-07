@@ -70,13 +70,48 @@ object MovePlanner {
         )
 
     /**
-     * The move a proposal asks for, or null when it cannot be carried out
-     * as things stand.
+     * Why a proposal cannot be carried out as things stand.
      *
-     * Null for a filing whose category no longer exists, and for a restore
-     * of a photo the app never saw anywhere else or that is already home.
+     * New: named so the queue can show such a proposal instead of hiding
+     * it. Hidden, it still counted and still coloured the photo as
+     * decided, and the only way to take it back was to call off everything.
+     */
+    enum class Obstacle {
+
+        /** A filing whose category has since been deleted. */
+        NO_CATEGORY,
+
+        /** A restore of a photo the app never saw anywhere else. */
+        NO_ORIGIN,
+
+        /** A restore of a photo that is already back where it came from. */
+        ALREADY_HOME
+    }
+
+    /**
+     * What stands in the way of [proposal], or null when nothing does.
+     *
      * The proposal stays in the database either way; only the move cannot
      * be planned from here.
+     */
+    fun obstacle(
+        photo: PhotoRecord,
+        proposal: Proposal,
+        destination: Destination?,
+        origin: PhotoStateRepository.Location?
+    ): Obstacle? = when (proposal.action) {
+        Proposal.Action.TRASH -> null
+        Proposal.Action.FILE -> if (destination == null) Obstacle.NO_CATEGORY else null
+        Proposal.Action.RESTORE -> when {
+            origin == null -> Obstacle.NO_ORIGIN
+            isHome(photo, origin) -> Obstacle.ALREADY_HOME
+            else -> null
+        }
+    }
+
+    /**
+     * The move a proposal asks for, or null when an [obstacle] stands in
+     * the way.
      *
      * The destination is recomputed rather than stored: if the category
      * was pointed at a different folder between asking and applying, the
@@ -88,11 +123,13 @@ object MovePlanner {
         destination: Destination?,
         yearFolderPattern: String,
         origin: PhotoStateRepository.Location?
-    ): ReviewSession.PendingMove? = when (proposal.action) {
-        Proposal.Action.TRASH -> toBin(photo)
-        Proposal.Action.FILE -> destination?.let { toCategory(photo, it, yearFolderPattern) }
-        Proposal.Action.RESTORE ->
-            origin?.takeUnless { isHome(photo, it) }?.let { backHome(photo, it) }
+    ): ReviewSession.PendingMove? {
+        if (obstacle(photo, proposal, destination, origin) != null) return null
+        return when (proposal.action) {
+            Proposal.Action.TRASH -> toBin(photo)
+            Proposal.Action.FILE -> toCategory(photo, destination!!, yearFolderPattern)
+            Proposal.Action.RESTORE -> backHome(photo, origin!!)
+        }
     }
 
     /**

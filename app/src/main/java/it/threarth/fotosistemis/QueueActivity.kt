@@ -38,6 +38,12 @@ import kotlin.concurrent.thread
  * Two halves. Deletions on one side; on the other every move into a
  * folder, which is the filings and also the restores still owed to the
  * bin's photos, because a restore moves a file just as a filing does.
+ *
+ * With them, the requests that cannot be carried out as things stand — a
+ * filing into a category since deleted, a restore with nowhere to go.
+ * Shown, not hidden: hidden they still counted, still coloured the photo
+ * as decided, and could only be taken back by calling off everything.
+ * They are called off with the list they sit in, and never carried out.
  */
 class QueueActivity : AppCompatActivity() {
 
@@ -56,10 +62,25 @@ class QueueActivity : AppCompatActivity() {
 
     private var trash: List<ReviewSession.PendingMove> = emptyList()
     private var misplaced: List<ReviewSession.PendingMove> = emptyList()
+
+    /** Requests nothing can be planned for, with what stands in the way. */
+    private var stuck: List<Stuck> = emptyList()
     private var showingTrash = true
 
     /** What the buttons act on, and the consent covers. */
     private var pending: List<ReviewSession.PendingMove> = emptyList()
+
+    /** One proposal that cannot become a move. */
+    private data class Stuck(
+        val proposed: PhotoInventory.Proposed,
+        val obstacle: MovePlanner.Obstacle
+    )
+
+    /** What one reading of the archive found: the moves, and the rest. */
+    private data class Owed(
+        val moves: List<ReviewSession.PendingMove>,
+        val stuck: List<Stuck>
+    )
 
     private val consentLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -102,11 +123,13 @@ class QueueActivity : AppCompatActivity() {
     private fun load() {
         progress.startSpinning()
         thread {
-            val moves = readOwed()
+            val owed = readOwed()
             runOnUiThread {
                 progress.stop()
-                trash = moves.filter { it.action == Proposal.Action.TRASH }
-                misplaced = moves.filter { it.action != Proposal.Action.TRASH }
+                trash = owed.moves.filter { it.action == Proposal.Action.TRASH }
+                misplaced = owed.moves.filter { it.action != Proposal.Action.TRASH }
+                // Never a deletion: the bin is always there to go to.
+                stuck = owed.stuck
                 if (trash.isEmpty() && misplaced.isNotEmpty()) showingTrash = false
                 redraw()
             }
@@ -122,34 +145,64 @@ class QueueActivity : AppCompatActivity() {
      * the one planner, so a filing carried out from here gets the same
      * stamped name it would have got from the review screen.
      */
-    private fun readOwed(): List<ReviewSession.PendingMove> {
+    private fun readOwed(): Owed {
         val byId: Map<Long, Destination> = destinations.loadAll().getOrElse { emptyList() }
             .associateBy { it.id }
         val origins = stateRepository.loadOriginalPaths().getOrElse { emptyMap() }
+        val moves = ArrayList<ReviewSession.PendingMove>()
+        val stuck = ArrayList<Stuck>()
 
-        return inventory.loadProposed().getOrElse { emptyList() }.mapNotNull { proposed ->
+        for (proposed in inventory.loadProposed().getOrElse { emptyList() }) {
+            val destination = byId[proposed.proposal.destinationId]
+            val origin = origins[proposed.photo.photoId]
+            val obstacle = MovePlanner.obstacle(proposed.photo, proposed.proposal, destination, origin)
+            if (obstacle != null) {
+                stuck.add(Stuck(proposed, obstacle))
+                continue
+            }
             MovePlanner.plan(
-                proposed.photo,
-                proposed.proposal,
-                byId[proposed.proposal.destinationId],
-                settings.yearFolderPattern,
-                origins[proposed.photo.photoId]
-            )
+                proposed.photo, proposed.proposal, destination, settings.yearFolderPattern, origin
+            )?.let { moves.add(it) }
         }
+        return Owed(moves, stuck)
+    }
+
+    /** The card for a request that cannot be carried out, saying why. */
+    private fun rowFor(entry: Stuck): MovePreviewAdapter.Row {
+        val photo = entry.proposed.photo
+        val reason = when (entry.obstacle) {
+            MovePlanner.Obstacle.NO_CATEGORY -> R.string.queue_stuck_no_category
+            MovePlanner.Obstacle.NO_ORIGIN -> R.string.queue_stuck_no_origin
+            MovePlanner.Obstacle.ALREADY_HOME -> R.string.queue_stuck_already_home
+        }
+        return MovePreviewAdapter.Row(
+            photo = photo,
+            title = photo.displayName,
+            first = getString(R.string.move_from, photo.relativePath + photo.displayName),
+            second = getString(reason)
+        )
+    }
+
+    /** Every request on the side being shown, movable or not. */
+    private fun shownPhotoIds(): List<Long> {
+        val moves = if (showingTrash) trash else misplaced
+        val rest = if (showingTrash) emptyList() else stuck
+        return moves.map { it.photo.photoId } + rest.map { it.proposed.photo.photoId }
     }
 
     private fun redraw() {
         val shown = if (showingTrash) trash else misplaced
-        summary.text = getString(R.string.queue_summary, trash.size, misplaced.size)
+        val rows = shown.map { MovePreviewAdapter.rowFor(this, it) } +
+                if (showingTrash) emptyList() else stuck.map { rowFor(it) }
+        summary.text = getString(R.string.queue_summary, trash.size, misplaced.size + stuck.size)
         findViewById<Button>(R.id.queueKindButton).text = getString(
             if (showingTrash) R.string.queue_showing_trash else R.string.queue_showing_sorted,
-            shown.size
+            rows.size
         )
-        listView.adapter = MovePreviewAdapter.forMoves(this, shown, photoSource)
+        listView.adapter = MovePreviewAdapter(this, rows, photoSource)
 
-        val any = shown.isNotEmpty()
-        findViewById<Button>(R.id.queueCarryOutButton).isEnabled = any
-        findViewById<Button>(R.id.queueCallOffButton).isEnabled = any
+        findViewById<Button>(R.id.queueCarryOutButton).isEnabled = shown.isNotEmpty()
+        findViewById<Button>(R.id.queueCallOffButton).isEnabled = rows.isNotEmpty()
     }
 
     /** Moving files needs the system's permission, whoever asked for it. */
@@ -190,7 +243,7 @@ class QueueActivity : AppCompatActivity() {
 
     /** Undoing decisions is itself one, and is stated before it happens. */
     private fun confirmCallOff() {
-        val shown = if (showingTrash) trash else misplaced
+        val shown = shownPhotoIds()
         if (shown.isEmpty()) return
 
         AlertDialog.Builder(this)
@@ -198,7 +251,7 @@ class QueueActivity : AppCompatActivity() {
             .setMessage(getString(R.string.queue_call_off_message, shown.size))
             .setNeutralButton(R.string.queue_call_off_all) { _, _ -> confirmCallOffAll() }
             .setPositiveButton(R.string.queue_call_off) { _, _ ->
-                proposals.withdrawAll(shown.map { it.photo.photoId }).fold(
+                proposals.withdrawAll(shown).fold(
                     onSuccess = {
                         toast(getString(R.string.queue_called_off, it))
                         load()
@@ -217,7 +270,7 @@ class QueueActivity : AppCompatActivity() {
      * that displays twelve must not be able to discard four hundred.
      */
     private fun confirmCallOffAll() {
-        val everything = trash.size + misplaced.size
+        val everything = trash.size + misplaced.size + stuck.size
 
         AlertDialog.Builder(this)
             .setTitle(R.string.queue_call_off_all)

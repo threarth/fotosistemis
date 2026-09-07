@@ -86,8 +86,13 @@ Viaggi e poi tenuta e' in Famiglia. E' annullabile solo quando ha scritto
 quelle con una `previous_status` tornano alla precedente, le altre spariscono.
 Poi `photo_state` viene ricostruita con le sole quattro colonne. Sempre, da
 qualunque versione, `proposeUnfinishedWork`: ogni verita' il cui file non e'
-dove la verita' dice diventa una proposta (stesse esclusioni della v10: le copie
-WhatsApp e il cestino di Android). Idempotente.
+dove la verita' dice diventa una proposta — catalogata ma fuori dalla cartella,
+eliminata ma fuori dal cestino, tenuta ma dentro il cestino (stesse esclusioni
+della v10: le copie WhatsApp e il cestino di Android). Idempotente.
+
+La Coda mostra anche le proposte che non si possono eseguire (categoria
+cancellata, origine sconosciuta, foto gia' al suo posto), con il motivo: si
+annullano con la lista in cui stanno, non si eseguono mai.
 
 Il backup esporta `proposals`. Un file v10/v11 (righe con `pending`) viene
 convertito all'import allo stesso modo; un file pre-v10 passa da

@@ -165,6 +165,9 @@
     <string name="queue_carry_out">Sistemale ora</string>
     <string name="queue_call_off">Annulla le decisioni</string>
     <string name="queue_call_off_message">Annullare dimentica le decisioni prese su %1$d foto: tornano NON CATALOGATE, oppure alla decisione gia\' eseguita che avevano prima (in una categoria, nel cestino).\n\nNessun file viene toccato: quelle foto non sono mai state spostate, ed e\' questo il motivo per cui sono ancora in attesa.</string>
+    <string name="queue_stuck_no_category">Non eseguibile: la categoria non esiste piu\'. Annullala, o ricrea la categoria.</string>
+    <string name="queue_stuck_no_origin">Non eseguibile: non si sa da dove venga. Annullala.</string>
+    <string name="queue_stuck_already_home">Non eseguibile: e\' gia\' dove era. Annullala.</string>
     <string name="queue_called_off">%1$d decisioni annullate: le foto tornano com\'erano prima.</string>
     <string name="immovable_title">Foto che non si possono spostare</string>
     <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, come WhatsApp. Android non lascia portare fuori da li\' un file, qualunque permesso si abbia.\n\nVerranno quindi COPIATE nella cartella giusta, con la loro data di scatto. Finita la copia ti sara\' chiesto se eliminare gli originali: a chiedertelo sara\' Android, mostrandoti le foto.\n\nSe rifiuti, la foto resta sul telefono due volte e la trovi cosi\' anche in Posizioni.</string>
