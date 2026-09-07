@@ -17,8 +17,10 @@ import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderPath
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.ReviewStatus
+import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.review.MovePlanner
 import it.threarth.fotosistemis.core.review.ReviewSession
 import kotlin.concurrent.thread
@@ -212,8 +214,10 @@ class CheckActivity : AppCompatActivity() {
             // as it would have had it been filed from the start.
             val move = MovePlanner.toCategory(photo, destination, settings.yearFolderPattern)
             val target = move.destinationRelativePath
-            if (entry.relativePath == target) return@mapNotNull null
-            if (target.trim('/') in reached[entry.photoId].orEmpty()) return@mapNotNull null
+            if (FolderPath.sameFolder(entry.relativePath, target)) return@mapNotNull null
+            if (reached[entry.photoId].orEmpty().any { FolderPath.sameFolder(it, target) }) {
+                return@mapNotNull null
+            }
 
             Finding(photo, move, destination.id, getString(R.string.move_to, target))
         }
@@ -260,12 +264,10 @@ class CheckActivity : AppCompatActivity() {
 
     /** The declared category folder holding [path], longest match winning. */
     private fun holderOf(path: String, folders: List<Destination>): Destination? {
-        val cleaned = path.trim('/').lowercase()
-
         return folders
             .filter { destination ->
-                val folder = destination.relativePath.trim('/').lowercase()
-                folder.isNotEmpty() && (cleaned == folder || cleaned.startsWith("$folder/"))
+                val folder = destination.relativePath.trim('/')
+                folder.isNotEmpty() && FolderTree.isWithin(path, folder)
             }
             .maxByOrNull { it.relativePath.trim('/').length }
     }

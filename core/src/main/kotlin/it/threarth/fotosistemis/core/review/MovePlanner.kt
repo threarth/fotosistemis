@@ -2,6 +2,7 @@ package it.threarth.fotosistemis.core.review
 
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderPath
 import it.threarth.fotosistemis.core.model.PhotoRecord
 import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.reorg.FileNamer
@@ -140,6 +141,6 @@ object MovePlanner {
      * no name, and then only the folder can be compared.
      */
     fun isHome(photo: PhotoRecord, origin: PhotoStateRepository.Location): Boolean =
-        origin.relativePath == photo.relativePath &&
+        FolderPath.sameFolder(origin.relativePath, photo.relativePath) &&
                 (origin.displayName == null || origin.displayName == photo.displayName)
 }

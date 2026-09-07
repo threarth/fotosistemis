@@ -22,7 +22,8 @@ data class FolderSummary(
      * itself after every batch.
      */
     fun sameAs(other: FolderSummary?): Boolean =
-        other != null && other.volumeName == volumeName && other.relativePath == relativePath
+        other != null && other.volumeName == volumeName &&
+                FolderPath.sameFolder(other.relativePath, relativePath)
 
     companion object {
 

@@ -79,6 +79,7 @@ class MovePlannerTest {
         assertTrue(MovePlanner.isHome(photo(), origin))
         assertFalse(MovePlanner.isHome(photo(name = STAMPED_NAME), origin))
         assertFalse(MovePlanner.isHome(photo(folder = "Pictures/Famiglia/2024/"), origin))
+        assertTrue(MovePlanner.isHome(photo(folder = "dcim/camera/"), origin))
     }
 
     @Test

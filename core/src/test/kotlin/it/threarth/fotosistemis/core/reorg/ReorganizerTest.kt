@@ -153,6 +153,18 @@ class ReorganizerTest {
     }
 
     @Test
+    fun `a spelling that differs only in case is already in place`() {
+        val plan = Reorganizer.plan(
+            listOf(entry(1, "pictures/Famiglia/", "IMG001.jpg", 2016)),
+            listOf(Reorganizer.Choice(famiglia(yearSubfolder = false), stampNames = false)),
+            YEAR_PATTERN
+        )
+
+        assertEquals(0, plan.total)
+        assertEquals(1, plan.unchanged)
+    }
+
+    @Test
     fun `a category nobody asked about is left alone`() {
         val other = Reorganizer.Entry(
             photoId = 9, destinationId = 2L, volumeName = INTERNAL,

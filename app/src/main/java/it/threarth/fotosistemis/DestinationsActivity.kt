@@ -19,6 +19,7 @@ import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
 import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderPath
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.content.Intent
@@ -597,7 +598,9 @@ class DestinationsActivity : AppCompatActivity() {
     /** Asks before rewriting the path of categories that sit elsewhere. */
     private fun offerRebase() {
         val root = settings.destinationRoot
-        val strays = destinations.filterNot { it.relativePath.startsWith("$root/") }
+        val strays = destinations.filterNot {
+            FolderTree.isWithin(it.relativePath, root) && !FolderPath.sameFolder(it.relativePath, root)
+        }
         if (strays.isEmpty()) return refresh()
 
         AlertDialog.Builder(this)

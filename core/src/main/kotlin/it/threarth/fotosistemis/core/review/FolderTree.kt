@@ -1,5 +1,6 @@
 package it.threarth.fotosistemis.core.review
 
+import it.threarth.fotosistemis.core.model.FolderPath.key
 import it.threarth.fotosistemis.core.model.FolderSummary
 
 /**
@@ -61,9 +62,10 @@ object FolderTree {
         val own = HashMap<String, Int>()
         val below = HashMap<String, Int>()
         val children = HashMap<String, MutableSet<String>>()
+        val spellings = HashMap<String, String>()
 
         for (folder in folders) {
-            val path = folder.relativePath.trim('/')
+            val path = spell(folder.relativePath, spellings)
             if (path.isEmpty()) continue
             own[path] = (own[path] ?: 0) + folder.photoCount
 
@@ -121,24 +123,44 @@ object FolderTree {
      * starts as the top level alone and grows only where the user looks.
      */
     fun visible(nodes: List<Node>, expanded: Set<String>): List<Node> {
-        val offerti = nodes.map { it.relativePath }.toHashSet()
+        val offerti = nodes.map { key(it.relativePath) }.toHashSet()
+        val aperti = expanded.map { key(it) }.toHashSet()
 
         return nodes.filter { node ->
             ancestorsOf(node.relativePath)
                 .dropLast(1)
+                .map { key(it) }
                 .filter { it in offerti }
-                .all { it in expanded }
+                .all { it in aperti }
         }
+    }
+
+    /**
+     * The one spelling of [path] the tree will use, remembered in
+     * [spellings] segment by segment.
+     *
+     * Shared storage on Android ignores case, and MediaStore has been seen
+     * indexing the same folder as Pictures/Famiglia and pictures/Famiglia
+     * within one day. Keyed by exact string, the tree showed two folders
+     * for one directory. Each segment takes the spelling first met, so a
+     * second spelling of any ancestor folds into the first.
+     */
+    private fun spell(path: String, spellings: HashMap<String, String>): String {
+        var spelled = ""
+        for (segment in path.split(SEPARATOR).filter { it.isNotEmpty() }) {
+            val candidate = if (spelled.isEmpty()) segment else "$spelled$SEPARATOR$segment"
+            spelled = spellings.getOrPut(key(candidate)) { candidate }
+        }
+        return spelled
     }
 
     /** True when [path] is inside [root], or is [root] itself. */
     fun isWithin(path: String, root: String): Boolean {
-        val clean = path.trim('/')
-        val anchor = root.trim('/')
+        val clean = key(path)
+        val anchor = key(root)
         if (anchor.isEmpty()) return true
 
-        return clean.equals(anchor, ignoreCase = true) ||
-                clean.startsWith("$anchor$SEPARATOR", ignoreCase = true)
+        return clean == anchor || clean.startsWith("$anchor$SEPARATOR")
     }
 
     /** A folder is offered when it holds photos, or when the tree forks in it. */

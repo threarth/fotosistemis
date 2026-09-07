@@ -9,6 +9,7 @@ import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.TextView
 import it.threarth.fotosistemis.core.review.FolderTree
+import it.threarth.fotosistemis.core.model.FolderPath
 
 /**
  * Draws the folder tree one open level at a time.
@@ -101,13 +102,15 @@ class FolderTreeAdapter(
         val toggle = view.findViewById<TextView>(R.id.nodeToggle)
         toggle.text = when {
             !node.hasChildren -> ""
-            node.relativePath in open -> OPEN
+            open.any { FolderPath.sameFolder(it, node.relativePath) } -> OPEN
             else -> CLOSED
         }
         toggle.setPadding((node.depth * INDENT_DP * density).toInt(), 0, 0, 0)
         toggle.setOnClickListener {
             if (!enabled || !node.hasChildren) return@setOnClickListener
-            if (!open.remove(node.relativePath)) open.add(node.relativePath)
+            if (!open.removeAll { FolderPath.sameFolder(it, node.relativePath) }) {
+                open.add(node.relativePath)
+            }
             refresh()
         }
     }
@@ -117,7 +120,7 @@ class FolderTreeAdapter(
         val check = view.findViewById<CheckBox>(R.id.nodeCheck)
         val label = view.findViewById<TextView>(R.id.nodeLabel)
 
-        check.isChecked = node.relativePath in selected
+        check.isChecked = selected.any { FolderPath.sameFolder(it, node.relativePath) }
 
         // Dimmed on a folder that holds nothing itself: it can still be
         // chosen, because choosing it takes everything beneath, but the eye
@@ -142,7 +145,7 @@ class FolderTreeAdapter(
         )
         val pick = View.OnClickListener {
             if (!enabled) return@OnClickListener
-            val era = selected.remove(node.relativePath)
+            val era = selected.removeAll { FolderPath.sameFolder(it, node.relativePath) }
             if (singleChoice) selected.clear()
             if (!era) selected.add(node.relativePath)
             onPicked?.invoke()

@@ -73,6 +73,25 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
 
         const val EXPECTED_UPDATED_ROWS = 1
 
+        /**
+         * One folder, whatever its case: LIKE folds ASCII case, = does not.
+         *
+         * MediaStore has indexed the same directory as Pictures/Famiglia and
+         * pictures/Famiglia, and shared storage treats them as one. Asked
+         * with =, the app would count or list only one spelling's rows.
+         * The escape keeps a folder's own % and _ literal — the bin is
+         * called _FotoSistemis_DaEliminare.
+         */
+        const val LIKE_ESCAPE = "\\"
+        const val SAME_FOLDER_SELECTION =
+            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? ESCAPE '$LIKE_ESCAPE'"
+
+        /** [relativePath] as the argument [SAME_FOLDER_SELECTION] expects. */
+        fun folderPattern(relativePath: String): String = relativePath
+            .replace(LIKE_ESCAPE, LIKE_ESCAPE + LIKE_ESCAPE)
+            .replace("%", "$LIKE_ESCAPE%")
+            .replace("_", "${LIKE_ESCAPE}_")
+
         const val HASH_ALGORITHM = "SHA-256"
 
         /** How much of the file the fingerprint is taken from. */
@@ -306,13 +325,10 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
      */
     fun binContents(relativePath: String): Result<BinContents> = runCatching {
         val queryArgs = Bundle().apply {
-            putString(
-                ContentResolver.QUERY_ARG_SQL_SELECTION,
-                "${MediaStore.Images.Media.RELATIVE_PATH} = ?"
-            )
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, SAME_FOLDER_SELECTION)
             putStringArray(
                 ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                arrayOf(relativePath)
+                arrayOf(folderPattern(relativePath))
             )
             putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
         }
@@ -579,11 +595,11 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
     /** Counts the photos in one folder across every volume. */
     override fun countPhotosIn(relativePath: String): Result<Int> = runCatching {
         val queryArgs = Bundle().apply {
-            putString(
-                ContentResolver.QUERY_ARG_SQL_SELECTION,
-                "${MediaStore.Images.Media.RELATIVE_PATH} = ?"
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, SAME_FOLDER_SELECTION)
+            putStringArray(
+                ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+                arrayOf(folderPattern(relativePath))
             )
-            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(relativePath))
         }
         val projection = arrayOf(MediaStore.Images.Media._ID)
         val cursor = resolver.query(COLLECTION, projection, queryArgs, null)
@@ -604,12 +620,11 @@ class MediaStorePhotoSource(private val context: Context) : PhotoSource {
             if (folder != null) {
                 putString(
                     ContentResolver.QUERY_ARG_SQL_SELECTION,
-                    "${MediaStore.Images.Media.VOLUME_NAME} = ? " +
-                            "AND ${MediaStore.Images.Media.RELATIVE_PATH} = ?"
+                    "${MediaStore.Images.Media.VOLUME_NAME} = ? AND $SAME_FOLDER_SELECTION"
                 )
                 putStringArray(
                     ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                    arrayOf(folder.volumeName, folder.relativePath)
+                    arrayOf(folder.volumeName, folderPattern(folder.relativePath))
                 )
             }
         }

@@ -2,6 +2,7 @@ package it.threarth.fotosistemis.core.reorg
 
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderPath
 import java.util.Calendar
 import java.util.Locale
 
@@ -194,7 +195,9 @@ object Reorganizer {
         toRelativePath: String,
         toDisplayName: String
     ): PlannedMove? {
-        if (entry.relativePath == toRelativePath && entry.displayName == toDisplayName) return null
+        if (FolderPath.sameFolder(entry.relativePath, toRelativePath) &&
+            entry.displayName == toDisplayName
+        ) return null
 
         return PlannedMove(
             photoId = entry.photoId,

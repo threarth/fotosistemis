@@ -97,6 +97,19 @@ WhatsApp. Per una WhatsApp la copia nel cestino era la strada sbagliata; ora
 tornano in Coda e vanno al cestino Android col consenso. `migrateToVersion13`
 rilancia `proposeUnfinishedWork`.
 
+Sempre la v13 confronta i percorsi senza badare alle maiuscole. Motivo: la
+memoria condivisa e' un mount FUSE che risolve `Pictures` e `pictures` alla
+stessa directory (verificato sul telefono: stesso inode), e l'indice media ha
+registrato tre copie fatte l'11 agosto come `pictures/Famiglia/` benche' l'app
+avesse chiesto `Pictures/Famiglia/`. Prima SQL `LIKE` piegava il caso ma `=`
+e `GROUP BY` no, e in Kotlin ogni confronto faceva a modo suo: l'albero della
+Sorgente mostrava due nodi per una cartella. Ora `relative_path` e
+`photo_paths.path` sono `COLLATE NOCASE` (tabelle ricostruite dalla v13,
+testo invariato), in Kotlin passa tutto da `FolderPath.sameFolder`/`key`, e le
+selezioni MediaStore usano `LIKE ... ESCAPE`. `StorageCaseProbe` fa `stat` di
+`Pictures` e `pictures` all'avvio e avvisa una volta sola se gli inode
+differiscono; non cambia comportamento.
+
 La Coda mostra anche le proposte che non si possono eseguire (categoria
 cancellata, origine sconosciuta, foto gia' al suo posto), con il motivo: si
 annullano con la lista in cui stanno, non si eseguono mai.
@@ -111,6 +124,8 @@ convertito all'import allo stesso modo; un file pre-v10 passa da
   14 proposte, tutte le `pending` v11 (WhatsApp da eliminare mai consegnate),
   nessuna dal criterio. Verita' controllate contro il filesystem: coerenti,
   salvo le 7 sopra. La v13 deve mostrarne 7 in Coda all'apertura.
+- Dopo la v13 la Sorgente deve mostrare un solo `Pictures/Famiglia`, e
+  nessun avviso sulle maiuscole all'avvio.
 - Scartare dalla principale e dalla Coda: le foto devono tornare com'erano.
 - Tieni su una foto gia' in categoria: deve restare in categoria e l'Annulla
   non deve comparire.

@@ -27,7 +27,8 @@ object Schema {
      * v10 tells decisions taken from decisions carried out.
      * v11 keeps the carried-out decision a pending one replaced.
      * v12 separates what is asked of a photo from what is true of it.
-     * v13 no longer takes a copy made into the bin for a deletion done.
+     * v13 compares paths without regard to case, and no longer takes a
+     *     copy made into the bin for a deletion done.
      */
     const val VERSION = 13
 
@@ -178,13 +179,25 @@ object Schema {
         )
     """
 
+    /**
+     * Path columns compare without regard to case (v13).
+     *
+     * Android's shared storage ignores ASCII case, and MediaStore has been
+     * seen reporting one directory under two spellings. With the collation
+     * on the column, every =, GROUP BY, DISTINCT and index agrees with LIKE
+     * and with the disk, in the queries written and in those to come. The
+     * text itself is stored as reported. See FolderPath for the Kotlin
+     * side of the same rule.
+     */
+    private const val PATH_COLLATION = "NOCASE"
+
     private const val CREATE_PHOTOS = """
         CREATE TABLE IF NOT EXISTS $TABLE_PHOTOS (
             $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
             $COLUMN_MEDIA_ID INTEGER,
             $COLUMN_VOLUME_NAME TEXT NOT NULL DEFAULT '',
             $COLUMN_DISPLAY_NAME TEXT NOT NULL DEFAULT '',
-            $COLUMN_RELATIVE_PATH TEXT NOT NULL DEFAULT '',
+            $COLUMN_RELATIVE_PATH TEXT NOT NULL DEFAULT '' COLLATE $PATH_COLLATION,
             $COLUMN_SIZE_BYTES INTEGER NOT NULL DEFAULT 0,
             $COLUMN_DATE_TAKEN INTEGER NOT NULL DEFAULT 0,
             $COLUMN_DATE_SOURCE TEXT,
@@ -204,7 +217,7 @@ object Schema {
         CREATE TABLE IF NOT EXISTS $TABLE_DESTINATIONS (
             $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
             $COLUMN_LABEL TEXT NOT NULL,
-            $COLUMN_RELATIVE_PATH TEXT NOT NULL,
+            $COLUMN_RELATIVE_PATH TEXT NOT NULL COLLATE $PATH_COLLATION,
             $COLUMN_YEAR_SUBFOLDER INTEGER NOT NULL DEFAULT 1,
             $COLUMN_SORT_ORDER INTEGER NOT NULL DEFAULT 0
         )
@@ -251,7 +264,7 @@ object Schema {
         CREATE TABLE IF NOT EXISTS $TABLE_PHOTO_PATHS (
             $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
             $COLUMN_PHOTO_ID INTEGER NOT NULL,
-            $COLUMN_PATH TEXT NOT NULL,
+            $COLUMN_PATH TEXT NOT NULL COLLATE $PATH_COLLATION,
             $COLUMN_DISPLAY_NAME TEXT,
             $COLUMN_KIND TEXT NOT NULL,
             $COLUMN_RECORDED_AT INTEGER NOT NULL
@@ -333,14 +346,53 @@ object Schema {
     }
 
     /**
-     * v13 asks the classification again with a stricter rule for deletions.
+     * v13 makes the path columns compare without regard to case, and asks
+     * the classification again with a stricter rule for deletions.
      *
-     * The rule is re-runnable, so asking twice costs nothing and finds
-     * only what the v12 rule had let through.
+     * SQLite cannot change a column's collation in place, so each of the
+     * three tables holding a path is rebuilt. The classification is
+     * re-runnable: asking twice costs nothing and finds only what the v12
+     * rule had let through.
      */
     private fun migrateToVersion13(database: Database) {
+        rebuildWithCollation(database, TABLE_PHOTOS, CREATE_PHOTOS)
+        rebuildWithCollation(database, TABLE_DESTINATIONS, CREATE_DESTINATIONS)
+        rebuildWithCollation(database, TABLE_PHOTO_PATHS, CREATE_PHOTO_PATHS)
+        createTables(database)
         proposeUnfinishedWork(database)
     }
+
+    /**
+     * Rebuilds [table] from [createStatement], carrying every row over.
+     *
+     * Columns are copied by name, not by position: a column added later
+     * with ALTER TABLE sits last in the old table and wherever the create
+     * statement puts it in the new one. Skipped when the table already
+     * carries the collation, so the step can run twice. The table's
+     * indexes go down with the old table and are made again by the caller.
+     */
+    private fun rebuildWithCollation(
+        database: Database,
+        table: String,
+        createStatement: String
+    ) {
+        if (declaresCollation(database, table)) return
+        val columns = database.query("PRAGMA table_info($table)")
+            .mapNotNull { it.getString("name") }
+            .joinToString(", ")
+
+        database.execute("ALTER TABLE $table RENAME TO ${table}_old")
+        database.execute(createStatement)
+        database.execute("INSERT INTO $table ($columns) SELECT $columns FROM ${table}_old")
+        database.execute("DROP TABLE ${table}_old")
+    }
+
+    /** True when the stored definition of [table] already names the collation. */
+    private fun declaresCollation(database: Database, table: String): Boolean =
+        database.query(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            listOf(table)
+        ).any { it.getString("sql")?.contains(PATH_COLLATION) == true }
 
     /** v8 lets the user contradict a photo's recorded date. */
     private fun migrateToVersion8(database: Database) {

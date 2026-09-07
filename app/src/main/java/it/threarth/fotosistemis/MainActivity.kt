@@ -44,6 +44,7 @@ import it.threarth.fotosistemis.core.data.RatingRepository
 import it.threarth.fotosistemis.core.data.TagRepository
 import it.threarth.fotosistemis.core.model.CaptureDateResolver
 import it.threarth.fotosistemis.core.model.Destination
+import it.threarth.fotosistemis.core.model.FolderPath
 import it.threarth.fotosistemis.core.model.FolderSummary
 import it.threarth.fotosistemis.core.port.PhotoSource as PhotoSourcePort
 import it.threarth.fotosistemis.core.model.PhotoRecord
@@ -408,7 +409,18 @@ class MainActivity : AppCompatActivity() {
 
         buildScopeSpinner()
         wireActions()
+        warnIfStorageDistinguishesCase()
         ensureReadPermission()
+    }
+
+    /** See [StorageCaseProbe]: a one-time notice, never a change of behaviour. */
+    private fun warnIfStorageDistinguishesCase() {
+        if (!StorageCaseProbe(settings).shouldWarn()) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.case_warning_title)
+            .setMessage(R.string.case_warning_message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     /**
@@ -1369,7 +1381,7 @@ class MainActivity : AppCompatActivity() {
 
         allFolders = folders
         stagingCount = folders
-            .filter { it.relativePath == ReviewSession.DELETION_STAGING_PATH }
+            .filter { FolderPath.sameFolder(it.relativePath, ReviewSession.DELETION_STAGING_PATH) }
             .sumOf { it.photoCount }
 
         val offered = withinSourceRoots(folders)

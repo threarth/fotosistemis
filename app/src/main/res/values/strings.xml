@@ -383,4 +383,6 @@
     <string name="message_consent_refused">Consenso rifiutato: nessuna modifica applicata.</string>
     <string name="message_error">Errore: %1$s</string>
     <string name="message_queue_empty">Coda vuota.</string>
+    <string name="case_warning_title">Archivio sensibile alle maiuscole</string>
+    <string name="case_warning_message">Su questo telefono Pictures e pictures sono cartelle diverse. L\'app le tratta come una sola: le foto restano dove sono, ma una cartella scritta in due modi potrebbe comparire una volta sola.</string>
 </resources>

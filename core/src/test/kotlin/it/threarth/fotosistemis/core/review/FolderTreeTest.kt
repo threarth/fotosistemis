@@ -2,6 +2,7 @@ package it.threarth.fotosistemis.core.review
 
 import it.threarth.fotosistemis.core.model.FolderSummary
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -158,6 +159,30 @@ class FolderTreeTest {
 
         val tutto = FolderTree.visible(nodes, setOf("Pictures", "Pictures/storage-0"))
         assertEquals(5, tutto.size)
+    }
+
+    /**
+     * The media index has been seen reporting `pictures/` for a folder the
+     * app wrote as `Pictures/`; on disk it is one directory, so it must be
+     * one node.
+     */
+    @Test
+    fun `two spellings of a folder are one node`() {
+        val nodes = FolderTree.candidates(
+            listOf(
+                folder("Pictures/Famiglia", 570),
+                folder("pictures/Famiglia", 3),
+                folder("Pictures/Screenshots", 32)
+            )
+        )
+
+        assertEquals(573, candidate(nodes, "Pictures/Famiglia")?.photoCount)
+        assertNull(candidate(nodes, "pictures/Famiglia"))
+        assertEquals(605, candidate(nodes, "Pictures")?.photoCount)
+
+        val aperto = FolderTree.visible(nodes, setOf("pictures")).map { it.relativePath }
+        assertEquals(listOf("Pictures", "Pictures/Famiglia", "Pictures/Screenshots"), aperto)
+        assertTrue(FolderTree.isWithin("pictures/famiglia/2024", "Pictures/Famiglia"))
     }
 
     @Test

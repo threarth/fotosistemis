@@ -23,6 +23,7 @@ class AppSettings(context: Context) {
         private const val KEY_SOURCE_CHOSEN = "source_chosen"
         private const val KEY_DESTINATION_ROOT = "destination_root"
         private const val KEY_BACKUP_TO_CLOUD = "backup_to_cloud"
+        private const val KEY_CASE_WARNING_SHOWN = "case_warning_shown"
 
         /** One root per line, which is also how the user edits them. */
         private const val ROOT_SEPARATOR = "\n"
@@ -125,6 +126,14 @@ class AppSettings(context: Context) {
     var backupToCloud: Boolean
         get() = preferences.getBoolean(KEY_BACKUP_TO_CLOUD, true)
         set(value) = preferences.edit().putBoolean(KEY_BACKUP_TO_CLOUD, value).apply()
+
+    /**
+     * Whether [StorageCaseProbe] has already warned that the storage
+     * distinguishes upper and lower case. Once is enough.
+     */
+    var caseWarningShown: Boolean
+        get() = preferences.getBoolean(KEY_CASE_WARNING_SHOWN, false)
+        set(value) = preferences.edit().putBoolean(KEY_CASE_WARNING_SHOWN, value).apply()
 
     /** The roots to search, honouring the whole-device choice. */
     fun effectiveSourceRoots(): List<String> =
