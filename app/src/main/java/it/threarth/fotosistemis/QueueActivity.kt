@@ -197,7 +197,7 @@ class QueueActivity : AppCompatActivity() {
             .setPositiveButton(R.string.queue_call_off) { _, _ ->
                 stateRepository.forgetAll(shown.map { it.photo.photoId }).fold(
                     onSuccess = {
-                        toast(getString(R.string.queue_called_off, it))
+                        toast(getString(R.string.queue_called_off, it.count))
                         load()
                     },
                     onFailure = { toast(getString(R.string.message_error, it.message.orEmpty())) }

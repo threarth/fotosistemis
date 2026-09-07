@@ -154,9 +154,9 @@
     <string name="destination_moved_later">Piu\' tardi</string>
     <string name="action_menu">\u2630</string>
     <string name="period_done_apply_first">%1$s (applica %2$d)</string>
-    <string name="discard_message">%1$d decisioni prese sulle foto che stai guardando tornano non prese, e le foto tornano da smistare. Nessun file viene toccato.\n\nRiguarda solo queste: le decisioni prese altrove, o in giorni diversi, restano in attesa. Per riprenderle tutte c\'e\' la Coda.</string>
+    <string name="discard_message">%1$d decisioni prese sulle foto che stai guardando tornano non prese, e le foto tornano da smistare, o alla decisione gia\' eseguita che avevano prima. Nessun file viene toccato.\n\nRiguarda solo queste: le decisioni prese altrove, o in giorni diversi, restano in attesa. Per riprenderle tutte c\'e\' la Coda.</string>
     <string name="queue_call_off_all">Annulla TUTTE</string>
-    <string name="queue_call_off_all_message">Tutte le %1$d decisioni in attesa tornano non prese, comprese quelle di altre cartelle e di altri giorni. Le foto tornano da smistare.\n\nNessun file viene toccato, ma il lavoro di giudizio si perde: va rifatto.</string>
+    <string name="queue_call_off_all_message">Tutte le %1$d decisioni in attesa tornano non prese, comprese quelle di altre cartelle e di altri giorni. Le foto tornano da smistare, o alla decisione gia\' eseguita che avevano prima.\n\nNessun file viene toccato, ma il lavoro di giudizio si perde: va rifatto.</string>
     <string name="queue_screen_title">Coda</string>
     <string name="queue_summary">In attesa: %1$d da eliminare · %2$d da spostare</string>
     <string name="queue_showing_trash">Da eliminare (%1$d) — tocca per vedere le altre</string>
@@ -164,12 +164,12 @@
     <string name="queue_carried_out">%1$d sistemate, %2$d non riuscite.</string>
     <string name="queue_carry_out">Sistemale ora</string>
     <string name="queue_call_off">Annulla le decisioni</string>
-    <string name="queue_call_off_message">Annullare fa tornare %1$d foto NON CATALOGATE: le decisioni prese su di loro vengono dimenticate e le foto ricompaiono fra quelle da catalogare.\n\nNessun file viene toccato: quelle foto non sono mai state spostate, ed e\' questo il motivo per cui sono ancora in attesa.</string>
-    <string name="queue_called_off">%1$d decisioni annullate: le foto tornano da catalogare.</string>
+    <string name="queue_call_off_message">Annullare dimentica le decisioni prese su %1$d foto: tornano NON CATALOGATE, oppure alla decisione gia\' eseguita che avevano prima (in una categoria, nel cestino).\n\nNessun file viene toccato: quelle foto non sono mai state spostate, ed e\' questo il motivo per cui sono ancora in attesa.</string>
+    <string name="queue_called_off">%1$d decisioni annullate: le foto tornano com\'erano prima.</string>
     <string name="immovable_title">Foto che non si possono spostare</string>
     <string name="immovable_explained">%1$d di queste foto stanno nella cartella di un\'altra app, come WhatsApp. Android non lascia portare fuori da li\' un file, qualunque permesso si abbia.\n\nVerranno quindi COPIATE nella cartella giusta, con la loro data di scatto. Finita la copia ti sara\' chiesto se eliminare gli originali: a chiedertelo sara\' Android, mostrandoti le foto.\n\nSe rifiuti, la foto resta sul telefono due volte e la trovi cosi\' anche in Posizioni.</string>
     <string name="discard_title">Scarta la coda</string>
-    <string name="discard_done">Coda svuotata: %1$d foto tornate da rivedere.</string>
+    <string name="discard_done">Coda svuotata: %1$d foto tornate com\'erano prima.</string>
     <string name="pending_drop_all">Scarta</string>
     <string name="period_any">Tutti i periodi  %1$d/%2$d</string>
     <string name="period_month">%1$s %2$s %3$d/%4$d</string>

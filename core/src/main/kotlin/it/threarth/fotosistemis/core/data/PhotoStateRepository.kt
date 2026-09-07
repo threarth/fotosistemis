@@ -9,6 +9,31 @@ import it.threarth.fotosistemis.core.port.Database
  */
 class PhotoStateRepository(private val database: Database) {
 
+    private companion object {
+
+        /** Every column of a decision, as [stateOf] reads them. */
+        val STATE_COLUMNS = listOf(
+            Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STATUS, Schema.COLUMN_DESTINATION_ID,
+            Schema.COLUMN_PENDING, Schema.COLUMN_PREVIOUS_STATUS,
+            Schema.COLUMN_PREVIOUS_DESTINATION_ID
+        ).joinToString(", ")
+
+        /**
+         * Puts the replaced decision back in place of a pending one.
+         *
+         * Only rows keeping one: the caller appends the rest of the WHERE,
+         * and the condition here is what makes it safe to run on every
+         * pending row at once.
+         */
+        val REVERT_SQL = "UPDATE ${Schema.TABLE_PHOTO_STATE} SET " +
+                "${Schema.COLUMN_STATUS} = ${Schema.COLUMN_PREVIOUS_STATUS}, " +
+                "${Schema.COLUMN_DESTINATION_ID} = ${Schema.COLUMN_PREVIOUS_DESTINATION_ID}, " +
+                "${Schema.COLUMN_PENDING} = 0, " +
+                "${Schema.COLUMN_PREVIOUS_STATUS} = NULL, " +
+                "${Schema.COLUMN_PREVIOUS_DESTINATION_ID} = NULL " +
+                "WHERE ${Schema.COLUMN_PREVIOUS_STATUS} IS NOT NULL AND"
+    }
+
     /** A stored decision about one photo. */
     data class StoredState(
         val photoId: Long,
@@ -16,7 +41,46 @@ class PhotoStateRepository(private val database: Database) {
         val destinationId: Long?,
 
         /** True while the decision has been taken and not yet carried out. */
-        val pending: Boolean = false
+        val pending: Boolean = false,
+
+        /**
+         * The carried-out decision this pending one replaced, if any.
+         *
+         * What discarding gives back: a photo restored from the bin and
+         * then not restored after all is still in the bin, and must go
+         * on being recorded as thrown away rather than as never seen.
+         */
+        val previousStatus: ReviewStatus? = null,
+        val previousDestinationId: Long? = null
+    ) {
+
+        /**
+         * The done decision a new pending one written over this row should
+         * keep, or null when there is none.
+         *
+         * A row already carried out is itself what to keep. A row still
+         * pending is not — it never happened — but it may be keeping one
+         * from before, and that one carries over: change your mind twice
+         * and discard, and the photo is back where it really is.
+         */
+        fun decisionToKeep(): StoredState? = when {
+            !pending -> this
+            previousStatus != null -> StoredState(photoId, previousStatus, previousDestinationId)
+            else -> null
+        }
+    }
+
+    /** What taking back decisions left behind. */
+    data class Discarded(
+
+        /** How many decisions were taken back. */
+        val count: Int,
+
+        /**
+         * The decisions given back in their place, keyed by photo id.
+         * Photos absent from here are undecided again.
+         */
+        val restored: Map<Long, StoredState>
     )
 
     /**
@@ -56,21 +120,33 @@ class PhotoStateRepository(private val database: Database) {
      * of photos: one query plus in-memory lookups beats one query per photo.
      */
     fun loadAll(): Result<Map<Long, StoredState>> = runCatching {
-        database.query(
-            "SELECT ${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                    "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_PENDING} " +
-                    "FROM ${Schema.TABLE_PHOTO_STATE}"
-        ).mapNotNull { row ->
-            val photoId = row.getLong(Schema.COLUMN_PHOTO_ID) ?: return@mapNotNull null
-            val status = ReviewStatus.fromStoredValue(row.getString(Schema.COLUMN_STATUS))
-                ?: return@mapNotNull null
-            photoId to StoredState(
-                photoId,
-                status,
-                row.getLong(Schema.COLUMN_DESTINATION_ID),
-                pending = (row.getLong(Schema.COLUMN_PENDING) ?: 0L) == 1L
-            )
-        }.toMap()
+        database.query("SELECT $STATE_COLUMNS FROM ${Schema.TABLE_PHOTO_STATE}")
+            .mapNotNull { row -> stateOf(row)?.let { it.photoId to it } }
+            .toMap()
+    }
+
+    /** The decision about one photo, or null when there is none. */
+    private fun loadOne(photoId: Long): StoredState? = database.query(
+        "SELECT $STATE_COLUMNS FROM ${Schema.TABLE_PHOTO_STATE} " +
+                "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+        listOf(photoId)
+    ).firstOrNull()?.let { stateOf(it) }
+
+    /** One row as a decision, or null when the row cannot be read as one. */
+    private fun stateOf(row: Database.Row): StoredState? {
+        val photoId = row.getLong(Schema.COLUMN_PHOTO_ID) ?: return null
+        val status = ReviewStatus.fromStoredValue(row.getString(Schema.COLUMN_STATUS))
+            ?: return null
+        return StoredState(
+            photoId,
+            status,
+            row.getLong(Schema.COLUMN_DESTINATION_ID),
+            pending = (row.getLong(Schema.COLUMN_PENDING) ?: 0L) == 1L,
+            previousStatus = ReviewStatus.fromStoredValue(
+                row.getString(Schema.COLUMN_PREVIOUS_STATUS)
+            ),
+            previousDestinationId = row.getLong(Schema.COLUMN_PREVIOUS_DESTINATION_ID)
+        )
     }
 
     /**
@@ -117,21 +193,41 @@ class PhotoStateRepository(private val database: Database) {
         pending: Boolean = true
     ): Result<Unit> = runCatching {
         database.transaction {
-            database.execute(
-                "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
-                        "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                        "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}, " +
-                        "${Schema.COLUMN_PENDING}) VALUES (?, ?, ?, ?, ?)",
-                listOf(
-                    photo.photoId, status.storedValue, destinationId,
-                    System.currentTimeMillis(), if (pending) 1 else 0
-                )
-            )
+            writeDecision(photo.photoId, status, destinationId, pending, System.currentTimeMillis())
             // Written now, while the photo is still where it started: this
             // is what putting it back later depends on.
             rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
             Unit
         }
+    }
+
+    /**
+     * Writes one decision over whatever was there.
+     *
+     * A pending decision keeps the carried-out one it replaces, so that
+     * discarding it can give that one back. A decision done on the spot
+     * keeps nothing: it is the truth now, and there is nothing to return
+     * to.
+     */
+    private fun writeDecision(
+        photoId: Long,
+        status: ReviewStatus,
+        destinationId: Long?,
+        pending: Boolean,
+        now: Long
+    ) {
+        val kept = if (pending) loadOne(photoId)?.decisionToKeep() else null
+        database.execute(
+            "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
+                    "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
+                    "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}, " +
+                    "${Schema.COLUMN_PENDING}, ${Schema.COLUMN_PREVIOUS_STATUS}, " +
+                    "${Schema.COLUMN_PREVIOUS_DESTINATION_ID}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            listOf(
+                photoId, status.storedValue, destinationId, now, if (pending) 1 else 0,
+                kept?.status?.storedValue, kept?.destinationId
+            )
+        )
     }
 
     /**
@@ -167,30 +263,42 @@ class PhotoStateRepository(private val database: Database) {
                         "${Schema.COLUMN_DISPLAY_NAME} = ? WHERE ${Schema.COLUMN_ID} = ?",
                 listOf(relativePath, displayName, photoId)
             )
-            database.execute(
-                "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_PENDING} = 0 " +
-                        "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
-                listOf(photoId)
-            )
+            settle(photoId)
             Unit
         }
     }
 
-
+    /**
+     * Marks the decision about [photoId] as done, and drops the one it
+     * replaced: what happened is the truth now, and there is nothing to go
+     * back to.
+     */
+    private fun settle(photoId: Long) {
+        database.execute(
+            "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_PENDING} = 0, " +
+                    "${Schema.COLUMN_PREVIOUS_STATUS} = NULL, " +
+                    "${Schema.COLUMN_PREVIOUS_DESTINATION_ID} = NULL " +
+                    "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
+            listOf(photoId)
+        )
+    }
 
     /**
      * Throws away every decision not yet carried out, and says how many.
      *
      * Only those: what has already happened is not in the queue and is not
-     * the queue's to undo. Deleting the rows returns the database to what
-     * it was before those decisions were taken, which is what discarding
-     * has always promised.
+     * the queue's to undo. A pending decision that replaced a done one
+     * gives it back; the rest are deleted, and the database is as it was
+     * before those decisions were taken, which is what discarding has
+     * always promised.
      */
     fun discardPending(): Result<Int> = runCatching {
         database.transaction {
-            database.execute(
+            val restored = database.execute("$REVERT_SQL ${Schema.COLUMN_PENDING} = 1")
+            val deleted = database.execute(
                 "DELETE FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PENDING} = 1"
             )
+            restored + deleted
         }
     }
 
@@ -215,16 +323,7 @@ class PhotoStateRepository(private val database: Database) {
         database.transaction {
             val now = System.currentTimeMillis()
             for (photo in photos) {
-                database.execute(
-                    "INSERT OR REPLACE INTO ${Schema.TABLE_PHOTO_STATE} " +
-                            "(${Schema.COLUMN_PHOTO_ID}, ${Schema.COLUMN_STATUS}, " +
-                            "${Schema.COLUMN_DESTINATION_ID}, ${Schema.COLUMN_UPDATED_AT}, " +
-                            "${Schema.COLUMN_PENDING}) VALUES (?, ?, ?, ?, ?)",
-                    listOf(
-                        photo.photoId, status.storedValue, destinationId, now,
-                        if (pending) 1 else 0
-                    )
-                )
+                writeDecision(photo.photoId, status, destinationId, pending, now)
                 rememberPathIfNew(photo.photoId, photo.relativePath, photo.displayName)
             }
             photos.size
@@ -263,11 +362,7 @@ class PhotoStateRepository(private val database: Database) {
         runCatching {
             database.transaction {
                 insertPath(photoId, path, displayName, PathKind.SYSTEM_BIN)
-                database.execute(
-                    "UPDATE ${Schema.TABLE_PHOTO_STATE} SET ${Schema.COLUMN_PENDING} = 0 " +
-                            "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
-                    listOf(photoId)
-                )
+                settle(photoId)
                 Unit
             }
         }
@@ -352,35 +447,47 @@ class PhotoStateRepository(private val database: Database) {
     }
 
     /**
-     * Forgets the decisions about [photoIds], making them unseen again.
+     * Takes back the decisions about [photoIds], and says what is left.
      *
-     * Emptying a queue has to reach the decisions themselves: they are
-     * written the instant they are taken, so a queue discarded without being
-     * applied would otherwise leave every one of them standing.
+     * A pending decision that replaced a carried-out one gives that one
+     * back; any other is deleted and the photo is undecided again. Both
+     * are what "take it back" means: the archive returns to saying what
+     * it said before the decision was taken.
      */
-    fun forgetAll(photoIds: List<Long>): Result<Int> = runCatching {
+    fun forgetAll(photoIds: List<Long>): Result<Discarded> = runCatching {
         database.transaction {
-            var forgotten = 0
-            for (photoId in photoIds) {
-                forgotten += database.execute(
-                    "DELETE FROM ${Schema.TABLE_PHOTO_STATE} " +
-                            "WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
-                    listOf(photoId)
-                )
-            }
-            forgotten
+            val restored = HashMap<Long, StoredState>()
+            var count = 0
+            for (photoId in photoIds) count += takeBack(photoId, restored)
+            Discarded(count, restored)
         }
     }
 
-    /** Removes the decision for one photo, making it unseen again. */
-    fun forget(photoId: Long): Result<Unit> = runCatching {
+    /** Takes back the decision for one photo; see [forgetAll]. */
+    fun forget(photoId: Long): Result<StoredState?> = runCatching {
         database.transaction {
-            database.execute(
+            val restored = HashMap<Long, StoredState>()
+            takeBack(photoId, restored)
+            restored[photoId]
+        }
+    }
+
+    /**
+     * Gives back the replaced decision, or deletes the row.
+     *
+     * Returns how many rows it touched — none when there was no decision —
+     * and puts what it gave back into [restored].
+     */
+    private fun takeBack(photoId: Long, restored: MutableMap<Long, StoredState>): Int {
+        val kept = loadOne(photoId)?.takeIf { it.pending }?.decisionToKeep()
+        if (kept == null) {
+            return database.execute(
                 "DELETE FROM ${Schema.TABLE_PHOTO_STATE} WHERE ${Schema.COLUMN_PHOTO_ID} = ?",
                 listOf(photoId)
             )
-            Unit
         }
+        restored[photoId] = kept
+        return database.execute("$REVERT_SQL ${Schema.COLUMN_PHOTO_ID} = ?", listOf(photoId))
     }
 
     /** Writes the original location once, on the first decision about a photo. */

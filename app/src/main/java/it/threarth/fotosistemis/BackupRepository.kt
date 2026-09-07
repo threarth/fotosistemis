@@ -85,10 +85,13 @@ class BackupRepository(
             // Including whether each decision has been carried out: a
             // backup that dropped it would restore work still owed as
             // though it had been done, and the files would never move.
+            // And the decision a pending one replaced, so that discarding
+            // after a restore still gives the old decision back.
             Schema.TABLE_PHOTO_STATE to listOf(
                 Schema.COLUMN_PHOTO_ID, Schema.COLUMN_STATUS,
                 Schema.COLUMN_DESTINATION_ID, Schema.COLUMN_UPDATED_AT,
-                Schema.COLUMN_PENDING
+                Schema.COLUMN_PENDING, Schema.COLUMN_PREVIOUS_STATUS,
+                Schema.COLUMN_PREVIOUS_DESTINATION_ID
             ),
             Schema.TABLE_TAGS to listOf(Schema.COLUMN_ID, Schema.COLUMN_NAME),
             Schema.TABLE_PHOTO_TAGS to listOf(Schema.COLUMN_PHOTO_ID, Schema.COLUMN_TAG_ID),

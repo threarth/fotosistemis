@@ -1086,7 +1086,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun undoFiling(photoIds: List<Long>, createdCategory: Boolean, label: String) {
         thread {
-            val forgotten = stateRepository.forgetAll(photoIds).getOrElse { 0 }
+            val forgotten = stateRepository.forgetAll(photoIds).map { it.count }.getOrElse { 0 }
             if (createdCategory) {
                 destinationRepository.loadAll().getOrElse { emptyList() }
                     .firstOrNull { it.label == label }

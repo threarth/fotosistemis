@@ -431,12 +431,15 @@ class ReviewSession(
     fun undoLastMove(): Result<Unit> {
         if (decidedHere.isEmpty()) return Result.failure(IllegalStateException("Niente da annullare"))
         val photoId = decidedHere.removeAt(decidedHere.lastIndex)
-        return stateRepository.forget(photoId).onSuccess {
+        return stateRepository.forget(photoId).onSuccess { restored ->
             dequeue(photoId)
-            storedStates = storedStates - photoId
+            // A decision taken over a carried-out one gives that one back;
+            // the photo is not undecided, it is what it was before.
+            storedStates = if (restored == null) storedStates - photoId
+            else storedStates + (photoId to restored)
             val position = photos.indexOfFirst { it.photoId == photoId }
             if (position >= 0) currentIndex = position
-        }
+        }.map { }
     }
 
     /**
@@ -444,9 +447,10 @@ class ReviewSession(
      *
      * Only those: a photo merely marked as kept has nothing queued, its
      * record is already complete and correct, and there is nothing to undo.
-     * The photos that were going to move go back to never seen, because
-     * leaving them recorded as filed while their files never moved would be
-     * a state the app could never make true.
+     * The photos that were going to move go back to what they were before
+     * the decision — never seen, or the carried-out decision the new one
+     * replaced — because leaving them recorded as filed while their files
+     * never moved would be a state the app could never make true.
      */
     fun discardQueue(): Result<Unit> {
         // What this session is holding, which is the work owed for the
@@ -455,10 +459,13 @@ class ReviewSession(
         // another folder. Taking back all of it is offered where all of it
         // is shown, which is the queue screen.
         val ids = pendingMoves.map { it.photo.photoId }
-        val outcome = stateRepository.forgetAll(ids)
-        if (outcome.isFailure) return Result.failure(outcome.exceptionOrNull()!!)
+        val discarded = stateRepository.forgetAll(ids).getOrElse { return Result.failure(it) }
 
-        for (photoId in ids) storedStates = storedStates - photoId
+        for (photoId in ids) {
+            val restored = discarded.restored[photoId]
+            storedStates = if (restored == null) storedStates - photoId
+            else storedStates + (photoId to restored)
+        }
         pendingMoves.clear()
         decidedHere.clear()
         return Result.success(Unit)

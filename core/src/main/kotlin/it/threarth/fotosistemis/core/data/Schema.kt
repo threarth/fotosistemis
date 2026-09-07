@@ -24,8 +24,10 @@ object Schema {
      * v5 gave photos an identity of their own, independent of the platform.
      * v6 records the file name beside every path, so a move can be undone.
      * v7 lets a photo be rated without deciding anything else about it.
+     * v10 tells decisions taken from decisions carried out.
+     * v11 keeps the carried-out decision a pending one replaced.
      */
-    const val VERSION = 10
+    const val VERSION = 11
 
     const val TABLE_PHOTOS = "photos"
 
@@ -131,6 +133,22 @@ object Schema {
      */
     const val COLUMN_PENDING = "pending"
 
+    /**
+     * The decision a pending one replaced, when that one had been carried
+     * out; null otherwise.
+     *
+     * Restoring a photo from the bin, refiling one, throwing away one
+     * already catalogued: each writes a new pending decision over a done
+     * one. Discarding the new decision has to give the old one back, not
+     * leave the photo undecided — it is in the bin, or in its category,
+     * and the archive must go on saying so. Cleared when the new decision
+     * is carried out, since then it is the one that has happened.
+     */
+    const val COLUMN_PREVIOUS_STATUS = "previous_status"
+
+    /** Goes with [COLUMN_PREVIOUS_STATUS]: the category it was filed in. */
+    const val COLUMN_PREVIOUS_DESTINATION_ID = "previous_destination_id"
+
     const val COLUMN_NAME = "name"
     const val COLUMN_TAG_ID = "tag_id"
 
@@ -208,7 +226,9 @@ object Schema {
             $COLUMN_STATUS TEXT NOT NULL,
             $COLUMN_DESTINATION_ID INTEGER,
             $COLUMN_UPDATED_AT INTEGER NOT NULL,
-            $COLUMN_PENDING INTEGER NOT NULL DEFAULT 0
+            $COLUMN_PENDING INTEGER NOT NULL DEFAULT 0,
+            $COLUMN_PREVIOUS_STATUS TEXT,
+            $COLUMN_PREVIOUS_DESTINATION_ID INTEGER
         )
     """
 
@@ -313,6 +333,27 @@ object Schema {
         if (oldVersion < 8) migrateToVersion8(database)
         if (oldVersion < 10) migrateToVersion10(database)
         // v9 added a table, and createTables above has already made it.
+        if (oldVersion < 11) migrateToVersion11(database)
+    }
+
+    /**
+     * v11 gives a pending decision room to remember the one it replaced.
+     *
+     * Nothing to classify: rows that exist have no replaced decision the
+     * database could know of, so the columns start empty.
+     */
+    private fun migrateToVersion11(database: Database) {
+        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PREVIOUS_STATUS)) {
+            database.execute(
+                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN $COLUMN_PREVIOUS_STATUS TEXT"
+            )
+        }
+        if (!hasColumn(database, TABLE_PHOTO_STATE, COLUMN_PREVIOUS_DESTINATION_ID)) {
+            database.execute(
+                "ALTER TABLE $TABLE_PHOTO_STATE ADD COLUMN " +
+                        "$COLUMN_PREVIOUS_DESTINATION_ID INTEGER"
+            )
+        }
     }
 
     /** v8 lets the user contradict a photo's recorded date. */

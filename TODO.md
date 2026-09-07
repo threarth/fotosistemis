@@ -137,14 +137,17 @@ Quattro punti, marcati `pending = false`.
   riferimenti — fra cui `cleanup_*`, che descrivevano la copia nel cestino
   dell'app che oggi non si fa piu'.
 
-### Un limite da decidere (non risolto, per scelta)
+### Scartare restituisce la decisione precedente (schema v11)
 
 Una decisione nuova che sostituisce una gia' eseguita — ripristinare dal
 cestino, riarchiviare altrove, buttare una foto gia' catalogata — riscrive la
-riga con `pending = 1`. Se poi si **scarta**, la riga viene cancellata e con
-lei la decisione precedente: la foto torna "non vista" invece che "eliminata"
-o "in Famiglia". Una colonna `previous_status` lo sistemerebbe, ma cambia il
-significato dello scarto e va discussa prima, come da regola.
+riga con `pending = 1` e conserva la precedente in `previous_status` /
+`previous_destination_id`. Se poi si **scarta**, la riga non viene cancellata:
+torna alla decisione precedente, con `pending = 0`. La foto e' di nuovo
+"eliminata" o "in Famiglia", non "non vista". Cambiare idea due volte e
+scartare riporta comunque alla decisione eseguita. Quando la decisione nuova
+viene eseguita, la precedente viene azzerata: non c'e' piu' nulla a cui
+tornare.
 
 ### Cosa non e' stato fatto
 
