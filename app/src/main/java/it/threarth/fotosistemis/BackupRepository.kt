@@ -88,6 +88,13 @@ class BackupRepository(
                 Schema.COLUMN_SIZE_BYTES, Schema.COLUMN_DATE_TAKEN, Schema.COLUMN_DATE_SOURCE,
                 Schema.COLUMN_MEDIA_TYPE, Schema.COLUMN_WIDTH, Schema.COLUMN_HEIGHT,
                 Schema.COLUMN_DURATION_MILLIS, Schema.COLUMN_CONTENT_HASH,
+                // Left out until 8 September 2026, and a restore lost every
+                // one of the 23.703 fingerprints read from the archive: the
+                // duplicate search fell back to length plus head-of-file
+                // until each photo had been opened and read again. It is
+                // not something the phone gives back for free, which is the
+                // whole test for what belongs in a backup.
+                Schema.COLUMN_IMAGE_HASH,
                 Schema.COLUMN_FIRST_SEEN_AT, Schema.COLUMN_LAST_SEEN_AT,
                 Schema.COLUMN_MISSING_SINCE, Schema.COLUMN_DATE_SUSPECT
             ),

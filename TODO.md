@@ -261,6 +261,58 @@ Tutto trovato leggendo il database vero del telefono, non ragionando a mente.
       che parta da uno schema precedente al v14 (qui sono passate in fila, una
       dopo l'altra, nella stessa serata).
 
+## L'8 settembre, sera — letto dal backup vero
+
+Un lotto di 23 foto mandate al cestino dell'app alle 17:18, riletto
+esportando il backup e aprendolo sul PC. Non serviva `adb`: l'esportazione
+porta fuori `photo_paths` per intero, ed è lì che sta la storia.
+
+**Cos'era davvero.** Ventuno coppie `nome.jpg` / `nome_saved.jpg`, tutte e due
+dentro `DCIM/Camera`, più due screenshot doppi. **Nessuna WhatsApp.** Tre
+raffiche del 4 e 7 agosto 2020, da cinque, cinque, quattro e sette scatti —
+fotografie diverse, non copie della stessa, con impronte e dimensioni distinte
+(da 752 KB a 5,2 MB). Ognuna aveva il proprio gemello `_saved` lasciato da
+un'app di galleria: da 52 a 117 byte di differenza, tutti metadati.
+
+- [x] **Fra due gemelli decideva l'alfabeto.** Entrambe spostabili, nessuna
+      catalogata, nessuna timbrata: la scelta cadeva fino in fondo al
+      comparatore, sull'ordine di `relativePath + displayName`. Ha azzeccato
+      per caso — `..._01.jpg` viene prima di `..._01_saved.jpg` — e un
+      marcatore che ordinasse al contrario avrebbe sbagliato altrettanto
+      volentieri. Ora `DuplicateFinder.isDerived` guarda la fine del nome e
+      l'originale batte il rifacimento, sopra l'alfabeto e sotto tutto il
+      resto. La lista dei marcatori contiene `_saved` e nient'altro: quello
+      che si è visto sull'archivio vero.
+- [x] **`image_hash` entra nel backup.** Era fuori da `COLUMNS`: un ripristino
+      perdeva tutte le 23.703 impronte lette, e la ricerca doppioni tornava a
+      lunghezza più testa del file finché ogni foto non fosse stata riaperta.
+      Lo screenshot YouTube di questo lotto lo dimostra — 30 byte di
+      differenza dal suo gemello, trovato solo dall'impronta dell'immagine.
+      L'import regge i file vecchi da sé: inserisce le sole colonne che la
+      riga porta, quindi nessun cambio di versione.
+
+**Non compilato né provato**: la rete di quella sessione non lasciava scaricare
+Gradle. Da far girare prima di fidarsene, `:core:test` compreso.
+
+### Da fare
+
+- [ ] **I 21 doppioni sono invertiti, non risolti.** I gemelli sono tutti
+      ancora in `DCIM/Camera`; in Famiglia c'è la `_saved`. Alla prossima
+      ricerca ricompaiono, e stavolta `catalogued` proporrà di buttare quella
+      in Camera — che è nella cartella salvata su Google Foto, quindi se ne
+      andrebbe anche la copia nel cloud.
+- [ ] **`catalogued` scavalca `immovable` nel comparatore.** Una WhatsApp già
+      archiviata batte un originale della fotocamera mai rivisto, e la
+      fotocamera è la copia migliore sotto ogni aspetto: EXIF vero, qualità
+      piena, e per giunta salvata su Google Foto. In questo lotto non è
+      successo — non c'erano WhatsApp — ma la collisione è il caso normale,
+      con i mesi WhatsApp lavorati e `DCIM/Camera` mai rivista. Da decidere se
+      invertire i due criteri.
+- [ ] **Il maiuscolo entra ancora nell'indice.** Le due righe rimaste nel
+      cestino dell'app hanno percorso `pictures/_FotoSistemis_DaEliminare/`
+      con la p minuscola, mentre tutte le altre scrivono `Pictures/`. Le
+      difese della v13 reggono; il mount FUSE continua a produrlo.
+
 ## Fase 3 — funzionalità richieste
 
 Rivista voce per voce contro il codice il 7 settembre 2026: quasi tutto era

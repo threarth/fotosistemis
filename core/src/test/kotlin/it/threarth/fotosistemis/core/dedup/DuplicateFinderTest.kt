@@ -1,6 +1,7 @@
 package it.threarth.fotosistemis.core.dedup
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +19,7 @@ class DuplicateFinderTest {
     private companion object {
         const val WHATSAPP = "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/"
         const val CATEGORY = "Pictures/Famiglia/"
+        const val CAMERA = "DCIM/Camera/"
         const val PICTURE = "stessa-fotografia"
     }
 
@@ -101,5 +103,43 @@ class DuplicateFinderTest {
 
         assertEquals(filed.photoId, DuplicateFinder.groups(listOf(original, filed))
             .single().suggested.photoId)
+    }
+
+    @Test
+    fun `fra due gemelli tiene l'originale e non il rifacimento`() {
+        val original = copy(1, CAMERA, "20200807_090708_01.jpg", 2_577_397, imageHash = PICTURE)
+        val saved = copy(2, CAMERA, "20200807_090708_01_saved.jpg", 2_577_280, imageHash = PICTURE)
+
+        val groups = DuplicateFinder.groups(listOf(saved, original))
+
+        assertEquals(1L, groups.single().suggested.photoId)
+    }
+
+    @Test
+    fun `il rifacimento perde anche quando l'alfabeto lo metterebbe primo`() {
+        // Senza questo criterio deciderebbe l'ordine alfabetico, e qui
+        // punterebbe sul file sbagliato.
+        val saved = copy(1, CAMERA, "a_saved.jpg", 100, imageHash = PICTURE)
+        val original = copy(2, CAMERA, "b.jpg", 100, imageHash = PICTURE)
+
+        assertEquals(2L, DuplicateFinder.groups(listOf(saved, original)).single().suggested.photoId)
+    }
+
+    @Test
+    fun `una copia catalogata resta preferita anche se e' un rifacimento`() {
+        // Il lavoro gia' fatto vale piu' della provenienza del nome: la
+        // riga in archivio si perderebbe, i pixel no.
+        val saved = copy(1, CATEGORY, "foto_saved.jpg", 100, imageHash = PICTURE, catalogued = true)
+        val original = copy(2, CAMERA, "foto.jpg", 100, imageHash = PICTURE)
+
+        assertEquals(1L, DuplicateFinder.groups(listOf(saved, original)).single().suggested.photoId)
+    }
+
+    @Test
+    fun `il marcatore vale solo in fondo al nome, non ovunque`() {
+        assertTrue(DuplicateFinder.isDerived("foto_saved.jpg"))
+        assertTrue(DuplicateFinder.isDerived("FOTO_SAVED.JPG"))
+        assertFalse(DuplicateFinder.isDerived("_saved_di_nascosto.jpg"))
+        assertFalse(DuplicateFinder.isDerived("foto.jpg"))
     }
 }
