@@ -244,6 +244,14 @@ Tutto trovato leggendo il database vero del telefono, non ragionando a mente.
       Aggiungerle allo stesso cursore non costa nulla, e le dimensioni in pixel
       sono un filtro fortissimo: una ricompressione di solito le conserva.
 - [ ] **Ripulire `backup_rules.xml`**, ancora il file di esempio commentato.
+- [ ] **Dire la verità su Google Foto nella pagina di aiuto.** `HelpActivity`
+      apre con "non cancella mai", e dopo la misura dell'8 settembre quella
+      frase da sola inganna: l'app non cancella nessun file, ma spostandolo
+      fuori da una cartella salvata ne fa sparire la copia su Google Foto.
+      Servono due cose dette per intero — che archiviare in una cartella non
+      salvata toglie la foto dal cloud, e che *Annulla* dal tampone recupera
+      il file ma non quella copia. Il ragionamento sta in *Decisioni prese*,
+      sotto *Google Foto segue i file*.
 - [ ] **Il buco temporaneo delle due chiavi è chiuso** (lettura finita), ma
       resta vero il principio: un file usa *o* l'impronta dell'immagine *o*
       quella del file, mai entrambe, e due file con chiavi di tipo diverso non
@@ -417,11 +425,62 @@ Famiglia finisce in `SD:Pictures/Famiglia`, una interna in
 foto un identificatore nuovo. Le cartelle duplicate sui due volumi non sono
 un difetto ma due archivi paralleli.
 
-**"Da eliminare" non elimina.** Raduna le foto in
-`Pictures/_FotoSistemis_DaEliminare`, che si svuota da Google Foto: eliminare
-in locale lascerebbe intatta la copia già caricata, e nessuna API pubblica
-può rimuoverla. Effetto collaterale positivo: archiviare e cestinare sono la
-stessa operazione, quindi un lotto misto costa un solo consenso.
+**"Da eliminare" non elimina, ma non è vero che lascia stare il cloud.**
+Raduna le foto in `Pictures/_FotoSistemis_DaEliminare`. La ragione scritta
+qui fino all'8 settembre 2026 era che *eliminare in locale lascerebbe intatta
+la copia già caricata, e nessuna API pubblica può rimuoverla*: misurato sul
+telefono, è falso — vedi *Google Foto segue i file* più sotto.
+
+La cartella resta, con una ragione diversa e più piccola: è un **tampone** da
+cui recuperare un errore. La foto è ancora sul telefono e *Annulla* la riporta
+dov'era. Resta vero anche l'effetto collaterale che la giustificava in
+parte: archiviare e cestinare sono la stessa operazione, quindi un lotto misto
+costa un solo consenso.
+
+Il recupero però è **locale, non totale**. Lo spostamento nel tampone ha già
+tolto la foto da Google Foto, dove finisce nel Cestino con la sua scadenza;
+rimettendo il file in una cartella salvata Google Foto lo ricarica, ma come
+elemento nuovo. Va detto nella pagina di aiuto: "Annulla" oggi promette più
+di quanto mantenga.
+
+**Google Foto segue i file, e questo governa dove l'app li mette.** Misurato
+sul telefono l'8 settembre 2026, con backup acceso e cartelle scelte una per
+una:
+
+- eliminare una foto dal telefono la toglie **anche dal cloud**;
+- **spostarla** da una cartella salvata a una non salvata fa lo stesso: per
+  Google Foto il file ha lasciato la cartella di cui teneva copia, e non
+  distingue quel movimento da una cancellazione;
+- il **cestino di Android** invece **non** si propaga: una foto consegnata
+  con `createTrashRequest` resta su Google Foto.
+
+Il primo punto smentisce la vecchia ragione del tampone. Il secondo è quello
+che conta, perché non riguarda lo scarto ma **l'archiviazione**: `toCategory`
+porta la foto da `DCIM/Camera` a `Categoria/anno-Categoria`, e a livello di
+file quello è lo stesso evento di uno scarto. Archiviare — l'operazione con
+cui l'utente *tiene* una foto — ne cancella la copia su Google Foto se la
+cartella d'arrivo non è fra quelle salvate.
+
+**Le cartelle di Google Foto non sono ricorsive.** Le enumera per bucket
+MediaStore, cioè una directory esatta senza discendere — lo stesso modo in cui
+le enumera `listFolders()` qui. Quindi `Pictures/Famiglia` e
+`Pictures/Famiglia/2018-Famiglia` sono due voci distinte in quell'elenco, e
+l'app scrive sempre nella seconda. Ogni annata nuova nasce come cartella non
+salvata.
+
+**Rimedio scelto: ricordarsi di accendere il backup sulle categorie**, annate
+comprese. Non una modifica al codice — una regola di allestimento del telefono,
+scritta qui perché senza motivo non si ricorda. L'alternativa era accendere
+*Esegui il backup di tutte le cartelle*, scartata: salverebbe anche
+`_FotoSistemis_DaEliminare` e lo scarto smetterebbe di raggiungere il cloud,
+riportando il problema che il tampone doveva aggirare. Nessuna impostazione
+sola va bene per tutte e due le operazioni.
+
+**L'asimmetria fra le due strade dello scarto non lascia scoperto niente.** Le
+foto in cartelle salvate passano dal tampone, e il cloud le segue; al cestino
+di Android vanno solo le intoccabili di WhatsApp, che su Google Foto non ci
+sono. Se un giorno si salvasse anche `WhatsApp Images`, questa frase smette di
+valere.
 
 **I tag stanno nel database, non nel nome del file.** Aggiungerne uno resta
 un `UPDATE` invece di una rinomina che disturberebbe i servizi di backup. La
