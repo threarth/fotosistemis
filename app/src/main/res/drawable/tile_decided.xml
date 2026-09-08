@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The border a tile wears once a decision has been made about it: the
-     grid has to show its own state, or every pass over it starts blind. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <stroke
-        android:width="3dp"
-        android:color="@color/brand_blue" />
-</shape>

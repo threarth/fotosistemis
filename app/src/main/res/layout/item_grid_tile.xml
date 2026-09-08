@@ -12,6 +12,18 @@
         android:contentDescription="@string/preview_description"
         android:scaleType="centerCrop" />
 
+    <!-- Shown only while a selection is open. A ring on every tile at all
+         times would invite a tap that does nothing: outside a selection the
+         tap is not what chooses, the hold is. -->
+    <ImageView
+        android:id="@+id/tileCheck"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="top|start"
+        android:layout_margin="4dp"
+        android:contentDescription="@string/grid_check_description"
+        android:visibility="gone" />
+
     <!-- The decision, written on the photograph. A colour alone would say
          that something was decided but never what. -->
     <TextView

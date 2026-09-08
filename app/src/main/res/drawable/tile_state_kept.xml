@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The border a tile wears for one recorded state. The three are the same
+     shape in three colours, and the colour never stands alone: the state is
+     written on the tile as well. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <stroke
+        android:width="3dp"
+        android:color="@color/state_kept" />
+</shape>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The travelling handle down the right edge. A pale pill rather than the
+     platform's coloured bar: with a selection open the finger on the photos
+     is choosing, so this is the only way left to move through the archive,
+     and it has to read as a thing to grab rather than as a measure of how
+     far down one is. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/white" />
+    <corners android:radius="24dp" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/brand_blue_light" />
+</shape>

@@ -5,6 +5,50 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- The bar that belongs to a selection: it appears with one and goes
+         with it. What can be done to the chosen photographs is here, beside
+         how many they are and the way out — the same three things a gallery
+         puts there, in the same place, because that is where a hand
+         already goes looking. -->
+    <LinearLayout
+        android:id="@+id/gridSelectionBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface_tint"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/gridCloseSelection"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:text="@string/grid_close_selection"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/gridSelectionCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="34dp"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <HorizontalScrollView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:id="@+id/gridActions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+    </LinearLayout>
+
     <TextView
         android:id="@+id/gridWhere"
         android:layout_width="match_parent"
@@ -24,31 +68,34 @@
         android:paddingBottom="6dp"
         android:textSize="11sp" />
 
-    <GridView
-        android:id="@+id/gridPhotos"
+    <!-- The grid, with its travelling handle laid over the right edge. -->
+    <FrameLayout
+        android:id="@+id/gridStage"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:horizontalSpacing="0dp"
-        android:numColumns="3"
-        android:stretchMode="columnWidth"
-        android:verticalSpacing="0dp" />
+        android:layout_weight="1">
 
-    <!-- The categories, and the two decisions that are not categories. A
-         row that scrolls, because an archive can have a dozen. -->
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingTop="4dp">
+        <GridView
+            android:id="@+id/gridPhotos"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:horizontalSpacing="0dp"
+            android:numColumns="3"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="0dp" />
 
-        <LinearLayout
-            android:id="@+id/gridActions"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp" />
-    </HorizontalScrollView>
+        <ImageView
+            android:id="@+id/gridScrollHandle"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="end"
+            android:layout_marginEnd="6dp"
+            android:alpha="0"
+            android:background="@drawable/scroll_handle"
+            android:contentDescription="@string/grid_scroll_handle"
+            android:padding="10dp"
+            android:src="@drawable/ic_scroll_arrows" />
+    </FrameLayout>
 
     <Button
         android:id="@+id/gridApplyButton"
