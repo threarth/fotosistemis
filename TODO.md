@@ -296,11 +296,23 @@ Gradle. Da far girare prima di fidarsene, `:core:test` compreso.
 
 ### Da fare
 
-- [ ] **I 21 doppioni sono invertiti, non risolti.** I gemelli sono tutti
-      ancora in `DCIM/Camera`; in Famiglia c'è la `_saved`. Alla prossima
-      ricerca ricompaiono, e stavolta `catalogued` proporrà di buttare quella
+- [ ] **I 21 doppioni sono invertiti, non risolti** — per una scelta fatta a
+      mano, non per un difetto. L'app aveva proposto di tenere l'originale;
+      le `_saved` sono state riprese dal cestino e catalogate ventisette
+      minuti dopo, scambiandole per copie WhatsApp. Ora in Famiglia c'è il
+      rifacimento e in `DCIM/Camera` l'originale mai rivisto. Alla prossima
+      ricerca ricompaiono, e stavolta `catalogued` proporrà di buttare quello
       in Camera — che è nella cartella salvata su Google Foto, quindi se ne
       andrebbe anche la copia nel cloud.
+- [ ] **La schermata dei doppioni non dice *perché* propone una copia.** È
+      questo che ha reso possibile lo scambio: la riga mostra percorso,
+      dimensione e la scritta "suggerita", e niente che spieghi cosa
+      distingue i due file. Centodiciassette byte su due megabyte e mezzo non
+      si leggono come "metadati riscritti da un'app di galleria" — e a
+      quel punto due nomi quasi uguali sembrano l'originale e la copia
+      WhatsApp. Ogni controllo di `CheckActivity` dichiara dove guarda e cosa
+      cerca; questa schermata no. Ora che `isDerived` esiste, il motivo c'è
+      già scritto nel codice e basta portarlo sulla riga.
 - [ ] **`catalogued` scavalca `immovable` nel comparatore.** Una WhatsApp già
       archiviata batte un originale della fotocamera mai rivisto, e la
       fotocamera è la copia migliore sotto ogni aspetto: EXIF vero, qualità
