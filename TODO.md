@@ -1,6 +1,6 @@
 # Lavoro in corso
 
-Stato al 7 settembre 2026.
+Stato all'8 settembre 2026.
 
 ## Misurato sul dispositivo, il 4 e 5 settembre 2026
 
@@ -151,6 +151,108 @@ Tutto il giro fatto con la v13 installata:
 - Il piano completo e' in `PIANO-PROPOSTE.md`; `PIANO-SPOOL.md` resta come
   registro delle alternative valutate per la v10.
 
+## La notte del 7-8 settembre 2026
+
+Cominciata da un "sqlite locked" e finita su tre guasti che erano lo stesso
+equivoco ripetuto: **una decisione trattata come se fosse un fatto sul file.**
+Tutto trovato leggendo il database vero del telefono, non ragionando a mente.
+
+### Fatto
+
+- [x] **Una sola connessione al database** per tutta l'app, con write-ahead
+      logging. Nove schermate ne aprivano una ciascuna sullo stesso file, e
+      SQLite lascia scrivere uno alla volta: chi arrivava mentre una scansione
+      teneva il file falliva con *database is locked*. Ora il secondo scrittore
+      si mette in fila, e chi legge non aspetta affatto.
+- [x] **Una scansione completa per volta** (`fullScanLock`, con il controllo dei
+      dieci minuti *dentro* il lucchetto). Il timbro di fine scansione si scrive
+      solo alla fine, quindi finché una girava il guardiano non la vedeva e ne
+      partiva una seconda sopra. Chi arriva secondo ora aspetta, rilegge il
+      timbro e trova il lavoro già fatto.
+- [x] **`recordSystemBin` non scrive più "buttata" per una foto archiviata.**
+      Per una WhatsApp ci sono due strade che finiscono nel cestino di Android:
+      se la scarti, l'originale è buttato; se la archivi, viene copiata in
+      categoria e nel cestino va solo l'originale avanzato — ma quella
+      fotografia è **catalogata**. Scrivendo la stessa verità per entrambe, la
+      seconda seppelliva una foto che l'utente aveva chiesto di tenere.
+      23 fotografie, tutte del 7 settembre; nessuna immagine persa.
+- [x] **Migrazione v14**: rende la categoria a quelle 23, leggendo il percorso
+      che l'app stessa aveva registrato. Idempotente, verificata su una copia
+      del database vero prima di girare sul telefono.
+- [x] **La ricerca doppioni esclude per luogo, non per decisione.** Escludeva
+      tutto ciò che risultava buttato, in attesa di esserlo, o mai consegnato al
+      cestino di Android: 55 foto erano sul telefono e fuori dalla ricerca. E
+      siccome un gruppo ha bisogno di due copie, nasconderne una non nasconde
+      una riga — fa sparire il ritrovamento intero. Ora fuori solo il cestino
+      dell'app e quello di Android, quest'ultimo **chiesto adesso**, non
+      ricordato.
+- [x] **Le proposte di scarto si scrivono dopo il consenso**, non prima.
+      Rifiutare quel dialogo non è la piattaforma che declina, è l'utente che
+      cambia idea: scrivendo prima, un dialogo annullato lasciava distrutta una
+      richiesta sua e al suo posto una mai fatta.
+- [x] **Impronta dell'immagine** (`image_hash`, schema v15). Archiviando una
+      WhatsApp l'app le scrive dentro la data di scatto: originale e copia non
+      condividono un byte di intestazione e li condividono tutti dopo. La nuova
+      impronta salta i segmenti fino a **SOS** e prende 256 KB da lì.
+      `content_hash` resta com'è — risponde a un'altra domanda, *lo stesso
+      file* invece di *la stessa fotografia*, e serve all'identità e ai formati
+      senza immagine leggibile. La camminata sui segmenti sta in
+      `core/dedup/JpegScan.kt`, fuori dalle classi Android, con i suoi test.
+- [x] **Lettura delle immagini**: passata unica avviata dall'utente,
+      interrompibile, ripresa da sé, con la schermata che dichiara quante foto
+      non ha ancora letto. Eseguita: 23.703 impronte, 17 file senza immagine
+      leggibile (PNG e webp).
+- [x] **La griglia mostra le decisioni già prese.** Partiva cieca: tutto ciò che
+      era stato deciso sfogliando stava nel database e lì non si vedeva, così un
+      mese già lavorato sembrava intatto. Colori di stato, freccia `→` per
+      distinguere il richiesto dal fatto, e le richieste in coda contate da
+      *Applica*. L'insieme mostrato resta quello della vista singola.
+- [x] **Scelta multipla come in galleria**: clic lungo per aprire, tenendo
+      premuto e trascinando si sfiora, trascinare senza tenere premuto scorre
+      sempre. Barra in cima con la via d'uscita, il conteggio, Elimina e le
+      categorie; cerchietto su ogni casella; cursore per scorrere fatto a mano,
+      che compare avvicinando il dito al bordo destro.
+- [x] **Controllo "Tornate dal cestino di sistema"**: chiede ad Android cosa c'è
+      nel suo cestino *adesso* e trova le foto che l'app dà per eliminate mentre
+      stanno nell'archivio. Due risposte — *Rimetti in revisione*, che **cancella**
+      lo stato invece di sostituirlo (l'assenza di stato è ciò che questa app
+      chiama "mai vista", quindi il mese torna rosso da solo), e *Riproponi lo
+      scarto*, che rimette la decisione in coda.
+- [x] **Schermata di apertura e icona della home**, coi file per rifarle in
+      `Resources/`.
+- [x] **`.gitignore`**: mai nel repository il database né fotografie.
+
+### Numeri, misurati sul telefono
+
+- 106 doppioni trovati, tutte coppie: **59** originale WhatsApp + copia
+  archiviata, **24** due file dentro la cartella di WhatsApp, **22** altrove
+  (quasi tutti `DCIM/Camera`), **1** due copie in categoria.
+- **60 delle 106 avevano dimensioni diverse**: la vecchia ricerca non le
+  avrebbe nemmeno prese in considerazione, perché pretendeva la stessa
+  lunghezza prima di leggere i byte.
+- Due categorie non previste: le coppie `nome.jpg` / `nome_saved.jpg` lasciate
+  da un'app di galleria (una cinquantina di byte di differenza, tutti
+  metadati), e **la stessa foto rimandata su WhatsApp a un anno di distanza**,
+  con nome e data diversi.
+
+### Da fare
+
+- [ ] **Copie ricompresse** — vedi la voce in fondo alla Fase 3. Rimandata
+      all'8 settembre. Il primo passo è gratis: `WIDTH` e `HEIGHT` non sono
+      nella `PROJECTION` della scansione (`MediaStorePhotoSource.kt`), quindi
+      le colonne esistono e sono **nulle per tutte le 24.841 foto**.
+      Aggiungerle allo stesso cursore non costa nulla, e le dimensioni in pixel
+      sono un filtro fortissimo: una ricompressione di solito le conserva.
+- [ ] **Ripulire `backup_rules.xml`**, ancora il file di esempio commentato.
+- [ ] **Il buco temporaneo delle due chiavi è chiuso** (lettura finita), ma
+      resta vero il principio: un file usa *o* l'impronta dell'immagine *o*
+      quella del file, mai entrambe, e due file con chiavi di tipo diverso non
+      si incontrano. Se un giorno arrivassero molte foto nuove non ancora
+      lette, la schermata lo dichiara — ma vale ricordarselo.
+- [ ] **Non verificato sul telefono**: la migrazione v15 su un'installazione
+      che parta da uno schema precedente al v14 (qui sono passate in fila, una
+      dopo l'altra, nella stessa serata).
+
 ## Fase 3 — funzionalità richieste
 
 Rivista voce per voce contro il codice il 7 settembre 2026: quasi tutto era
@@ -196,20 +298,36 @@ Restano aperte due voci in fondo.
       che non si deducono dall'app: non cancella mai, le decisioni stanno
       nell'inventario, niente rete.
 - [x] **Ricerca duplicati, copie identiche.** `DuplicateFinder` +
-      `DuplicatesActivity`: prima le dimensioni, poi i byte solo dove
-      coincidono, impronte calcolate a lotti di 40 in sottofondo.
-- [ ] **Ricerca duplicati, copie ricompresse.**
+      `DuplicatesActivity`. Rifatta l'8 settembre: raggruppa per
+      **impronta dell'immagine** dove c'è — senza il filtro sulle dimensioni,
+      che era il punto — e ricade su dimensione + `content_hash` per PNG, webp
+      e per chi non è ancora stato letto. Le due chiavi hanno prefissi diversi
+      e non possono collidere.
+- [ ] **Ricerca duplicati, copie ricompresse.** *(unica voce della Fase 3
+      ancora aperta)*
 
       *Copie ricompresse* — la foto scattata col telefono e poi mandata su
       WhatsApp: stessa immagine, byte diversi, dimensione diversa, hash
-      diverso. Nessun confronto esatto la prende. La provenienza da WhatsApp
+      diverso. Nessun confronto esatto la prende — nemmeno la nuova impronta
+      dell'immagine, che salta i metadati ma non i pixel ricodificati. La provenienza da WhatsApp
       si ricava dal percorso d'origine in `photo_paths` (nessun marcatore
       `_from_whatsapp` nel nome: non e' mai stato scritto), quindi la
       ricerca può partire di lì: per ogni categoria, prendere le foto venute
       da WhatsApp e cercare le candidate **fra le altre della stessa
-      categoria**, che è un insieme piccolo. Il confronto vero richiede un'impronta percettiva (tipo pHash)
-      che riconosca la stessa immagine ridimensionata: fattibile senza
-      dipendenze, ma è un lavoro a sé.
+      categoria**, che è un insieme piccolo.
+
+      Deciso l'8 settembre, in due passi. **Primo, gratis:** riempire `WIDTH` e
+      `HEIGHT` dalla scansione e proporre come *sospetti* le foto con stesse
+      dimensioni in pixel, stessa data di scatto e file di lunghezza diversa.
+      Nessuna matematica nuova. **Secondo, solo se il primo non basta:**
+      impronta percettiva (tipo dHash), che prende anche i ridimensionamenti.
+
+      Vincolo deciso: la ricerca approssimata vive in una **schermata separata e
+      diversamente intitolata**, dove **niente è mai preselezionato** e l'occhio
+      decide sempre. È l'unico punto di tutto il lavoro dove il sistema
+      potrebbe proporre di cancellare una foto che non è un doppione. La
+      ricerca esatta resta quella su cui si può agire in blocco, perché è una
+      prova e non una stima.
 
 ## Riorganizzazione del filesystem — scritta
 
