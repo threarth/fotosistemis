@@ -15,10 +15,12 @@ import it.threarth.fotosistemis.core.data.DestinationRepository
 import it.threarth.fotosistemis.core.data.IgnoredRepository
 import it.threarth.fotosistemis.core.data.PhotoInventory
 import it.threarth.fotosistemis.core.data.PhotoStateRepository
+import it.threarth.fotosistemis.core.data.ProposalRepository
 import it.threarth.fotosistemis.core.date.CaptureDateCheck
 import it.threarth.fotosistemis.core.model.Destination
 import it.threarth.fotosistemis.core.model.FolderPath
 import it.threarth.fotosistemis.core.model.PhotoRecord
+import it.threarth.fotosistemis.core.model.Proposal
 import it.threarth.fotosistemis.core.model.ReviewStatus
 import it.threarth.fotosistemis.core.review.FolderTree
 import it.threarth.fotosistemis.core.review.MovePlanner
@@ -118,34 +120,59 @@ class CheckActivity : AppCompatActivity() {
             getString(whatOf(check)) + "\n\n" + getString(actionOf(check))
 
         findViewById<Button>(R.id.checkApplyButton).setOnClickListener { apply() }
+        showAlternative()
         findViewById<Button>(R.id.checkIgnoreButton).setOnClickListener { ignoreAll() }
         findViewById<Button>(R.id.checkUnignoreButton).setOnClickListener { stopIgnoring() }
 
         run()
     }
 
+    /**
+     * Offers the second answer, where the check has one.
+     *
+     * A photo back from Android's bin admits two readings and the app cannot
+     * pick between them: the discard did not happen, or the discard still
+     * stands and has to be asked again. Both are offered, plainly named, and
+     * the user decides — which is the same rule every other decision in this
+     * app follows.
+     */
+    private fun showAlternative() {
+        val button = findViewById<Button>(R.id.checkAlternativeButton)
+        if (check != IgnoredRepository.Check.RETURNED) return
+
+        button.visibility = View.VISIBLE
+        button.setText(R.string.check_returned_again)
+        button.setOnClickListener { proposeDiscardAgain() }
+        // With two answers side by side, "Applica" names neither of them.
+        findViewById<Button>(R.id.checkApplyButton).setText(R.string.check_returned_review)
+    }
+
     private fun titleOf(check: IgnoredRepository.Check): Int = when (check) {
         IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_title
         IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_title
         IgnoredRepository.Check.DATES -> R.string.check_dates_title
+        IgnoredRepository.Check.RETURNED -> R.string.check_returned_title
     }
 
     private fun whereOf(check: IgnoredRepository.Check): Int = when (check) {
         IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_where
         IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_where
         IgnoredRepository.Check.DATES -> R.string.check_dates_where
+        IgnoredRepository.Check.RETURNED -> R.string.check_returned_where
     }
 
     private fun whatOf(check: IgnoredRepository.Check): Int = when (check) {
         IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_what
         IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_what
         IgnoredRepository.Check.DATES -> R.string.check_dates_what
+        IgnoredRepository.Check.RETURNED -> R.string.check_returned_what
     }
 
     private fun actionOf(check: IgnoredRepository.Check): Int = when (check) {
         IgnoredRepository.Check.STRANGERS -> R.string.check_strangers_action
         IgnoredRepository.Check.MISPLACED -> R.string.check_misplaced_action
         IgnoredRepository.Check.DATES -> R.string.check_dates_action
+        IgnoredRepository.Check.RETURNED -> R.string.check_returned_action
     }
 
     /** Runs the check off the main thread and draws what it found. */
@@ -164,6 +191,7 @@ class CheckActivity : AppCompatActivity() {
                 IgnoredRepository.Check.STRANGERS -> findStrangers()
                 IgnoredRepository.Check.MISPLACED -> findMisplaced()
                 IgnoredRepository.Check.DATES -> findWrongDates()
+                IgnoredRepository.Check.RETURNED -> findReturned()
             }.filterNot { it.photo.photoId in skip }
 
             runOnUiThread {
@@ -252,6 +280,38 @@ class CheckActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Photos handed to Android's bin that are on the phone again.
+     *
+     * The record of a handover is a memory, and memories go stale: the file
+     * may have been put back from the gallery since, or Android's bin
+     * emptied and the photo saved from it. Only the platform knows, so it is
+     * asked — what is in its bin now — and whatever is not there any more
+     * and is still in the inventory has come back.
+     *
+     * A photo the app copied into a category and whose leftover original
+     * went to the bin is not one of these: that record says categorised, and
+     * says the truth. What is looked for is a photo the app calls thrown
+     * away while it sits in the archive.
+     */
+    private fun findReturned(): List<Finding> {
+        val handedOver = stateRepository.handedToSystemBin().getOrElse { emptySet() }
+        val stillInBin = photoSource.systemBinIds().getOrElse { emptySet() }
+        val truths = stateRepository.loadAll().getOrElse { emptyMap() }
+        val photos = inventory.loadRecords(handedOver.toList()).getOrElse { emptyList() }
+        examined = handedOver.size
+
+        return photos.mapNotNull { photo ->
+            if (photo.platformId in stillInBin) return@mapNotNull null
+            if (truths[photo.photoId]?.status != ReviewStatus.TRASHED) return@mapNotNull null
+            if (FolderTree.isWithin(photo.relativePath, ReviewSession.DELETION_STAGING_PATH)) {
+                return@mapNotNull null
+            }
+
+            Finding(photo, null, null, getString(R.string.check_row_returned))
+        }
+    }
+
     /** Keeps the reader company through a check that opens every file. */
     private fun showProgress(done: Int, total: Int) {
         runOnUiThread {
@@ -295,6 +355,7 @@ class CheckActivity : AppCompatActivity() {
         val any = findings.isNotEmpty()
         findViewById<Button>(R.id.checkApplyButton).isEnabled = any
         findViewById<Button>(R.id.checkIgnoreButton).isEnabled = any
+        findViewById<Button>(R.id.checkAlternativeButton).isEnabled = any
         showIgnoredCount()
     }
 
@@ -315,6 +376,56 @@ class CheckActivity : AppCompatActivity() {
             IgnoredRepository.Check.STRANGERS -> fileStrangers()
             IgnoredRepository.Check.MISPLACED -> askConsent()
             IgnoredRepository.Check.DATES -> healDates()
+            IgnoredRepository.Check.RETURNED -> forgetTheDiscard()
+        }
+    }
+
+    /**
+     * Puts a returned photo back among the undecided.
+     *
+     * The truth is removed rather than replaced. An absent state is what
+     * this app means by "never reviewed" — it says so where the states are
+     * declared — so taking it away is exactly right here: the discard was
+     * not carried out, and nothing else is known. Everything follows on its
+     * own from that. The photo comes back into the deck, and the month it
+     * belongs to counts it again as work to do, without a single screen
+     * being taught a new word.
+     */
+    private fun forgetTheDiscard() {
+        setBusy(true)
+        thread {
+            var forgotten = 0
+            for (finding in findings) {
+                if (stateRepository.forget(finding.photo.photoId).isSuccess) forgotten++
+            }
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.check_applied, forgotten, findings.size - forgotten))
+                run()
+            }
+        }
+    }
+
+    /**
+     * Asks again for what was already decided: the photo is back, and the
+     * decision about it still stands.
+     *
+     * Written as a request, not as a truth. The file has to move, or be
+     * handed over a second time, before anything about it is true again —
+     * and that is the queue's business, where the user watches it happen.
+     */
+    private fun proposeDiscardAgain() {
+        setBusy(true)
+        thread {
+            val proposals = ProposalRepository(AndroidDatabase(this), stateRepository)
+            val asked = proposals
+                .proposeAll(findings.map { it.photo }, Proposal.Action.TRASH, null)
+                .getOrElse { 0 }
+            runOnUiThread {
+                setBusy(false)
+                toast(getString(R.string.check_applied, asked, findings.size - asked))
+                run()
+            }
         }
     }
 
@@ -428,8 +539,10 @@ class CheckActivity : AppCompatActivity() {
     }
 
     private fun setBusy(busy: Boolean) {
-        findViewById<Button>(R.id.checkApplyButton).isEnabled = !busy && findings.isNotEmpty()
-        findViewById<Button>(R.id.checkIgnoreButton).isEnabled = !busy && findings.isNotEmpty()
+        val usable = !busy && findings.isNotEmpty()
+        findViewById<Button>(R.id.checkApplyButton).isEnabled = usable
+        findViewById<Button>(R.id.checkIgnoreButton).isEnabled = usable
+        findViewById<Button>(R.id.checkAlternativeButton).isEnabled = usable
     }
 
     private fun toast(message: String) {

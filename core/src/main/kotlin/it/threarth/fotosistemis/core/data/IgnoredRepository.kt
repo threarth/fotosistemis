@@ -26,7 +26,19 @@ class IgnoredRepository(private val database: Database) {
         MISPLACED("misplaced"),
 
         /** Photos whose carriers disagree about when they were taken. */
-        DATES("dates")
+        DATES("dates"),
+
+        /**
+         * Photos given to Android's bin that are on the phone again.
+         *
+         * The handover is written down once and never looked at again, so a
+         * photo put back from the gallery went on being counted as gone: it
+         * stayed out of every screen showing what is still to do, and out of
+         * the search for duplicates, while sitting in plain sight in the
+         * archive. Nothing but asking the platform can tell: the record says
+         * what was done, not what is true now.
+         */
+        RETURNED("returned")
     }
 
     /** Photo ids this check has been told to skip. */

@@ -72,6 +72,16 @@
     <string name="check_misplaced_what">COSA CERCA: foto la cui categoria dice una cartella e che pero\' stanno in un\'altra. Succede quando uno spostamento e\' stato rifiutato, o l\'app e\' stata chiusa a meta\' lavoro.</string>
     <string name="check_misplaced_action">SE APPLICHI: ogni foto viene spostata nella cartella che la sua categoria indica. Android chiedera\' conferma. Il file si sposta davvero.</string>
 
+    <!-- Controllo: foto consegnate al cestino di Android e tornate indietro. -->
+    <string name="check_returned_title">Tornate dal cestino di sistema</string>
+    <string name="check_returned_where">DOVE GUARDA: fra le foto che l\'app ha consegnato al cestino di sistema di Android, e che risultano ancora nell\'inventario.</string>
+    <string name="check_returned_what">COSA CERCA: quelle che il cestino di Android non ha piu\' — perche\' le hai ripristinate dalla galleria, o perche\' il cestino e\' stato svuotato e la foto salvata — e che l\'app continua a dare per eliminate. Lo chiede ad Android adesso, non si fida del proprio ricordo: la consegna e\' scritta una volta sola e non viene mai riletta.\n\nNon riguarda le foto di WhatsApp archiviate: di quelle il cestino ha preso solo l\'originale avanzato dalla copia, e l\'app le sa catalogate. Qui ci sono solo le foto che l\'app chiama eliminate mentre stanno nell\'archivio.</string>
+    <string name="check_returned_action">COSA SUCCEDE SE APPLICHI: nessun file viene toccato, cambia solo cio\' che l\'app sa. \"Rimetti in revisione\" cancella la decisione: la foto torna fra quelle da decidere e il mese a cui appartiene torna a contarla come lavoro da fare. \"Riproponi lo scarto\" tiene ferma la tua decisione e la rimette in coda, cosi\' la foto viene consegnata di nuovo quando applichi.</string>
+    <string name="check_returned_again">Riproponi lo scarto</string>
+    <string name="check_returned_review">Rimetti in revisione</string>
+    <string name="action_check_returned">Tornate dal cestino di sistema</string>
+    <string name="check_row_returned">l\'app la da\' per eliminata, ma e\' qui</string>
+
     <string name="check_dates_title">Foto con la data che non torna</string>
     <string name="check_dates_where">DOVE CERCA: fra le foto catalogate. Puo\' scrivere solo su quelle create dall\'app; le altre le conta e non le tocca.</string>
     <string name="check_dates_what">COSA CERCA: la data di una foto sta in tre posti — nell\'EXIF dentro il file, nella data del file, e nell\'archivio di Android — e devono dire la stessa cosa. Cerca chi non lo fa, silenzio compreso.</string>

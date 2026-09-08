@@ -78,6 +78,17 @@
             android:text="@string/check_apply" />
     </LinearLayout>
 
+    <!-- A second answer, where a check has two and neither is the obvious
+         one. Hidden for the checks that have a single remedy: a button that
+         does nothing here would only be there to be wondered about. -->
+    <Button
+        android:id="@+id/checkAlternativeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="3dp"
+        android:layout_marginEnd="3dp"
+        android:visibility="gone" />
+
     <Button
         android:id="@+id/checkUnignoreButton"
         android:layout_width="match_parent"

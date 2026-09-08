@@ -584,6 +584,7 @@ class MainActivity : AppCompatActivity() {
             queueLauncher.launch(Intent(this, DuplicatesActivity::class.java))
         }
         voce(R.id.drawerRepairDatesButton) { openCheck(IgnoredRepository.Check.DATES) }
+        voce(R.id.drawerCheckReturnedButton) { openCheck(IgnoredRepository.Check.RETURNED) }
         voce(R.id.drawerRestoreButton) { showRestoreDialog() }
         voce(R.id.drawerRescanButton) { confirmRescan() }
     }
