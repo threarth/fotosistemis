@@ -304,15 +304,30 @@ Gradle. Da far girare prima di fidarsene, `:core:test` compreso.
       ricerca ricompaiono, e stavolta `catalogued` proporrà di buttare quello
       in Camera — che è nella cartella salvata su Google Foto, quindi se ne
       andrebbe anche la copia nel cloud.
-- [ ] **La schermata dei doppioni non dice *perché* propone una copia.** È
-      questo che ha reso possibile lo scambio: la riga mostra percorso,
-      dimensione e la scritta "suggerita", e niente che spieghi cosa
+- [x] **La schermata dei doppioni non diceva *perché* proponeva una copia.**
+      È questo che ha reso possibile lo scambio: la riga mostrava percorso,
+      dimensione e la scritta "suggerita", e niente che spiegasse cosa
       distingue i due file. Centodiciassette byte su due megabyte e mezzo non
       si leggono come "metadati riscritti da un'app di galleria" — e a
       quel punto due nomi quasi uguali sembrano l'originale e la copia
-      WhatsApp. Ogni controllo di `CheckActivity` dichiara dove guarda e cosa
-      cerca; questa schermata no. Ora che `isDerived` esiste, il motivo c'è
-      già scritto nel codice e basta portarlo sulla riga.
+      WhatsApp. Ora la riga lo dice con parole sue, e la scritta
+      "consigliata" elenca i criteri nell'ordine in cui contano invece di
+      nominarne due su tre.
+- [x] **I doppioni si guardano a schermo intero.** Toccando la miniatura si
+      apre `CardViewerActivity` su quella copia, con **tutti** i gruppi
+      dentro: confrontare due copie vuol dire andare avanti e indietro fra
+      loro, e un visore che ne tenesse una coppia sola andrebbe chiuso e
+      riaperto per farlo. In fondo, quale gruppo e quale copia — un conteggio
+      unico su tutti i gruppi nasconderebbe proprio cosa sta con cosa.
+      La miniatura apre, la riga sceglie.
+- [x] **I dati stanno sopra la fotografia e si tolgono con un tocco.** Il
+      visore metteva quattro righe di testo sotto l'immagine, prendendosi un
+      terzo dello schermo che fossero lette o no: adesso sono in
+      sovraimpressione su una sfumatura, e un tocco le fa sparire. Vale per
+      ogni lista di schede — controlli e coda comprese — perché è lo stesso
+      visore, e "la fotografia è ciò che è stato chiesto" era già la sua
+      regola. Si impara facendolo: la riga che dice dove sei dice anche che
+      un tocco nasconde il resto, ed è l'ultima ad andarsene.
 - [ ] **`catalogued` scavalca `immovable` nel comparatore.** Una WhatsApp già
       archiviata batte un originale della fotocamera mai rivisto, e la
       fotocamera è la copia migliore sotto ogni aspetto: EXIF vero, qualità

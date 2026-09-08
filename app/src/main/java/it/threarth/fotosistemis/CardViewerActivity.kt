@@ -49,6 +49,7 @@ class CardViewerActivity : AppCompatActivity() {
 
     private lateinit var photoSource: MediaStorePhotoSource
     private lateinit var image: ImageView
+    private lateinit var overlay: View
 
     private var rows: List<MovePreviewAdapter.Row> = emptyList()
     private var index = 0
@@ -58,10 +59,12 @@ class CardViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_card_viewer)
-        findViewById<View>(R.id.viewerRoot).padForSystemBars()
 
         photoSource = MediaStorePhotoSource(this)
         image = findViewById(R.id.viewerImage)
+        // The writing keeps clear of the navigation bar; the picture does
+        // not, because filling the screen is what this screen is for.
+        overlay = findViewById<View>(R.id.viewerOverlay).apply { padForSystemBars() }
         rows = pendingRows
         index = pendingIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
 
@@ -72,10 +75,17 @@ class CardViewerActivity : AppCompatActivity() {
     }
 
     /**
-     * Left and right step through the list.
+     * Left and right step through the list; a tap puts the words away.
      *
-     * The gesture has to travel a real distance before it counts, or every
-     * tap on the picture would jump to another photograph.
+     * The gesture has to travel a real distance before it counts as a
+     * swipe, or every tap on the picture would jump to another photograph.
+     * What is left — a touch that went nowhere — is the toggle: the words
+     * cover part of the photograph, and there is no judging a picture
+     * through its own caption.
+     *
+     * Learnt by doing it once. The line that says where you are also says
+     * a tap hides the rest, and it is the last thing to go, so the way
+     * back is written where the reader is already looking.
      */
     private fun listenForSwipes() {
         var startX = 0f
@@ -91,6 +101,9 @@ class CardViewerActivity : AppCompatActivity() {
                     val travelled = event.x - startX
                     if (abs(travelled) > view.width * SWIPE_FRACTION) {
                         step(if (travelled < 0) 1 else -1)
+                    } else {
+                        overlay.visibility =
+                            if (overlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE
                     }
                     view.performClick()
                     true
@@ -117,8 +130,13 @@ class CardViewerActivity : AppCompatActivity() {
             text = row.second.orEmpty()
             visibility = if (row.second == null) View.GONE else View.VISIBLE
         }
+        // A list of cards is one long row and "3 of 14" says everything
+        // about it. A list made of groups is not, and a card that only
+        // counted from the start would leave the reader unable to tell
+        // which copies belong together — which is the whole question the
+        // duplicate screen asks.
         findViewById<TextView>(R.id.viewerPosition).text =
-            getString(R.string.viewer_position, index + 1, rows.size)
+            row.position ?: getString(R.string.viewer_position, index + 1, rows.size)
 
         loadPicture(row.photo)
     }

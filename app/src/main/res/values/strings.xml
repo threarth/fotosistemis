@@ -108,7 +108,7 @@
     <string name="reorganize_row_settled">\n→ gia\' a posto, niente da fare</string>
     <string name="reorganize_work_move">%1$d da spostare</string>
     <string name="reorganize_work_rename">%1$d da rinominare</string>
-    <string name="viewer_position">%1$d di %2$d  ·  scorri a destra e sinistra per le altre</string>
+    <string name="viewer_position">%1$d di %2$d  ·  scorri per le altre, tocca per nascondere i dati</string>
     <string name="reorganize_left_title">Alcune non sono state toccate</string>
     <string name="reorganize_left_message">%1$d foto erano nel piano ma non sono state spostate: l\'app non le trova piu\' dove pensava che fossero, quindi non c\'era niente da spostare.\n\nSuccede quando qualcosa e\' cambiato fuori dall\'app — file spostati con un gestore file, o cancellati da un\'altra app. Usa \"Ricostruisci l\'inventario\" dal menu per riallineare, poi riprova.\n\nNota: i VIDEO non vengono mai spostati da fotosistemis, che lavora solo sulle foto. Quelli vanno spostati a mano.</string>
     <string name="action_undo_filing">ANNULLA</string>
@@ -161,7 +161,14 @@
     <string name="duplicates_apply">Manda nel cestino le copie non scelte</string>
     <string name="duplicates_binned">%1$d copie nel cestino, %2$d non riuscite.</string>
     <string name="action_duplicates">Controlla: doppioni</string>
-    <string name="duplicates_copy_suggested">\nCONSIGLIATA: e\' catalogata, o e\' quella che l\'app puo\' ancora gestire. Cambia pure se non sei d\'accordo.</string>
+    <string name="duplicates_copy_suggested">\nCONSIGLIATA. In ordine: quella su cui hai gia\' lavorato, poi quella che l\'app puo\' ancora spostare e rinominare, poi l\'originale invece del rifacimento. Cambia pure se non sei d\'accordo.</string>
+    <!-- Detto sulla riga perche\' senza non si distingue: cento byte su due
+         megabyte e mezzo non si vedono, e due nomi quasi uguali sembrano
+         l\'originale e una copia arrivata da fuori. -->
+    <string name="duplicates_copy_derived">\nRIFACIMENTO: il nome finisce in _saved, cioe\' l\'ha riscritto un\'app di galleria. Stessa identica immagine, metadati rifatti. L\'altra e\' il file originale.</string>
+    <string name="duplicates_viewer_line">%1$d KB  ·  %2$s</string>
+    <string name="duplicates_viewer_suggested">\nCONSIGLIATA da tenere</string>
+    <string name="duplicates_viewer_position">gruppo %1$d di %2$d  ·  copia %3$d di %4$d  ·  scorri per le altre, tocca per nascondere</string>
     <string name="duplicates_failed_title">Alcune non si sono spostate</string>
     <string name="duplicates_failed_message">%1$d copie sono rimaste dove sono: Android non ha permesso lo spostamento.\n\nLa tua decisione resta scritta — quelle copie risultano da eliminare — quindi NON ricompariranno in questa schermata: qui si cercano solo le foto su cui non hai ancora deciso.\n\nLe ritrovi in \"Cestino fotosistemis\", che ti proporra\' di portarle dentro, oppure nella Coda, dove puoi anche annullare la decisione se hai cambiato idea.</string>
     <string name="bin_message_all_trashed">Il cestino di fotosistemis e\' VUOTO: non c\'e\' piu\' niente da riprendere da qui.\n\nMa lo spazio non e\' stato liberato. Nella cartella restano %1$d file che hai eliminato dalla galleria: Android li ha solo rinominati e nascosti, e li tiene fino al %2$s.\n\nPer liberare davvero lo spazio devi SVUOTARE IL CESTINO DI SISTEMA — da Google Foto o dalla galleria. Fotosistemis non puo\' farlo al posto tuo. Oppure aspetti quella data e Android lo fa da solo.</string>

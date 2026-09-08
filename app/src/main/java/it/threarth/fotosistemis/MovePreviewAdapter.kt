@@ -34,7 +34,18 @@ class MovePreviewAdapter(
         val photo: PhotoRecord,
         val title: String,
         val first: String,
-        val second: String? = null
+        val second: String? = null,
+
+        /**
+         * Where this card stands, when counting from the start of the list
+         * would not say it.
+         *
+         * A list of moves is one long row and "3 of 14" tells the whole
+         * story. A list of duplicate groups is not: what the reader needs
+         * is which group and which copy of it, and a running number across
+         * every group hides exactly that.
+         */
+        val position: String? = null
     )
 
     companion object {

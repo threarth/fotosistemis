@@ -1,61 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The picture takes the whole screen and the words lie on top of it.
+
+     They used to sit underneath, in a column of their own, which meant the
+     photograph never got the screen it was opened for: four lines of text
+     took a third of the height whether they were being read or not. Over
+     the picture they cost nothing when wanted and go away entirely when
+     not, which is the point of putting them there. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/viewerRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/ink"
-    android:orientation="vertical">
+    android:background="@color/ink">
 
-    <!-- Full bleed: the picture is what was asked for, the words go round it. -->
     <ImageView
         android:id="@+id/viewerImage"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:adjustViewBounds="true"
+        android:layout_height="match_parent"
         android:contentDescription="@string/preview_description"
         android:scaleType="fitCenter" />
 
-    <TextView
-        android:id="@+id/viewerTitle"
+    <!-- Padded for the system bars here rather than on the root, so the
+         picture stays edge to edge and only the writing keeps clear of the
+         navigation. -->
+    <LinearLayout
+        android:id="@+id/viewerOverlay"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/viewer_scrim"
+        android:orientation="vertical"
         android:paddingStart="16dp"
+        android:paddingTop="28dp"
         android:paddingEnd="16dp"
-        android:paddingTop="10dp"
-        android:singleLine="true"
-        android:ellipsize="middle"
-        android:textColor="#FFFFFF"
-        android:textSize="15sp"
-        android:textStyle="bold" />
+        android:paddingBottom="14dp">
 
-    <TextView
-        android:id="@+id/viewerFirst"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="start"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:singleLine="true"
-        android:textColor="#CCFFFFFF"
-        android:textSize="12sp" />
+        <TextView
+            android:id="@+id/viewerTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="middle"
+            android:singleLine="true"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/viewerSecond"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="start"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:singleLine="true"
-        android:textColor="@color/brand_blue_light"
-        android:textSize="12sp" />
+        <TextView
+            android:id="@+id/viewerFirst"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="start"
+            android:paddingTop="3dp"
+            android:singleLine="true"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp" />
 
-    <TextView
-        android:id="@+id/viewerPosition"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="16dp"
-        android:textColor="#99FFFFFF"
-        android:textSize="12sp" />
-</LinearLayout>
+        <TextView
+            android:id="@+id/viewerSecond"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="3dp"
+            android:textColor="@color/brand_blue_light"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/viewerPosition"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textColor="#99FFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
+</FrameLayout>

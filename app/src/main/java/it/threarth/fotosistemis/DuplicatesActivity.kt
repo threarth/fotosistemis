@@ -2,6 +2,7 @@ package it.threarth.fotosistemis
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -410,6 +411,77 @@ class DuplicatesActivity : AppCompatActivity() {
     private fun categoryNamed(destinationId: Long?): String =
         categoryById[destinationId] ?: getString(R.string.duplicates_category_unknown)
 
+    /**
+     * What the name says about where this file came from, when it says
+     * anything.
+     *
+     * Two files a hundred bytes apart out of two and a half megabytes are
+     * the same photograph twice, and nothing on the screen used to say
+     * which of them a gallery app had written. Without that, a pair like
+     * `foto.jpg` and `foto_saved.jpg` reads as an original and a copy from
+     * somewhere else — WhatsApp, most plausibly, this archive being what it
+     * is — and the wrong one gets kept. Which happened, on 8 September
+     * 2026, to twenty-one photographs.
+     */
+    private fun originOf(copy: DuplicateFinder.Candidate): String =
+        if (DuplicateFinder.isDerived(copy.displayName)) {
+            getString(R.string.duplicates_copy_derived)
+        } else {
+            ""
+        }
+
+    /**
+     * Opens the copies at the size of the screen, starting at this one.
+     *
+     * Every group is handed over, not only the one touched: comparing two
+     * copies means going back and forth between them, and a viewer holding
+     * a single pair would have to be closed and reopened to do it. The line
+     * at the foot says which group and which copy, because a running count
+     * across all of them would say nothing about what belongs with what.
+     */
+    private fun openViewer(groupIndex: Int, photoId: Long) {
+        val rows = ArrayList<MovePreviewAdapter.Row>()
+        var opening = 0
+
+        groups.forEachIndexed { index, group ->
+            // Read once per group: asking for it sorts the copies afresh
+            // every time, and here that would happen once per copy.
+            val suggested = group.suggested.photoId
+
+            group.copies.forEachIndexed { position, copy ->
+                val photo = byId[copy.photoId] ?: return@forEachIndexed
+                if (index == groupIndex && copy.photoId == photoId) opening = rows.size
+
+                rows.add(
+                    MovePreviewAdapter.Row(
+                        photo = photo,
+                        title = copy.displayName,
+                        first = getString(R.string.move_from, copy.relativePath),
+                        second = getString(
+                            R.string.duplicates_viewer_line,
+                            copy.sizeBytes / 1024,
+                            stateOf(copy.photoId)
+                        ) + originOf(copy) +
+                                if (suggested == copy.photoId) {
+                                    getString(R.string.duplicates_viewer_suggested)
+                                } else {
+                                    ""
+                                },
+                        position = getString(
+                            R.string.duplicates_viewer_position,
+                            index + 1, groups.size, position + 1, group.copies.size
+                        )
+                    )
+                )
+            }
+        }
+        if (rows.isEmpty()) return
+
+        CardViewerActivity.pendingRows = rows
+        CardViewerActivity.pendingIndex = opening
+        startActivity(Intent(this, CardViewerActivity::class.java))
+    }
+
     /** One card per photograph, one radio per copy of it. */
     private inner class GroupAdapter : BaseAdapter() {
 
@@ -474,7 +546,8 @@ class DuplicatesActivity : AppCompatActivity() {
                     if (toSystemBin) R.string.duplicates_copy_system_bin
                     else R.string.duplicates_copy_own_bin
                 )
-            ) + if (suggested) getString(R.string.duplicates_copy_suggested) else ""
+            ) + originOf(copy) +
+                    if (suggested) getString(R.string.duplicates_copy_suggested) else ""
 
             row.findViewById<TextView>(R.id.copyState).text = stateOf(copy.photoId)
 
@@ -484,6 +557,12 @@ class DuplicatesActivity : AppCompatActivity() {
                 width = side
                 height = side
             }
+            // The picture opens; the row chooses. Two copies that differ by
+            // a hundred bytes of metadata look identical at sixty-four
+            // pixels, and telling them apart by their paths alone is what
+            // put a gallery app's rewrite into a category and left the
+            // camera's own file unreviewed.
+            image.setOnClickListener { openViewer(groupIndex, copy.photoId) }
             bindThumbnail(image, copy.photoId)
             rows.addView(row)
             return radio
