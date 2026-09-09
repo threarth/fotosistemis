@@ -73,6 +73,29 @@
     <string name="check_misplaced_action">SE APPLICHI: ogni foto viene spostata nella cartella che la sua categoria indica. Android chiedera\' conferma. Il file si sposta davvero.</string>
 
     <!-- Controllo: foto consegnate al cestino di Android e tornate indietro. -->
+    <!-- La vista sul database: lo stesso contenuto dell'esportazione, letto
+         sul telefono che lo tiene. -->
+    <string name="database_title">Dentro il database</string>
+    <string name="database_what">Tutto quello che l\'app sa, una scheda per fotografia: lo stesso contenuto che l\'esportazione scrive nel file JSON. Sola lettura, qui non si cambia niente. Tocca una scheda per aprire la storia dei percorsi.</string>
+    <string name="database_search_hint">Cerca: nome, cartella, stato, categoria, impronta, id\u2026</string>
+    <string name="database_order_last">Ordina per ultima operazione</string>
+    <string name="database_order_taken">Ordina per data di scatto</string>
+    <string name="database_order_place">Ordina per cartella e nome</string>
+    <string name="database_loading">Lettura dell\'inventario\u2026</string>
+    <string name="database_found">%1$d foto su %2$d</string>
+    <string name="database_state">stato: %1$s · categoria: %2$s · scritto il %3$s</string>
+    <string name="database_state_none">nessuna decisione</string>
+    <string name="database_asked">IN SOSPESO: %1$s · categoria: %2$s · chiesto il %3$s</string>
+    <string name="database_missing">MANCANTE dal %1$s: nessuna scansione la trova piu\'</string>
+    <string name="database_taken">scatto: %1$s (da %2$s) · %3$d KB</string>
+    <string name="database_date_suspect"> · data segnata come sospetta</string>
+    <string name="database_hashes">impronta file: %1$s · impronta immagine: %2$s</string>
+    <string name="database_marks">tag: %1$s · stelle: %2$s · ignorata da: %3$s</string>
+    <string name="database_ids">id foto: %1$d · id Android: %2$d</string>
+    <string name="database_history_hint">percorsi registrati: %1$d (tocca per vederli)</string>
+    <string name="database_history_none">nessun percorso registrato</string>
+    <string name="action_database">Dentro il database</string>
+
     <string name="check_returned_title">Tornate dal cestino di sistema</string>
     <string name="check_returned_where">DOVE GUARDA: fra le foto che l\'app ha consegnato al cestino di sistema di Android, e che risultano ancora nell\'inventario.</string>
     <string name="check_returned_what">COSA CERCA: quelle che il cestino di Android non ha piu\' — perche\' le hai ripristinate dalla galleria, o perche\' il cestino e\' stato svuotato e la foto salvata — e che l\'app continua a dare per eliminate. Lo chiede ad Android adesso, non si fida del proprio ricordo: la consegna e\' scritta una volta sola e non viene mai riletta.\n\nNon riguarda le foto di WhatsApp archiviate: di quelle il cestino ha preso solo l\'originale avanzato dalla copia, e l\'app le sa catalogate. Qui ci sono solo le foto che l\'app chiama eliminate mentre stanno nell\'archivio.</string>
