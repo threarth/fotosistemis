@@ -417,11 +417,18 @@ class DuplicatesActivity : AppCompatActivity() {
      *
      * Two files a hundred bytes apart out of two and a half megabytes are
      * the same photograph twice, and nothing on the screen used to say
-     * which of them a gallery app had written. Without that, a pair like
-     * `foto.jpg` and `foto_saved.jpg` reads as an original and a copy from
-     * somewhere else — WhatsApp, most plausibly, this archive being what it
-     * is — and the wrong one gets kept. Which happened, on 8 September
-     * 2026, to twenty-one photographs.
+     * which of them a gallery app had written.
+     *
+     * On 8 September 2026 the search proposed rightly on twenty-one pairs
+     * of them and was overruled, by hand, on all twenty-one: without a word
+     * about `_saved`, `foto.jpg` beside `foto_saved.jpg` reads as an
+     * original beside a copy from somewhere else — WhatsApp, this archive
+     * being what it is — and saving the second from the bin looks like the
+     * careful thing to do. So the rewrites went into a category and the
+     * camera's own files stayed unreviewed.
+     *
+     * A proposal nobody can check is not a proposal. The screen was right
+     * and said nothing, which is the same to the reader as being wrong.
      */
     private fun originOf(copy: DuplicateFinder.Candidate): String =
         if (DuplicateFinder.isDerived(copy.displayName)) {
@@ -559,9 +566,9 @@ class DuplicatesActivity : AppCompatActivity() {
             }
             // The picture opens; the row chooses. Two copies that differ by
             // a hundred bytes of metadata look identical at sixty-four
-            // pixels, and telling them apart by their paths alone is what
-            // put a gallery app's rewrite into a category and left the
-            // camera's own file unreviewed.
+            // pixels, so the choice was being made on the paths alone —
+            // and on 8 September 2026 twenty-one of them were chosen the
+            // wrong way round on that basis.
             image.setOnClickListener { openViewer(groupIndex, copy.photoId) }
             bindThumbnail(image, copy.photoId)
             rows.addView(row)
